@@ -10,7 +10,7 @@
     "build": "tsc && vite build",
     "electron": "electron . --no-sandbox",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron . --no-sandbox\"",
-    "package": "electron-builder --linux"
+    "package": "npm run build && electron-builder --linux"
   },
   "keywords": [
     "voice",
@@ -50,7 +50,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "assets/**/*"
     ]
   },
   "dependencies": {
