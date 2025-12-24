@@ -44,7 +44,7 @@
         "AppImage",
         "deb"
       ],
-      "icon": "assets/tray-icon.png",
+      "icon": "assets/icon.png",
       "category": "Utility",
       "maintainer": "Tarak Shaw <taraksh01@gmail.com>"
     },

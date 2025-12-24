@@ -35,7 +35,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, "../assets/tray-icon.png"),
+    icon: path.join(__dirname, "../assets/icon.png"),
   });
 
   // Load the app
@@ -63,7 +63,7 @@ function createWindow() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, "../assets/tray-icon.png");
+  const iconPath = path.join(__dirname, "../assets/icon.png");
   const icon = nativeImage.createFromPath(iconPath);
 
   if (icon.isEmpty()) {
