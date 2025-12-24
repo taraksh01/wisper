@@ -1,0 +1,59 @@
+{
+  "name": "wisper",
+  "version": "1.0.0",
+  "description": "WisprFlow-like voice dictation app for Ubuntu",
+  "main": "electron/main.cjs",
+  "homepage": "https://github.com/taraksh01/wisper",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "electron": "electron . --no-sandbox",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron . --no-sandbox\"",
+    "package": "electron-builder --linux"
+  },
+  "keywords": [
+    "voice",
+    "dictation",
+    "whisper",
+    "speech-to-text"
+  ],
+  "author": "Tarak Shaw",
+  "license": "MIT",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.wisper.voice",
+    "productName": "Wisper",
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "assets/tray-icon.png",
+      "category": "Utility",
+      "maintainer": "Tarak Shaw <taraksh01@gmail.com>"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ]
+  },
+  "dependencies": {
+    "framer-motion": "^12.23.26"
+  }
+}

@@ -1,0 +1,36 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="0" y="0" width="512" height="512" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="4"/>
+      <feGaussianBlur stdDeviation="8"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.15 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow" result="shape"/>
+    </filter>
+  </defs>
+  
+  <!-- Main Container with Shadow -->
+  <g filter="url(#shadow)">
+    <!-- Ubuntu Orange Background Circle -->
+    <circle cx="256" cy="256" r="240" fill="#E95420"/>
+  </g>
+  
+  <!-- Microphone Glyph -->
+  <g transform="translate(128, 128) scale(0.5)">
+    <!-- Capsule -->
+    <rect x="176" y="64" width="160" height="256" rx="80" fill="white"/>
+    
+    <!-- Base Cup -->
+    <path d="M128 256v32c0 70.7 57.3 128 128 128s128-57.3 128-128v-32" 
+          stroke="white" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+          
+    <!-- Stem -->
+    <path d="M256 416v96" stroke="white" stroke-width="48" stroke-linecap="round"/>
+    
+    <!-- Foot -->
+    <path d="M176 512h160" stroke="white" stroke-width="48" stroke-linecap="round"/>
+  </g>
+</svg>
