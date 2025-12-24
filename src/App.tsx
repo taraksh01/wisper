@@ -15,6 +15,7 @@ function App() {
   const audioChunksRef = useRef<Blob[]>([]);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number>(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Get API key from localStorage
   const getApiKey = () => localStorage.getItem("wisper_api_key") || "";
@@ -28,6 +29,7 @@ function App() {
 
       // Set up audio analyser for waveform
       const audioContext = new AudioContext();
+      audioContextRef.current = audioContext; // Store for cleanup
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
@@ -87,6 +89,12 @@ function App() {
       setAudioLevel(0);
       cancelAnimationFrame(animationFrameRef.current);
       analyserRef.current = null;
+
+      // Close AudioContext to prevent memory leak
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
 
       if (window.electronAPI) {
         window.electronAPI.setRecordingState(false);

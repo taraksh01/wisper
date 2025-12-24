@@ -14,8 +14,6 @@ const { spawn } = require("child_process");
 let mainWindow = null;
 let tray = null;
 let isRecording = false;
-let previousWindowId = null; // Track the window that was active before Wisper
-let currentHotkey = "Shift+Space"; // Default hotkey, can be changed
 
 // Check if running in development
 const isDev = !app.isPackaged;
@@ -124,24 +122,12 @@ function createTray() {
 const FIXED_HOTKEY = "Shift+Space";
 
 function registerGlobalShortcut() {
-  const { execSync } = require("child_process");
-
   // Unregister all previous shortcuts first
   globalShortcut.unregisterAll();
 
-  // Register the fixed hotkey for push-to-talk
   const ret = globalShortcut.register(FIXED_HOTKEY, () => {
     if (mainWindow) {
       if (!isRecording) {
-        // Capture the currently active window BEFORE showing Wisper
-        try {
-          previousWindowId = execSync("xdotool getactivewindow")
-            .toString()
-            .trim();
-        } catch (e) {
-          previousWindowId = null;
-        }
-
         isRecording = true;
         mainWindow.webContents.send("start-recording");
         mainWindow.showInactive(); // Show without stealing focus
@@ -163,20 +149,6 @@ function registerGlobalShortcut() {
   return true;
 }
 
-// Simulate keyboard typing using xdotool or ydotool
-function typeText(text) {
-  // Try ydotool first (for Wayland), then xdotool (for X11)
-  const xdotool = spawn("xdotool", ["type", "--clearmodifiers", "--", text]);
-
-  xdotool.on("error", () => {
-    // Fallback to ydotool for Wayland
-    const ydotool = spawn("ydotool", ["type", "--", text]);
-    ydotool.on("error", (err) => {
-      console.error("Failed to type text:", err);
-    });
-  });
-}
-
 // IPC Handlers
 ipcMain.handle("copy-to-clipboard", async (event, text) => {
   clipboard.writeText(text);
@@ -189,9 +161,17 @@ ipcMain.handle("paste-text", async (event, text) => {
   // Wait a moment for clipboard to be ready
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  // Use ydotool for Wayland - send Ctrl+V key combo
-  // Key codes: 29=Ctrl, 47=V
-  spawn("ydotool", ["key", "29:1", "47:1", "47:0", "29:0"]);
+  // Try xdotool first (X11), fallback to ydotool (Wayland)
+  const xdotool = spawn("xdotool", ["key", "--clearmodifiers", "ctrl+v"]);
+
+  xdotool.on("error", () => {
+    // xdotool failed (maybe Wayland), try ydotool
+    // Key codes: 29=Ctrl, 47=V
+    const ydotool = spawn("ydotool", ["key", "29:1", "47:1", "47:0", "29:0"]);
+    ydotool.on("error", (err) => {
+      console.error("Failed to simulate paste:", err.message);
+    });
+  });
 
   return true;
 });

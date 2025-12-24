@@ -17,10 +17,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Settings
   onOpenSettings: (callback) => ipcRenderer.on("open-settings", callback),
 
-  // Hotkey management
-  setHotkey: (hotkey) => ipcRenderer.invoke("set-hotkey", hotkey),
-  getHotkey: () => ipcRenderer.invoke("get-hotkey"),
-
   // Remove listeners
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
 });
