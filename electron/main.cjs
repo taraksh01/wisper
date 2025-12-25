@@ -5,6 +5,7 @@ const {
   Menu,
   ipcMain,
   nativeImage,
+  clipboard,
 } = require("electron");
 const path = require("path");
 
@@ -112,6 +113,11 @@ ipcMain.handle("hide-window", async () => {
   if (mainWindow) {
     mainWindow.hide();
   }
+});
+
+ipcMain.handle("copy-to-clipboard", async (event, text) => {
+  clipboard.writeText(text);
+  return true;
 });
 
 ipcMain.handle("get-recording-state", async () => {

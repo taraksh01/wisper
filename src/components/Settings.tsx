@@ -10,6 +10,7 @@ export default function Settings({ onClose }: SettingsProps) {
   const [groqKey, setGroqKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [provider, setProvider] = useState<Provider>("groq");
+  const [autoCopy, setAutoCopy] = useState(true);
   const [saved, setSaved] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -20,6 +21,7 @@ export default function Settings({ onClose }: SettingsProps) {
     setProvider(
       (localStorage.getItem("wisper_provider") as Provider) || "groq"
     );
+    setAutoCopy(localStorage.getItem("wisper_auto_copy") !== "false");
   }, []);
 
   // Get current key based on provider
@@ -30,6 +32,7 @@ export default function Settings({ onClose }: SettingsProps) {
     localStorage.setItem("wisper_groq_key", groqKey);
     localStorage.setItem("wisper_openai_key", openaiKey);
     localStorage.setItem("wisper_provider", provider);
+    localStorage.setItem("wisper_auto_copy", autoCopy.toString());
     // Also set the legacy key for backward compatibility with App.tsx
     localStorage.setItem(
       "wisper_api_key",
@@ -137,6 +140,23 @@ export default function Settings({ onClose }: SettingsProps) {
             )}
           </button>
         </div>
+      </div>
+
+      {/* Auto-copy toggle */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-white/60 text-xs">Auto-copy to clipboard</span>
+        <button
+          onClick={() => setAutoCopy(!autoCopy)}
+          className={`w-10 h-5 rounded-full transition-colors relative ${
+            autoCopy ? "bg-primary-500" : "bg-white/20"
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+              autoCopy ? "left-5" : "left-0.5"
+            }`}
+          />
+        </button>
       </div>
 
       {/* Action buttons */}

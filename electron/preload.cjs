@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setRecordingState: (state) => ipcRenderer.send("set-recording-state", state),
   getRecordingState: () => ipcRenderer.invoke("get-recording-state"),
 
+  // Clipboard
+  copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),
+
   // Window control
   hideWindow: () => ipcRenderer.invoke("hide-window"),
 
