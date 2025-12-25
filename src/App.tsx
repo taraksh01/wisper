@@ -1,140 +1,21 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import RecordingIndicator from "./components/RecordingIndicator";
-import TranscriptionDisplay from "./components/TranscriptionDisplay";
+import { useState, useEffect, useCallback } from "react";
+import { useAudioRecorder } from "./hooks/useAudioRecorder";
+import { Waveform } from "./components/Waveform";
+import { Transcript } from "./components/Transcript";
 import Settings from "./components/Settings";
 
 function App() {
-  const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState("");
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [audioLevel, setAudioLevel] = useState(0);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number>(0);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const { isRecording, audioLevel, startRecording, stopRecording } =
+    useAudioRecorder();
 
-  // Get API key from localStorage
   const getApiKey = () => localStorage.getItem("wisper_api_key") || "";
 
-  // Start recording
-  const startRecording = useCallback(async () => {
-    try {
-      setError(null);
-      setTranscription("");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // Set up audio analyser for waveform
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext; // Store for cleanup
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-
-      // Start monitoring audio level
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateLevel = () => {
-        if (analyserRef.current) {
-          analyserRef.current.getByteFrequencyData(dataArray);
-          const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
-          setAudioLevel(avg / 255);
-          animationFrameRef.current = requestAnimationFrame(updateLevel);
-        }
-      };
-      updateLevel();
-
-      // Detect best available MIME type for audio recording
-      let mimeType = "audio/webm;codecs=opus";
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = "audio/webm";
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = "audio/ogg;codecs=opus";
-          if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = ""; // Let browser choose
-          }
-        }
-      }
-      console.log("Using MIME type:", mimeType || "default");
-
-      const mediaRecorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        // Use the actual mimeType from the recorder
-        const actualMimeType = mediaRecorder.mimeType || "audio/webm";
-        const extension = actualMimeType.includes("ogg") ? "ogg" : "webm";
-
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: actualMimeType,
-        });
-        stream.getTracks().forEach((track) => track.stop());
-
-        // Pass extension to transcription function
-        await transcribeAudio(audioBlob, extension);
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(100); // Collect data every 100ms
-      setIsRecording(true);
-
-      if (window.electronAPI) {
-        window.electronAPI.setRecordingState(true);
-      }
-    } catch (err) {
-      console.error("Failed to start recording:", err);
-      setError("Failed to access microphone");
-    }
-  }, []);
-
-  // Stop recording
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      setAudioLevel(0);
-      cancelAnimationFrame(animationFrameRef.current);
-      analyserRef.current = null;
-
-      // Close AudioContext to prevent memory leak
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-
-      if (window.electronAPI) {
-        window.electronAPI.setRecordingState(false);
-      }
-    }
-  }, [isRecording]);
-
-  // Toggle recording (for mouse click)
-  const toggleRecording = useCallback(() => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  }, [isRecording, startRecording, stopRecording]);
-
-  // Transcribe audio using Whisper API (Groq or OpenAI)
-  const transcribeAudio = async (
-    audioBlob: Blob,
-    extension: string = "webm"
-  ) => {
+  const transcribeAudio = async (audioBlob: Blob) => {
     const apiKey = getApiKey();
     const provider = localStorage.getItem("wisper_provider") || "groq";
 
@@ -148,10 +29,10 @@ function App() {
 
     try {
       const formData = new FormData();
+      const extension = audioBlob.type.includes("ogg") ? "ogg" : "webm";
       formData.append("file", audioBlob, `recording.${extension}`);
       formData.append("response_format", "text");
 
-      // Set API URL and model based on provider
       let apiUrl: string;
       let model: string;
 
@@ -181,15 +62,7 @@ function App() {
       }
 
       const text = await response.text();
-      const trimmedText = text.trim();
-      setTranscription(trimmedText);
-
-      // Copy to clipboard and auto-paste (Wayland compatible)
-      if (window.electronAPI && trimmedText) {
-        await window.electronAPI.copyToClipboard(trimmedText);
-        // Auto-paste using the updated handler (Ctrl+V)
-        await window.electronAPI.pasteText(trimmedText);
-      }
+      setTranscription(text.trim());
     } catch (err) {
       console.error("Transcription failed:", err);
       setError(err instanceof Error ? err.message : "Transcription failed");
@@ -198,30 +71,46 @@ function App() {
     }
   };
 
-  // Handle paste action
-  const handlePaste = async () => {
-    if (transcription && window.electronAPI) {
-      await window.electronAPI.pasteText(transcription);
-      // Don't hide window - let user decide when to close
+  const handleStartRecording = useCallback(async () => {
+    try {
+      setError(null);
+      setTranscription("");
+      await startRecording();
+      if (window.electronAPI) {
+        window.electronAPI.setRecordingState(true);
+      }
+    } catch (err) {
+      setError("Failed to access microphone");
     }
-  };
+  }, [startRecording]);
 
-  // Handle copy action
-  const handleCopy = async () => {
-    if (transcription && window.electronAPI) {
-      await window.electronAPI.copyToClipboard(transcription);
+  const handleStopRecording = useCallback(async () => {
+    const audioBlob = await stopRecording();
+    if (window.electronAPI) {
+      window.electronAPI.setRecordingState(false);
     }
-  };
+    if (audioBlob) {
+      await transcribeAudio(audioBlob);
+    }
+  }, [stopRecording]);
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      handleStopRecording();
+    } else {
+      handleStartRecording();
+    }
+  }, [isRecording, handleStartRecording, handleStopRecording]);
 
   // Listen for Electron events
   useEffect(() => {
     if (window.electronAPI) {
       window.electronAPI.onStartRecording(() => {
-        startRecording();
+        handleStartRecording();
       });
 
       window.electronAPI.onStopRecording(() => {
-        stopRecording();
+        handleStopRecording();
       });
 
       window.electronAPI.onOpenSettings(() => {
@@ -234,11 +123,11 @@ function App() {
         window.electronAPI.removeAllListeners("open-settings");
       };
     }
-  }, [startRecording, stopRecording]);
+  }, [handleStartRecording, handleStopRecording]);
 
   return (
     <div className="glass rounded-2xl p-4 w-full h-full flex flex-col box-border overflow-hidden">
-      {/* Header - draggable region for frameless window */}
+      {/* Header */}
       <div
         className="flex items-center justify-between mb-3"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -259,95 +148,71 @@ function App() {
           </div>
           <span className="text-white font-semibold text-sm">Wisper</span>
         </div>
-        <div className="flex items-center gap-1">
-          {/* Paste button - only show when transcription exists */}
-          {transcription && !isRecording && !isTranscribing && (
-            <button
-              data-no-drag
-              onClick={handlePaste}
-              className="w-7 h-7 rounded-full bg-primary-500/80 hover:bg-primary-500 flex items-center justify-center transition-colors"
-              title="Paste"
-            >
-              <svg
-                className="w-3.5 h-3.5 text-white"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-            </button>
-          )}
-          {/* Copy button - only show when transcription exists */}
-          {transcription && !isRecording && !isTranscribing && (
-            <button
-              data-no-drag
-              onClick={handleCopy}
-              className="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
-              title="Copy"
-            >
-              <svg
-                className="w-3.5 h-3.5 text-white/60"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                />
-              </svg>
-            </button>
-          )}
-          {/* Settings button */}
-          <button
-            data-no-drag
-            onClick={() => setShowSettings(!showSettings)}
-            className="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
+        <button
+          data-no-drag
+          onClick={() => setShowSettings(!showSettings)}
+          className="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center transition-colors"
+        >
+          <svg
+            className="w-4 h-4 text-white/60"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
           >
-            <svg
-              className="w-4 h-4 text-white/60"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-            </svg>
-          </button>
-        </div>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+            />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+            />
+          </svg>
+        </button>
       </div>
 
       {/* Main content */}
       {showSettings ? (
         <Settings onClose={() => setShowSettings(false)} />
       ) : (
-        <div className="flex-1 flex flex-col">
-          {/* Recording Indicator */}
-          <RecordingIndicator
-            isRecording={isRecording}
-            isTranscribing={isTranscribing}
-            audioLevel={audioLevel}
-            onToggleRecording={toggleRecording}
-            hotkey="Shift+Space"
-          />
+        <div
+          className="flex-1 flex flex-col cursor-pointer"
+          onClick={toggleRecording}
+          data-no-drag
+        >
+          {/* Transcribing state */}
+          {isTranscribing ? (
+            <div className="flex flex-col items-center justify-center py-8">
+              <div className="w-14 h-14 rounded-full bg-primary-500/20 flex items-center justify-center">
+                <svg
+                  className="w-7 h-7 text-primary-400 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              </div>
+              <p className="mt-3 text-white/60 text-sm">Transcribing...</p>
+            </div>
+          ) : (
+            <Waveform audioLevel={audioLevel} isRecording={isRecording} />
+          )}
 
           {/* Error message */}
           {error && (
@@ -356,11 +221,16 @@ function App() {
             </div>
           )}
 
-          {/* Transcription display */}
+          {/* Transcript */}
           {transcription && !isRecording && !isTranscribing && (
-            <div className="mt-2">
-              <TranscriptionDisplay text={transcription} />
-            </div>
+            <Transcript text={transcription} />
+          )}
+
+          {/* Hint */}
+          {!isRecording && !isTranscribing && !transcription && (
+            <p className="text-center text-white/40 text-xs mt-2">
+              Click to start recording
+            </p>
           )}
         </div>
       )}
