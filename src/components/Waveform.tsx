@@ -3,9 +3,10 @@ import { useEffect, useRef } from "react";
 interface WaveformProps {
   audioLevel: number;
   isRecording: boolean;
+  onClick?: () => void;
 }
 
-export function Waveform({ audioLevel, isRecording }: WaveformProps) {
+export function Waveform({ audioLevel, isRecording, onClick }: WaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameRef = useRef<number>(0);
 
@@ -83,7 +84,10 @@ export function Waveform({ audioLevel, isRecording }: WaveformProps) {
   }, [audioLevel, isRecording]);
 
   return (
-    <div className="flex items-center justify-center py-8">
+    <div
+      className="flex items-center justify-center py-2 cursor-pointer"
+      onClick={onClick}
+    >
       <canvas ref={canvasRef} width={150} height={48} />
     </div>
   );

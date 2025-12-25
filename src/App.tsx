@@ -219,11 +219,7 @@ function App() {
       {showSettings ? (
         <Settings onClose={() => setShowSettings(false)} />
       ) : (
-        <div
-          className="flex-1 flex flex-col cursor-pointer"
-          onClick={toggleRecording}
-          data-no-drag
-        >
+        <div className="flex-1 flex flex-col" data-no-drag>
           {/* Transcribing state */}
           {isTranscribing ? (
             <div className="flex flex-col items-center justify-center py-8">
@@ -251,7 +247,11 @@ function App() {
               <p className="mt-3 text-white/60 text-sm">Transcribing...</p>
             </div>
           ) : (
-            <Waveform audioLevel={audioLevel} isRecording={isRecording} />
+            <Waveform
+              audioLevel={audioLevel}
+              isRecording={isRecording}
+              onClick={toggleRecording}
+            />
           )}
 
           {/* Error message */}
