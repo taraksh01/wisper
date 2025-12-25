@@ -48,9 +48,22 @@ function App() {
       };
       updateLevel();
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
+      // Detect best available MIME type for audio recording
+      let mimeType = "audio/webm;codecs=opus";
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = "audio/webm";
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = "audio/ogg;codecs=opus";
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = ""; // Let browser choose
+          }
+        }
+      }
+      console.log("Using MIME type:", mimeType || "default");
+
+      const mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
 
       audioChunksRef.current = [];
 
@@ -61,11 +74,17 @@ function App() {
       };
 
       mediaRecorder.onstop = async () => {
+        // Use the actual mimeType from the recorder
+        const actualMimeType = mediaRecorder.mimeType || "audio/webm";
+        const extension = actualMimeType.includes("ogg") ? "ogg" : "webm";
+
         const audioBlob = new Blob(audioChunksRef.current, {
-          type: "audio/webm",
+          type: actualMimeType,
         });
         stream.getTracks().forEach((track) => track.stop());
-        await transcribeAudio(audioBlob);
+
+        // Pass extension to transcription function
+        await transcribeAudio(audioBlob, extension);
       };
 
       mediaRecorderRef.current = mediaRecorder;
@@ -112,7 +131,10 @@ function App() {
   }, [isRecording, startRecording, stopRecording]);
 
   // Transcribe audio using Whisper API (Groq or OpenAI)
-  const transcribeAudio = async (audioBlob: Blob) => {
+  const transcribeAudio = async (
+    audioBlob: Blob,
+    extension: string = "webm"
+  ) => {
     const apiKey = getApiKey();
     const provider = localStorage.getItem("wisper_provider") || "groq";
 
@@ -126,7 +148,7 @@ function App() {
 
     try {
       const formData = new FormData();
-      formData.append("file", audioBlob, "recording.webm");
+      formData.append("file", audioBlob, `recording.${extension}`);
       formData.append("response_format", "text");
 
       // Set API URL and model based on provider
@@ -216,8 +238,11 @@ function App() {
 
   return (
     <div className="glass rounded-2xl p-4 w-full h-full flex flex-col box-border overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
+      {/* Header - draggable region for frameless window */}
+      <div
+        className="flex items-center justify-between mb-3"
+        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      >
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center">
             <svg

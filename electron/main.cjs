@@ -14,9 +14,17 @@ const { spawn } = require("child_process");
 let mainWindow = null;
 let tray = null;
 let isRecording = false;
+let previousWindowId = null; // Track the window that was active before Wisper
 
 // Check if running in development
 const isDev = !app.isPackaged;
+
+// Enable Global Shortcuts Portal for Wayland (critical for Ubuntu 22.04+)
+app.commandLine.appendSwitch("enable-features", "GlobalShortcutsPortal");
+
+// Improve window rendering performance (especially for transparent windows)
+app.commandLine.appendSwitch("disable-gpu-compositing");
+app.commandLine.appendSwitch("enable-accelerated-2d-canvas");
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -128,6 +136,15 @@ function registerGlobalShortcut() {
   const ret = globalShortcut.register(FIXED_HOTKEY, () => {
     if (mainWindow) {
       if (!isRecording) {
+        // Capture the currently active window BEFORE showing Wisper
+        try {
+          previousWindowId = execSync("xdotool getactivewindow")
+            .toString()
+            .trim();
+        } catch (e) {
+          previousWindowId = null;
+        }
+
         isRecording = true;
         mainWindow.webContents.send("start-recording");
         mainWindow.showInactive(); // Show without stealing focus
@@ -158,9 +175,20 @@ ipcMain.handle("copy-to-clipboard", async (event, text) => {
 ipcMain.handle("paste-text", async (event, text) => {
   clipboard.writeText(text);
 
-  // Wait a moment for clipboard to be ready
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  // 2. Try to restore focus to the previous window
+  if (previousWindowId) {
+    try {
+      const { execSync } = require("child_process");
+      execSync(`xdotool windowactivate --sync ${previousWindowId}`);
+    } catch (e) {
+      console.error("Failed to switch focus:", e);
+    }
+  }
 
+  // 3. Wait a moment for focus switch and clipboard sync
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // 4. Simulate Ctrl+V
   // Try xdotool first (X11), fallback to ydotool (Wayland)
   const xdotool = spawn("xdotool", ["key", "--clearmodifiers", "ctrl+v"]);
 
@@ -190,18 +218,54 @@ ipcMain.on("set-recording-state", (event, state) => {
   isRecording = state;
 });
 
-// App lifecycle
-app.whenReady().then(() => {
-  createWindow();
-  createTray();
-  registerGlobalShortcut();
+// App lifecycle - Single instance lock to prevent multiple windows and allow CLI toggle
+const gotTheLock = app.requestSingleInstanceLock();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (event, commandLine) => {
+    // Someone tried to run a second instance, we should focus our window or toggle
+    if (mainWindow) {
+      if (commandLine.includes("--toggle")) {
+        if (!isRecording) {
+          isRecording = true;
+          mainWindow.webContents.send("start-recording");
+          mainWindow.showInactive();
+        } else {
+          isRecording = false;
+          mainWindow.webContents.send("stop-recording");
+        }
+      } else {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+      }
     }
   });
-});
+
+  app.whenReady().then(() => {
+    createWindow();
+    createTray();
+    registerGlobalShortcut();
+
+    // Handle --toggle on initial launch if needed
+    if (process.argv.includes("--toggle")) {
+      setTimeout(() => {
+        if (mainWindow) {
+          isRecording = true;
+          mainWindow.webContents.send("start-recording");
+          mainWindow.showInactive();
+        }
+      }, 500);
+    }
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+}
 
 app.on("window-all-closed", () => {
   // Don't quit on window close, keep in tray
