@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Window control
   hideWindow: () => ipcRenderer.invoke("hide-window"),
+  resizeWindow: (width, height) =>
+    ipcRenderer.send("resize-window", width, height),
 
   // Settings
   onOpenSettings: (callback) => ipcRenderer.on("open-settings", callback),

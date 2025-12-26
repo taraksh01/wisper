@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAudioRecorder } from "./hooks/useAudioRecorder";
 import { Waveform } from "./components/Waveform";
 import { Transcript } from "./components/Transcript";
@@ -110,6 +110,37 @@ function App() {
     }
   }, [isRecording, handleStartRecording, handleStopRecording]);
 
+  // Handle dynamic window resizing based on content
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || !window.electronAPI) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { height, width } = entry.contentRect;
+        // Add a small buffer for borders/shadows if needed, or send exact content size.
+        // Using Math.ceil to avoid sub-pixel blurring issues or scrollbars.
+        // We'll keep width fixed at 320 for now as per design, but height is dynamic.
+        // Or we can send both if the design allows variable width.
+        // Given the design is a card, let's respect the content's desired size.
+        // However, standard width is 320. Let's send the measured height + padding.
+        // entry.contentRect doesn't include padding/border if box-sizing is border-box?
+        // Let's use getBoundingClientRect or scrollHeight of the container.
+
+        const contentHeight = containerRef.current?.scrollHeight || height;
+        const contentWidth = containerRef.current?.scrollWidth || width;
+        window.electronAPI.resizeWindow(contentWidth, Math.ceil(contentHeight));
+      }
+    });
+
+    resizeObserver.observe(containerRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   // Listen for Electron events
   useEffect(() => {
     if (window.electronAPI) {
@@ -134,7 +165,10 @@ function App() {
   }, [handleStartRecording, handleStopRecording]);
 
   return (
-    <div className="glass rounded-2xl p-4 w-full h-full flex flex-col box-border overflow-hidden">
+    <div
+      ref={containerRef}
+      className="bg-[#0a0a0f]/90 border border-white/10 rounded-2xl p-4 w-full flex flex-col box-border overflow-hidden backdrop-blur-xl"
+    >
       {/* Header */}
       <div
         className="flex items-center justify-between mb-3"

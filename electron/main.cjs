@@ -23,9 +23,10 @@ app.commandLine.appendSwitch("enable-accelerated-2d-canvas");
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 320,
-    height: 350,
+    height: 150,
     frame: false,
     transparent: true,
+    hasShadow: false,
     alwaysOnTop: true,
     resizable: false,
     movable: false,
@@ -148,6 +149,13 @@ if (!gotTheLock) {
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
+      }
+    });
+
+    // Handle resize requests from renderer
+    ipcMain.on("resize-window", (event, width, height) => {
+      if (mainWindow) {
+        mainWindow.setSize(width, height);
       }
     });
   });

@@ -10,6 +10,7 @@ declare global {
       copyToClipboard: (text: string) => Promise<boolean>;
       pasteText: (text: string) => Promise<boolean>;
       hideWindow: () => Promise<boolean>;
+      resizeWindow: (width: number, height: number) => void;
       onOpenSettings: (callback: () => void) => void;
       removeAllListeners: (channel: string) => void;
       // Hotkey management
