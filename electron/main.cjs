@@ -6,19 +6,34 @@ const {
   ipcMain,
   nativeImage,
   clipboard,
+  globalShortcut,
 } = require("electron");
+const localShortcut = require("electron-localshortcut");
 const path = require("path");
 
 let mainWindow = null;
 let tray = null;
 let isRecording = false;
 
-// Check if running in development
 const isDev = !app.isPackaged;
 
-// Improve window rendering performance
 app.commandLine.appendSwitch("disable-gpu-compositing");
 app.commandLine.appendSwitch("enable-accelerated-2d-canvas");
+
+let isWayland = false;
+try {
+  isWayland = process.env.XDG_SESSION_TYPE === "wayland";
+} catch (e) {}
+
+function toggleRecording() {
+  if (mainWindow) {
+    if (isRecording) {
+      mainWindow.webContents.send("stop-recording");
+    } else {
+      mainWindow.webContents.send("start-recording");
+    }
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -35,6 +50,7 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
     icon: path.join(__dirname, "../assets/icon.png"),
   });
@@ -45,7 +61,6 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
-  // Position window: horizontally centered, 10% from bottom
   const { screen } = require("electron");
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
@@ -65,7 +80,7 @@ function createTray() {
   const icon = nativeImage.createFromPath(iconPath);
 
   if (icon.isEmpty()) {
-    console.error("Failed to create tray icon from:", iconPath);
+    return;
   }
 
   const trayIcon = icon.resize({ width: 22, height: 22 });
@@ -78,6 +93,13 @@ function createTray() {
         if (mainWindow) {
           mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
         }
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Toggle Recording (Shift+Space)",
+      click: () => {
+        toggleRecording();
       },
     },
     { type: "separator" },
@@ -109,7 +131,6 @@ function createTray() {
   });
 }
 
-// IPC Handlers
 ipcMain.handle("hide-window", async () => {
   if (mainWindow) {
     mainWindow.hide();
@@ -129,7 +150,6 @@ ipcMain.on("set-recording-state", (event, state) => {
   isRecording = state;
 });
 
-// App lifecycle - Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -152,7 +172,20 @@ if (!gotTheLock) {
       }
     });
 
-    // Handle resize requests from renderer
+    globalShortcut.unregisterAll();
+
+    if (!isWayland) {
+      globalShortcut.register("Shift+Space", () => {
+        toggleRecording();
+      });
+    }
+
+    if (mainWindow) {
+      localShortcut.register(mainWindow, "Shift+Space", () => {
+        toggleRecording();
+      });
+    }
+
     ipcMain.on("resize-window", (event, width, height) => {
       if (mainWindow) {
         mainWindow.setSize(width, height);
@@ -162,7 +195,10 @@ if (!gotTheLock) {
 }
 
 app.on("window-all-closed", () => {
-  // Don't quit on window close, keep in tray
+});
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on("before-quit", () => {
