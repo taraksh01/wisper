@@ -1,0 +1,23 @@
+{
+  "name": "wisper-landing-page",
+  "version": "1.0.0",
+  "description": "Landing page for Wisper - Voice Dictation App for Linux",
+  "scripts": {
+    "start": "npx serve . -p 3000",
+    "build": "echo 'Static site - no build step required'",
+    "deploy": "gh-pages -d ."
+  },
+  "keywords": [
+    "wisper",
+    "voice-dictation",
+    "whisper",
+    "linux",
+    "speech-to-text"
+  ],
+  "author": "Tarak Shaw <taraksh01@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/taraksh01/wisper.git"
+  }
+}
