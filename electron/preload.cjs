@@ -7,12 +7,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setRecordingState: (state) => ipcRenderer.send("set-recording-state", state),
   getRecordingState: () => ipcRenderer.invoke("get-recording-state"),
 
-  // Clipboard and paste
+  // Clipboard
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),
-  pasteText: (text) => ipcRenderer.invoke("paste-text", text),
 
   // Window control
   hideWindow: () => ipcRenderer.invoke("hide-window"),
+  resizeWindow: (width, height) =>
+    ipcRenderer.send("resize-window", width, height),
 
   // Settings
   onOpenSettings: (callback) => ipcRenderer.on("open-settings", callback),
