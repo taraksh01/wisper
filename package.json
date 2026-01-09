@@ -1,6 +1,6 @@
 {
   "name": "wisper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "WisprFlow-like voice dictation app for Ubuntu",
   "main": "electron/main.cjs",
   "homepage": "https://github.com/taraksh01/wisper",

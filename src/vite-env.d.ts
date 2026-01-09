@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 export {};
 
 declare global {
@@ -8,16 +10,10 @@ declare global {
       setRecordingState: (state: boolean) => void;
       getRecordingState: () => Promise<boolean>;
       copyToClipboard: (text: string) => Promise<boolean>;
-      pasteText: (text: string) => Promise<boolean>;
-      hideWindow: () => Promise<boolean>;
+      hideWindow: () => Promise<void>;
       resizeWindow: (width: number, height: number) => void;
       onOpenSettings: (callback: () => void) => void;
       removeAllListeners: (channel: string) => void;
-      // Hotkey management
-      getHotkey: () => Promise<string>;
-      setHotkey: (
-        hotkey: string
-      ) => Promise<{ success: boolean; hotkey: string }>;
     };
   }
 }
