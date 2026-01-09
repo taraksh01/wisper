@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import RecordingBar from "./components/RecordingBar";
+import Settings from "./components/Settings";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <RecordingBar />
+    <Settings />
   </React.StrictMode>
 );

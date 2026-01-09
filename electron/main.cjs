@@ -10,8 +10,12 @@ const {
 } = require("electron");
 const localShortcut = require("electron-localshortcut");
 const path = require("path");
+const { exec } = require("child_process");
+const fs = require("fs");
+const os = require("os");
 
 let mainWindow = null;
+let settingsWindow = null;
 let tray = null;
 let isRecording = false;
 
@@ -25,20 +29,46 @@ try {
   isWayland = process.env.XDG_SESSION_TYPE === "wayland";
 } catch (e) {}
 
+// Toggle recording: show+record or stop+hide
 function toggleRecording() {
   if (mainWindow) {
-    if (isRecording) {
-      mainWindow.webContents.send("stop-recording");
-    } else {
+    if (!isRecording) {
+      positionWindowAtBottom();
+      mainWindow.show();
       mainWindow.webContents.send("start-recording");
+      isRecording = true;
+    } else {
+      mainWindow.webContents.send("stop-recording");
+      isRecording = false;
     }
   }
 }
 
+function positionWindowAtBottom() {
+  if (!mainWindow) return;
+  const { screen } = require("electron");
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  const windowBounds = mainWindow.getBounds();
+  const x = Math.round((width - windowBounds.width) / 2);
+  const y = Math.round(height - windowBounds.height - 20);
+  mainWindow.setPosition(x, y);
+}
+
 function createWindow() {
+  const { screen } = require("electron");
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  const winWidth = 300;
+  const winHeight = 60;
+  const x = Math.round((width - winWidth) / 2);
+  const y = Math.round(height - winHeight - 20);
+
   mainWindow = new BrowserWindow({
-    width: 320,
-    height: 150,
+    width: winWidth,
+    height: winHeight,
+    x,
+    y,
     frame: false,
     transparent: true,
     hasShadow: false,
@@ -46,6 +76,7 @@ function createWindow() {
     resizable: false,
     movable: false,
     skipTaskbar: true,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -61,17 +92,50 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 
-  const { screen } = require("electron");
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
-  const windowWidth = 320;
-  const windowHeight = 350;
-  const x = Math.round((width - windowWidth) / 2);
-  const y = Math.round(height - windowHeight - height * 0.1);
-  mainWindow.setPosition(x, y);
-
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+
+  // Hide window when it loses focus (optional - can be removed if annoying)
+  mainWindow.on("blur", () => {
+    // Only hide if not recording
+    if (!isRecording && mainWindow && mainWindow.isVisible()) {
+      // Don't auto-hide, let user control via hotkey
+    }
+  });
+}
+
+function createSettingsWindow() {
+  if (settingsWindow) {
+    settingsWindow.focus();
+    return;
+  }
+
+  settingsWindow = new BrowserWindow({
+    width: 480,
+    height: 780,
+    frame: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+    icon: path.join(__dirname, "../assets/icon.png"),
+    title: "Wisper Settings",
+  });
+
+  if (isDev) {
+    settingsWindow.loadURL("http://localhost:5173/settings.html");
+  } else {
+    settingsWindow.loadFile(path.join(__dirname, "../dist/settings.html"));
+  }
+
+  settingsWindow.on("closed", () => {
+    settingsWindow = null;
   });
 }
 
@@ -88,15 +152,6 @@ function createTray() {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Show/Hide Window",
-      click: () => {
-        if (mainWindow) {
-          mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
-        }
-      },
-    },
-    { type: "separator" },
-    {
       label: "Toggle Recording (Shift+Space)",
       click: () => {
         toggleRecording();
@@ -104,12 +159,9 @@ function createTray() {
     },
     { type: "separator" },
     {
-      label: "Settings / API Key",
+      label: "Settings",
       click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.webContents.send("open-settings");
-        }
+        createSettingsWindow();
       },
     },
     { type: "separator" },
@@ -125,12 +177,11 @@ function createTray() {
   tray.setContextMenu(contextMenu);
 
   tray.on("click", () => {
-    if (mainWindow) {
-      mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
-    }
+    toggleRecording();
   });
 }
 
+// IPC Handlers
 ipcMain.handle("hide-window", async () => {
   if (mainWindow) {
     mainWindow.hide();
@@ -152,13 +203,18 @@ ipcMain.on("set-recording-state", (event, state) => {
 
 const gotTheLock = app.requestSingleInstanceLock();
 
+// Check for --toggle argument
+const hasToggleArg = process.argv.includes("--toggle");
+
 if (!gotTheLock) {
+  // Another instance exists - it will receive second-instance event
+  // and toggle recording
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (event, argv) => {
+    // Toggle recording when second instance is launched
     if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
+      toggleRecording();
     }
   });
 
@@ -174,27 +230,24 @@ if (!gotTheLock) {
 
     globalShortcut.unregisterAll();
 
+    // Register global shortcut
     if (!isWayland) {
       globalShortcut.register("Shift+Space", () => {
         toggleRecording();
       });
     }
 
+    // Also register local shortcut for when window is focused
     if (mainWindow) {
       localShortcut.register(mainWindow, "Shift+Space", () => {
         toggleRecording();
       });
     }
-
-    ipcMain.on("resize-window", (event, width, height) => {
-      if (mainWindow) {
-        mainWindow.setSize(width, height);
-      }
-    });
   });
 }
 
 app.on("window-all-closed", () => {
+  // Keep app running in tray
 });
 
 app.on("will-quit", () => {
