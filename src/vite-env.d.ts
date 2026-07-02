@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 
-export {};
-
 declare global {
+  const __APP_VERSION__: string;
+
   interface Window {
     electronAPI: {
       onStartRecording: (callback: () => void) => void;
@@ -17,3 +17,5 @@ declare global {
     };
   }
 }
+
+export {};

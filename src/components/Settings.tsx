@@ -138,7 +138,7 @@ function Settings() {
           {saved ? "Saved!" : "Save"}
         </button>
 
-        <p className="mt-4 text-center text-white/25 text-xs">v1.1.0</p>
+        <p className="mt-4 text-center text-white/25 text-xs">v{__APP_VERSION__}</p>
       </div>
     </div>
   );
