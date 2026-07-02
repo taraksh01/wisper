@@ -197,14 +197,12 @@ ipcMain.handle("copy-to-clipboard", async (event, text) => {
 
 ipcMain.handle("paste-to-cursor", async (event, text) => {
   const { execSync } = require("child_process");
-  
+
   try {
-    const tempFile = '/tmp/wisper-text.txt';
-    require('fs').writeFileSync(tempFile, text);
-    const timeout = Math.max(5000, text.length * 50);
-    execSync(`ydotool type --file ${tempFile}`, { timeout, stdio: 'ignore' });
+    clipboard.writeText(text);
+    execSync("ydotool key 29:1 47:1 47:0 29:0", { timeout: 3000, stdio: "ignore" });
   } catch (err) {
-    require('fs').appendFileSync('/tmp/wisper.log', `error: ${err.message}\n`);
+    require("fs").appendFileSync("/tmp/wisper.log", `error: ${err.message}\n`);
   }
   return true;
 });
