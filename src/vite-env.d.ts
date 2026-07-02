@@ -13,7 +13,6 @@ declare global {
       pasteToCursor: (text: string) => Promise<boolean>;
       hideWindow: () => Promise<void>;
       resizeWindow: (width: number, height: number) => void;
-      onOpenSettings: (callback: () => void) => void;
       removeAllListeners: (channel: string) => void;
     };
   }
