@@ -11,7 +11,7 @@ function RecordingBar() {
 
   const getApiKey = () => localStorage.getItem("wisper_api_key") || "";
 
-  const transcribeAudio = async (audioBlob: Blob) => {
+  const transcribeAudio = useCallback(async (audioBlob: Blob) => {
     const apiKey = getApiKey();
     const provider = localStorage.getItem("wisper_provider") || "groq";
 
@@ -81,7 +81,7 @@ function RecordingBar() {
     } finally {
       setIsTranscribing(false);
     }
-  };
+  }, []);
 
   const handleStartRecording = useCallback(async () => {
     try {
@@ -103,7 +103,7 @@ function RecordingBar() {
     if (audioBlob) {
       await transcribeAudio(audioBlob);
     }
-  }, [stopRecording]);
+  }, [stopRecording, transcribeAudio]);
 
   // Listen for Electron events
   useEffect(() => {
