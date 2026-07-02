@@ -16,9 +16,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   resizeWindow: (width, height) =>
     ipcRenderer.send("resize-window", width, height),
 
-  // Settings
-  onOpenSettings: (callback) => ipcRenderer.on("open-settings", callback),
-
   // Remove listeners
   removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
 });

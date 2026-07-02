@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 
-export {};
-
 declare global {
+  const __APP_VERSION__: string;
+
   interface Window {
     electronAPI: {
       onStartRecording: (callback: () => void) => void;
@@ -13,8 +13,9 @@ declare global {
       pasteToCursor: (text: string) => Promise<boolean>;
       hideWindow: () => Promise<void>;
       resizeWindow: (width: number, height: number) => void;
-      onOpenSettings: (callback: () => void) => void;
       removeAllListeners: (channel: string) => void;
     };
   }
 }
+
+export {};
