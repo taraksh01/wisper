@@ -29,25 +29,24 @@ try {
   isWayland = process.env.XDG_SESSION_TYPE === "wayland";
 } catch (e) {}
 
-// Toggle recording: show+record or stop+hide
-function toggleRecording() {
-  if (mainWindow) {
-    if (!isRecording) {
-      mainWindow.show();
-      positionWindowAtBottom();
-      mainWindow.webContents.send("start-recording");
-      isRecording = true;
-    } else {
-      mainWindow.webContents.send("stop-recording");
-      isRecording = false;
-    }
-  }
+function positionWindowAtBottom() {
+  if (!mainWindow) return;
+  const { screen } = require("electron");
+  const display = screen.getDisplayNearestPoint(
+    screen.getCursorScreenPoint(),
+  );
+  const { width, height } = display.workAreaSize;
+  const [winWidth, winHeight] = mainWindow.getSize();
+  const x = Math.round(display.workArea.x + (width - winWidth) / 2);
+  const y =
+    Math.round(display.workArea.y + height - winHeight - 20);
+  mainWindow.setPosition(x, y);
 }
 
-// Toggle recording: show+record or stop+hide
 function toggleRecording() {
   if (mainWindow) {
     if (!isRecording) {
+      positionWindowAtBottom();
       mainWindow.show();
       mainWindow.webContents.send("start-recording");
       isRecording = true;
