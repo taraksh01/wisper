@@ -184,6 +184,12 @@ ipcMain.handle("hide-window", async () => {
   }
 });
 
+ipcMain.on("resize-window", (event, width, height) => {
+  if (mainWindow) {
+    mainWindow.setSize(width, height);
+  }
+});
+
 ipcMain.handle("copy-to-clipboard", async (event, text) => {
   clipboard.writeText(text);
   return true;
