@@ -5,6 +5,7 @@ use tauri::{
 };
 
 pub mod audio;
+pub mod hotkey;
 
 #[tauri::command]
 fn get_app_version() -> String {
