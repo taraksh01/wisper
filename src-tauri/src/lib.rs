@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod coordinator;
 pub mod hotkey;
+pub mod stt;
 
 use audio::AudioRecorder;
 use coordinator::{CoordinatorCommand, CoordinatorState, TranscriptionCoordinator};
