@@ -109,3 +109,54 @@ pub fn save_wav(filename: &str, data: &[f32], sample_rate: u32) -> Result<(), ho
     writer.finalize()?;
     Ok(())
 }
+
+/// Trims leading and trailing silence based on RMS energy windowing.
+pub fn trim_silence(samples: &[f32], window_size: usize, threshold: f32) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    let mut start_idx = 0;
+    let mut end_idx = samples.len();
+
+    // Find start of speech
+    for (i, window) in samples.chunks(window_size).enumerate() {
+        let rms: f32 = (window.iter().map(|&s| s * s).sum::<f32>() / window.len() as f32).sqrt();
+        if rms > threshold {
+            start_idx = i * window_size;
+            break;
+        }
+    }
+
+    // Find end of speech
+    for (i, window) in samples.chunks(window_size).rev().enumerate() {
+        let rms: f32 = (window.iter().map(|&s| s * s).sum::<f32>() / window.len() as f32).sqrt();
+        if rms > threshold {
+            end_idx = samples.len() - (i * window_size);
+            break;
+        }
+    }
+
+    if start_idx >= end_idx {
+        return Vec::new();
+    }
+
+    samples[start_idx..end_idx].to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_trim_silence() {
+        // Create 100 silent samples, 100 loud samples, 100 silent samples
+        let mut audio = vec![0.001_f32; 100];
+        audio.extend(vec![0.5_f32; 100]);
+        audio.extend(vec![0.001_f32; 100]);
+
+        let trimmed = trim_silence(&audio, 10, 0.05);
+        assert_eq!(trimmed.len(), 100);
+        assert_eq!(trimmed[0], 0.5);
+    }
+}
