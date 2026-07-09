@@ -279,9 +279,9 @@ A React-based settings window accessible from the system tray icon.
 | 2.2 | Voice Activity Detection | `completed` | Integrate Silero VAD or energy-based VAD to filter silence |
 | 2.3 | Global hotkey listener | `completed` | Implement `rdev`-based global key capture for push-to-talk and toggle modes |
 | 2.4 | Transcription coordinator | `completed` | State machine: `Idle → Recording → Processing → Idle` with event channel |
-| 2.5 | Audio feedback | `pending` | Play subtle sound cue on recording start/stop |
-| 2.6 | Tray icon state updates | `pending` | Update tray icon to reflect Idle/Recording/Processing states |
-| 2.7 | Verify & commit Phase 2 | `pending` | Test hotkey → recording → state transitions, commit |
+| 2.5 | Audio feedback | `completed` | Play subtle sound cue on recording start/stop |
+| 2.6 | Tray icon state updates | `completed` | Update tray icon to reflect Idle/Recording/Processing states |
+| 2.7 | Verify & commit Phase 2 | `completed` | Test hotkey → recording → state transitions, commit |
 
 ---
 

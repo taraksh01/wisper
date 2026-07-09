@@ -34,6 +34,11 @@ impl TranscriptionCoordinator {
         }
     }
 
+    fn play_sound(&self, _freq: f32, _duration_ms: u64) {
+        // Subtle terminal bell sound cue
+        print!("\x07");
+    }
+
     pub fn run(mut self) {
         while let Ok(command) = self.rx.recv() {
             match command {
@@ -42,12 +47,14 @@ impl TranscriptionCoordinator {
                         if let Err(e) = self.audio_recorder.start_recording() {
                             eprintln!("Failed to start recording: {}", e);
                         } else {
+                            self.play_sound(800.0, 100); // Start recording beep
                             self.set_state(CoordinatorState::Recording);
                         }
                     }
                 }
                 CoordinatorCommand::Hotkey(HotkeyEvent::Released) => {
                     if self.state == CoordinatorState::Recording {
+                        self.play_sound(600.0, 150); // Stop recording beep
                         self.stop_and_process();
                     }
                 }
@@ -64,6 +71,7 @@ impl TranscriptionCoordinator {
 
         // STT Engine dispatch goes here in Phase 3
         self.set_state(CoordinatorState::Idle);
+        self.play_sound(1000.0, 200); // Finished processing beep
     }
 
     fn set_state(&mut self, new_state: CoordinatorState) {
