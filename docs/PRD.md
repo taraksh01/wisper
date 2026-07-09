@@ -368,11 +368,11 @@ A React-based settings window accessible from the system tray icon.
 
 | # | Subtask | Status | Description |
 |---|---------|--------|-------------|
-| 8.1 | Configure Tauri bundler | `pending` | Set up `tauri.conf.json` for Linux AppImage output |
-| 8.2 | AppImage build & test | `pending` | Build AppImage, test on clean Ubuntu 26.04 |
-| 8.3 | Runtime dependency check | `pending` | Ensure `wtype`, `xdotool`, etc. are detected at runtime with helpful error messages |
-| 8.4 | First-run experience | `pending` | Guide user to download a Whisper model on first launch |
-| 8.5 | Verify & commit Phase 8 | `pending` | Full end-to-end test of AppImage, commit + tag release |
+| 8.1 | Configure Tauri bundler | `completed` | Set up `tauri.conf.json` for Linux AppImage output |
+| 8.2 | AppImage build & test | `completed` | Build AppImage, test on clean Ubuntu 26.04 |
+| 8.3 | Runtime dependency check | `completed` | Ensure `wtype`, `xdotool`, etc. are detected at runtime with helpful error messages |
+| 8.4 | First-run experience | `completed` | Guide user to download a Whisper model on first launch |
+| 8.5 | Verify & commit Phase 8 | `completed` | Full end-to-end test of AppImage, commit + tag release |
 
 ---
 
