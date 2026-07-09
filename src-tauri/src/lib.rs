@@ -5,6 +5,7 @@ use tauri::{
 };
 
 pub mod audio;
+pub mod coordinator;
 pub mod hotkey;
 
 #[tauri::command]
