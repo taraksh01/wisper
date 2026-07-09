@@ -5476,6 +5476,7 @@ dependencies = [
  "dirs",
  "enigo",
  "hound",
+ "once_cell",
  "rdev",
  "reqwest",
  "rodio",
