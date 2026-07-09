@@ -140,8 +140,8 @@ pub fn save_recording_to_disk(samples: &[f32], sample_rate: u32) -> Option<Strin
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_nanos();
-    let filename = format!("{}.wav", timestamp);
+        .as_secs();
+    let filename = format!("v3_{}.wav", timestamp);
     let path = dir.join(&filename);
 
     match wav_from_samples(samples, sample_rate, &path) {
@@ -215,4 +215,31 @@ pub fn update_history_entry(id: i64, raw_text: String, formatted_text: Option<St
     manager
         .update(id, &raw_text, formatted_text.as_deref())
         .map_err(|e| format!("Failed to update history entry: {}", e))
+}
+
+#[tauri::command]
+pub fn retranscribe_recording(recording_path: String) -> Result<String, String> {
+    let (samples, sample_rate) = crate::audio::load_wav(&recording_path)?;
+
+    // Load the current model from settings
+    let settings = crate::settings::AppSettings::load();
+    let model_dir = crate::models::get_models_dir();
+    let model_path = model_dir.join(&settings.local_model_file);
+
+    if !model_path.exists() {
+        return Err(format!("Model file not found: {:?}", model_path));
+    }
+
+    let provider = crate::stt::create_local_provider(model_path);
+    let trimmed = crate::audio::trim_silence(&samples, 1600, 0.01);
+    if trimmed.is_empty() {
+        return Err("No speech detected in recording".to_string());
+    }
+
+    provider.transcribe(&trimmed, sample_rate)
+}
+
+#[tauri::command]
+pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&recording_path).map_err(|e| format!("Failed to read recording: {}", e))
 }

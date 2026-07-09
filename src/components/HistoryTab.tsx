@@ -10,12 +10,65 @@ interface HistoryTabProps {
   onRefresh: () => void;
 }
 
+function CopyIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M8 5v14l11-7z" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+      <path d="M6 6h12v12H6z" />
+    </svg>
+  );
+}
+
+function RetryIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+    </svg>
+  );
+}
+
+const audioCache = new Map<string, string>();
+
 export function HistoryTab({ history, stats, settings, onSave, onRefresh }: HistoryTabProps) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editRaw, setEditRaw] = useState("");
   const [editFormatted, setEditFormatted] = useState("");
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [playingId, setPlayingId] = useState<number | null>(null);
+  const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (editingId !== null && inputRef.current) {
@@ -63,6 +116,55 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
     setTimeout(() => setCopiedId(null), 2000);
   }, []);
 
+  const togglePlay = useCallback(async (id: number, path: string) => {
+    if (playingId === id) {
+      audioRef.current?.pause();
+      setPlayingId(null);
+      return;
+    }
+
+    audioRef.current?.pause();
+
+    try {
+      let blobUrl = audioCache.get(path);
+      if (!blobUrl) {
+        const data = await invoke<number[]>("get_recording_data", { recordingPath: path });
+        const bytes = new Uint8Array(data);
+        const blob = new Blob([bytes], { type: "audio/wav" });
+        blobUrl = URL.createObjectURL(blob);
+        audioCache.set(path, blobUrl);
+      }
+
+      const audio = new Audio(blobUrl);
+      audio.onended = () => setPlayingId(null);
+      audio.onerror = () => setPlayingId(null);
+      await audio.play();
+      audioRef.current = audio;
+      setPlayingId(id);
+    } catch (e) {
+      console.error("Playback failed:", e);
+    }
+  }, [playingId]);
+
+  const retranscribe = useCallback(async (entry: HistoryEntry) => {
+    if (!entry.recording_path) return;
+    setRetranscribingId(entry.id);
+    try {
+      const text = await invoke<string>("retranscribe_recording", {
+        recordingPath: entry.recording_path,
+      });
+      await invoke("update_history_entry", {
+        id: entry.id,
+        rawText: text,
+        formattedText: entry.formatted_text || null,
+      });
+      onRefresh();
+    } catch (e) {
+      console.error("Retranscribe failed:", e);
+    }
+    setRetranscribingId(null);
+  }, [onRefresh]);
+
   return (
     <div className="space-y-3 panel-enter">
       <section className="panel-enter">
@@ -108,7 +210,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             {history.map((entry) => (
               <div
                 key={entry.id}
-                className="bg-elevated/30 rounded-md px-2.5 py-2 hover:bg-elevated/60 transition-colors group"
+                className="bg-elevated/30 rounded-md px-2.5 py-2 hover:bg-elevated/60 transition-colors"
               >
                 {editingId === entry.id ? (
                   <div className="space-y-2">
@@ -144,37 +246,59 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
                 ) : (
                   <>
                     <div className="flex items-center justify-between mb-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono text-muted">{entry.created_at}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
                         {entry.recording_path && (
-                          <span className="text-[9px] font-mono text-accent/60" title="Recording saved">&#9679;</span>
+                          <button
+                            onClick={() => togglePlay(entry.id, entry.recording_path!)}
+                            className="shrink-0 p-1 text-muted hover:text-accent rounded transition-colors"
+                            title={playingId === entry.id ? "Stop" : "Play recording"}
+                          >
+                            {playingId === entry.id ? <StopIcon /> : <PlayIcon />}
+                          </button>
                         )}
+                        <span className="text-[10px] font-mono text-muted truncate">{entry.created_at}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono text-muted tabular-nums">{entry.word_count}</span>
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {entry.recording_path && (
                           <button
-                            onClick={() => copyEntry(entry)}
-                            className="text-[11px] font-mono text-muted hover:text-accent transition-colors"
-                            title="Copy"
+                            onClick={() => retranscribe(entry)}
+                            className="p-1 text-muted hover:text-accent rounded transition-colors"
+                            title="Re-transcribe"
+                            disabled={retranscribingId === entry.id}
                           >
-                            {copiedId === entry.id ? "Copied!" : "Copy"}
+                            {retranscribingId === entry.id ? (
+                              <span className="text-[10px] font-mono text-accent">...</span>
+                            ) : (
+                              <RetryIcon />
+                            )}
                           </button>
-                          <button
-                            onClick={() => startEdit(entry)}
-                            className="text-[11px] font-mono text-muted hover:text-warning transition-colors"
-                            title="Edit"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => deleteEntry(entry.id)}
-                            className="text-[11px] font-mono text-muted hover:text-recording transition-colors"
-                            title="Delete"
-                          >
-                            Del
-                          </button>
-                        </div>
+                        )}
+                        <button
+                          onClick={() => copyEntry(entry)}
+                          className="p-1 text-muted hover:text-accent rounded transition-colors"
+                          title="Copy"
+                        >
+                          {copiedId === entry.id ? (
+                            <span className="text-[10px] font-mono text-ready">Copied</span>
+                          ) : (
+                            <CopyIcon />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => startEdit(entry)}
+                          className="p-1 text-muted hover:text-warning rounded transition-colors"
+                          title="Edit"
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          onClick={() => deleteEntry(entry.id)}
+                          className="p-1 text-muted hover:text-recording rounded transition-colors"
+                          title="Delete"
+                        >
+                          <DeleteIcon />
+                        </button>
+                        <span className="ml-1 text-[10px] font-mono text-muted tabular-nums">{entry.word_count}</span>
                       </div>
                     </div>
                     <p className="text-xs text-ink leading-relaxed line-clamp-3" title={entry.formatted_text || entry.raw_text}>

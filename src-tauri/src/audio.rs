@@ -110,6 +110,25 @@ pub fn save_wav(filename: &str, data: &[f32], sample_rate: u32) -> Result<(), ho
     Ok(())
 }
 
+pub fn load_wav(filename: &str) -> Result<(Vec<f32>, u32), String> {
+    let mut reader = hound::WavReader::open(filename).map_err(|e| format!("Failed to open WAV: {}", e))?;
+    let spec = reader.spec();
+    let sample_rate = spec.sample_rate;
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?,
+        hound::SampleFormat::Int => {
+            let max = 2i32.pow(spec.bits_per_sample as u32 - 1) as f32;
+            reader.samples::<i32>()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .map(|s| s as f32 / max)
+                .collect()
+        }
+    };
+    Ok((samples, sample_rate))
+}
+
 /// Trims leading and trailing silence based on RMS energy windowing.
 pub fn trim_silence(samples: &[f32], window_size: usize, threshold: f32) -> Vec<f32> {
     if samples.is_empty() {
