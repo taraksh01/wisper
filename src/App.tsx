@@ -49,6 +49,9 @@ function App() {
     (async () => {
       unlisten = await listen<string>("v3:state", (event) => {
         setAppState(event.payload);
+        if (event.payload === "idle") {
+          fetchHistory();
+        }
       });
       unlistenProgress = await listen<{ model: string; progress: number }>("download-progress", (event) => {
         const { model, progress } = event.payload;
