@@ -351,14 +351,14 @@ A React-based settings window accessible from the system tray icon.
 
 | # | Subtask | Status | Description |
 |---|---------|--------|-------------|
-| 7.1 | Settings data model (Rust) | `pending` | `AppSettings` struct with serde serialization, stored via `tauri-plugin-store` |
-| 7.2 | STT settings panel | `pending` | Provider toggle (Local/Cloud), model selector, Base URL, API Key, language |
-| 7.3 | LLM settings panel | `pending` | Enable/disable, Base URL, API Key, Model, Smart Agent editor |
-| 7.4 | Hotkey settings panel | `pending` | Key binding selector for push-to-talk, toggle, cancel. Mode selector |
-| 7.5 | Paste settings panel | `pending` | Paste method dropdown, delay sliders, clipboard restore toggle |
-| 7.6 | Audio settings panel | `pending` | Microphone selector dropdown |
-| 7.7 | General settings panel | `pending` | Autostart, start hidden, theme toggle |
-| 7.8 | Verify & commit Phase 7 | `pending` | Test all settings persist and apply correctly, commit |
+| 7.1 | Settings data model (Rust) | `completed` | `AppSettings` struct with serde serialization, stored via `tauri-plugin-store` |
+| 7.2 | STT settings panel | `completed` | Provider toggle (Local/Cloud), model selector, Base URL, API Key, language |
+| 7.3 | LLM settings panel | `completed` | Enable/disable, Base URL, API Key, Model, Smart Agent editor |
+| 7.4 | Hotkey settings panel | `completed` | Key binding selector for push-to-talk, toggle, cancel. Mode selector |
+| 7.5 | Paste settings panel | `completed` | Paste method dropdown, delay sliders, clipboard restore toggle |
+| 7.6 | Audio settings panel | `completed` | Microphone selector dropdown |
+| 7.7 | General settings panel | `completed` | Autostart, start hidden, theme toggle |
+| 7.8 | Verify & commit Phase 7 | `completed` | Test all settings persist and apply correctly, commit |
 
 ---
 
