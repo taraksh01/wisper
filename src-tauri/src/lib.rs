@@ -11,7 +11,6 @@ pub mod stt;
 use audio::AudioRecorder;
 use coordinator::{CoordinatorCommand, CoordinatorState, TranscriptionCoordinator};
 use hotkey::HotkeyManager;
-use rdev::Key;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -25,6 +24,17 @@ use tauri::{
 static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
 
+static HOTKEY_BINDING: once_cell::sync::Lazy<Arc<Mutex<hotkey::HotkeyBinding>>> =
+    once_cell::sync::Lazy::new(|| {
+        Arc::new(Mutex::new(hotkey::HotkeyBinding {
+            ctrl: false,
+            alt: false,
+            shift: false,
+            meta: false,
+            key: rdev::Key::F12,
+        }))
+    });
+
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -34,6 +44,16 @@ fn get_app_version() -> String {
 fn get_current_state() -> String {
     let state = STATE_LOCK.lock().unwrap();
     format!("{:?}", *state)
+}
+
+#[tauri::command]
+fn set_hotkey(key: String) -> Result<(), String> {
+    let binding = hotkey::parse_binding(&key)
+        .ok_or_else(|| format!("Invalid key combination: {}", key))?;
+    if let Ok(mut current) = HOTKEY_BINDING.lock() {
+        *current = binding;
+    }
+    Ok(())
 }
 
 fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
@@ -99,6 +119,21 @@ pub fn run() {
                 }
             });
 
+            // Load saved hotkey from settings if available
+            let saved_settings = settings::AppSettings::load();
+            let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
+                .unwrap_or(hotkey::HotkeyBinding {
+                    ctrl: false,
+                    alt: false,
+                    shift: false,
+                    meta: false,
+                    key: rdev::Key::F12,
+                });
+            {
+                let mut hk = HOTKEY_BINDING.lock().unwrap();
+                *hk = initial_binding.clone();
+            }
+
             let recorder = AudioRecorder::new();
             let coordinator =
                 TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
@@ -109,7 +144,7 @@ pub fn run() {
             });
 
             // Spawn Hotkey Manager
-            let hotkey_manager = HotkeyManager::new(Key::F12, hk_tx);
+            let hotkey_manager = HotkeyManager::new(HOTKEY_BINDING.clone(), hk_tx);
             hotkey_manager.start_listening();
 
             // Spawn State Listener -> Tray + State Lock + Frontend Events
@@ -141,6 +176,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             get_current_state,
+            set_hotkey,
             models::list_local_models,
             models::download_model,
             models::delete_model,

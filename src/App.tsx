@@ -24,7 +24,7 @@ function useSystemTheme() {
 
 function App() {
   const dark = useSystemTheme();
-  const [activeTab, setActiveTab] = useState("stt");
+  const [activeTab, setActiveTab] = useState("general");
   const [appState, setAppState] = useState("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
