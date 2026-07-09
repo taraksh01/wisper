@@ -5,7 +5,6 @@ import { AppSettings, HistoryEntry, SmartAgent, tabs } from "./types";
 import { GeneralTab } from "./components/GeneralTab";
 import { STTTab } from "./components/STTTab";
 import { LLMTab } from "./components/LLMTab";
-import { PasteTab } from "./components/PasteTab";
 import { HistoryTab } from "./components/HistoryTab";
 import "./styles.css";
 
@@ -171,8 +170,6 @@ function App() {
         );
       case "llm":
         return <LLMTab settings={settings} agents={agents} onSave={saveSetting} onReset={resetTabSettings} />;
-      case "paste":
-        return <PasteTab settings={settings} onSave={saveSetting} onReset={resetTabSettings} />;
       case "history":
         return <HistoryTab history={history} stats={stats} settings={settings} onRefresh={fetchHistory} />;
       default:

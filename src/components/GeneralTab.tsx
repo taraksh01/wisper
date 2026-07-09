@@ -137,6 +137,25 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
           onChange={(v) => onSave("language", v)}
         />
       </section>
+
+      <section className="panel-enter">
+        <div className="text-xs font-mono text-muted mb-2 tracking-wider uppercase">Output</div>
+        <div className="flex flex-wrap gap-1.5">
+          {["Ctrl+V", "Ctrl+Shift+V", "Shift+Insert", "Direct Typing"].map((method) => (
+            <button
+              key={method}
+              onClick={() => onSave("paste_method", method)}
+              className={`px-3 py-1.5 text-xs font-mono font-medium rounded-md transition-all duration-150 ${
+                settings.paste_method === method
+                  ? "bg-accent/15 text-accent ring-1 ring-accent/30"
+                  : "text-muted hover:text-ink hover:bg-elevated"
+              }`}
+            >
+              {method}
+            </button>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

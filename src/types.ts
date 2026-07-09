@@ -267,7 +267,6 @@ export const tabs = [
   { id: "general", label: "General" },
   { id: "stt", label: "Engine" },
   { id: "llm", label: "Process" },
-  { id: "paste", label: "Paste" },
   { id: "history", label: "History" },
 ];
 
