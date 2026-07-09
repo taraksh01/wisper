@@ -1,17 +1,4 @@
-interface ModelInfo {
-  name: string;
-  size: string;
-  accuracy: number;
-  speed: number;
-  source: string;
-  languages: string[];
-  format: "ggml" | "gguf";
-  quantization: string;
-  streaming: boolean;
-  translate: boolean;
-  runtime: string;
-  recommended?: boolean;
-}
+import { ModelInfo } from "../types";
 
 interface ModelCardProps {
   modelKey: string;
