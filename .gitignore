@@ -11,15 +11,18 @@ dist/
 .env.*
 !.env.example
 
+# Logs
+logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# OS
 .DS_Store
-Thumbs.db
 
 # Tauri
 /src-tauri/WixTools/
