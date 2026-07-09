@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod coordinator;
+pub mod history;
 pub mod hotkey;
 pub mod llm;
 pub mod models;
@@ -118,7 +119,9 @@ pub fn run() {
             get_app_version,
             models::list_local_models,
             models::download_model,
-            llm::get_default_agents
+            llm::get_default_agents,
+            history::get_history_entries,
+            history::get_history_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

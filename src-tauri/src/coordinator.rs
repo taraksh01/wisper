@@ -2,6 +2,7 @@ use crate::audio::{trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
 use std::sync::mpsc::{Receiver, Sender};
 
+use crate::history::HistoryManager;
 use crate::paste::paste_text;
 use crate::stt::{LocalWhisperProvider, SttProvider};
 use std::path::PathBuf;
@@ -86,7 +87,9 @@ impl TranscriptionCoordinator {
                     Ok(text) => {
                         println!("Transcription: {}", text);
                         // LLM post-processing (Phase 5)
-                        let final_text = {
+                        let mut final_text = text.clone();
+                        let mut agent_name = None;
+                        {
                             let agent = crate::llm::SmartAgent::auto_format();
                             let llm = crate::llm::LlmClient::new(
                                 "http://localhost:11434/v1".into(),
@@ -95,17 +98,21 @@ impl TranscriptionCoordinator {
                             );
                             match llm.process(&text, &agent) {
                                 Ok(formatted) => {
-                                    println!("LLM formatted: {}", formatted);
-                                    formatted
+                                    final_text = formatted;
+                                    agent_name = Some(agent.name);
                                 }
                                 Err(e) => {
                                     eprintln!("LLM skipped ({}), using raw text", e);
-                                    text
                                 }
                             }
-                        };
+                        }
                         if let Err(e) = paste_text(&final_text) {
                             eprintln!("Paste failed: {}", e);
+                        }
+                        // Log to history
+                        let history = HistoryManager::new();
+                        if let Err(e) = history.insert(&text, Some(&final_text), agent_name.as_deref(), samples.len() as i64 / 16) {
+                            eprintln!("Failed to log history: {}", e);
                         }
                     }
                     Err(e) => eprintln!("Transcription error: {}", e),
