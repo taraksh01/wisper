@@ -5227,6 +5227,7 @@ name = "v3"
 version = "0.1.0"
 dependencies = [
  "cpal 0.18.1",
+ "dirs",
  "hound",
  "rdev",
  "reqwest",

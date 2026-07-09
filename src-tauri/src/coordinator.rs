@@ -2,6 +2,9 @@ use crate::audio::{trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
 use std::sync::mpsc::{Receiver, Sender};
 
+use crate::stt::{LocalWhisperProvider, SttProvider};
+use std::path::PathBuf;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CoordinatorState {
     Idle,
@@ -67,9 +70,29 @@ impl TranscriptionCoordinator {
         let samples = self.audio_recorder.stop_recording();
         
         // VAD trimming (100ms window at 16kHz = 1600 samples)
-        let _trimmed = trim_silence(&samples, 1600, 0.01);
+        let trimmed = trim_silence(&samples, 1600, 0.01);
 
-        // STT Engine dispatch goes here in Phase 3
+        if !trimmed.is_empty() {
+            // Hardcode local model testing for now (Phase 3)
+            let mut model_path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+            model_path.push("v3");
+            model_path.push("models");
+            model_path.push("ggml-base.en.bin");
+
+            if model_path.exists() {
+                let stt = LocalWhisperProvider::new(model_path);
+                match stt.transcribe(&trimmed, 16000) {
+                    Ok(text) => {
+                        println!("Transcription: {}", text);
+                        // TODO: Phase 4 (Paste Injection) & Phase 5 (LLM)
+                    }
+                    Err(e) => eprintln!("Transcription error: {}", e),
+                }
+            } else {
+                eprintln!("Model not found! Please download ggml-base.en.bin");
+            }
+        }
+
         self.set_state(CoordinatorState::Idle);
         self.play_sound(1000.0, 200); // Finished processing beep
     }

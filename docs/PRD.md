@@ -292,11 +292,11 @@ A React-based settings window accessible from the system tray icon.
 | # | Subtask | Status | Description |
 |---|---------|--------|-------------|
 | 3.1 | Local STT with whisper-rs | `completed` | Integrate `whisper-rs` (whisper.cpp bindings) for local transcription |
-| 3.2 | Model management | `pending` | Download, list, select, and delete Whisper GGML models |
+| 3.2 | Model management | `completed` | Download, list, select, and delete Whisper GGML models |
 | 3.3 | Cloud STT client | `completed` | HTTP client for OpenAI-compatible `/v1/audio/transcriptions` endpoint |
 | 3.4 | STT provider abstraction | `completed` | Unified trait/interface so local and cloud are interchangeable |
-| 3.5 | Wire STT into coordinator | `pending` | After recording stops, pass audio buffer to selected STT provider |
-| 3.6 | Verify & commit Phase 3 | `pending` | Test local transcription end-to-end, commit |
+| 3.5 | Wire STT into coordinator | `completed` | After recording stops, pass audio buffer to selected STT provider |
+| 3.6 | Verify & commit Phase 3 | `completed` | Test local transcription end-to-end, commit |
 
 ---
 

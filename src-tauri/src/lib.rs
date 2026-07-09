@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod coordinator;
 pub mod hotkey;
+pub mod models;
 pub mod stt;
 
 use audio::AudioRecorder;
@@ -111,7 +112,11 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_app_version])
+        .invoke_handler(tauri::generate_handler![
+            get_app_version,
+            models::list_local_models,
+            models::download_model
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

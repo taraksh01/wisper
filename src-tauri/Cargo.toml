@@ -30,4 +30,5 @@ rdev = "0.5.3"
 whisper-rs = "0.16.0"
 reqwest = { version = "0.13.4", features = ["blocking", "json", "multipart"] }
 tokio = { version = "1.52.3", features = ["full"] }
+dirs = "6.0.0"
 
