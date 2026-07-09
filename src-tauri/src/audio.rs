@@ -5,10 +5,9 @@ use std::time::Duration;
 
 #[derive(Clone)]
 pub struct AudioRecorder {
-    // Buffer to store audio chunks (f32 samples)
     buffer: Arc<Mutex<Vec<f32>>>,
-    // Optional stream handle, must be kept alive to continue recording
     stream: Arc<Mutex<Option<Stream>>>,
+    sample_rate: Arc<Mutex<u32>>,
 }
 
 impl AudioRecorder {
@@ -16,6 +15,7 @@ impl AudioRecorder {
         Self {
             buffer: Arc::new(Mutex::new(Vec::new())),
             stream: Arc::new(Mutex::new(None)),
+            sample_rate: Arc::new(Mutex::new(16000)),
         }
     }
 
@@ -28,6 +28,12 @@ impl AudioRecorder {
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;
+
+        // Store the actual device sample rate
+        {
+            let mut sr = self.sample_rate.lock().unwrap();
+            *sr = config.sample_rate();
+        }
 
         // Clear the buffer before starting
         self.buffer.lock().unwrap().clear();
@@ -51,13 +57,16 @@ impl AudioRecorder {
 
     pub fn stop_recording(&self) -> Vec<f32> {
         let mut current_stream = self.stream.lock().unwrap();
-        // Dropping the stream stops recording
         *current_stream = None;
 
         let mut buffer = self.buffer.lock().unwrap();
         let final_buffer = buffer.clone();
         buffer.clear();
         final_buffer
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        *self.sample_rate.lock().unwrap()
     }
 
     fn build_stream<T>(

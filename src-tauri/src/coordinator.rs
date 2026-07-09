@@ -97,7 +97,8 @@ impl TranscriptionCoordinator {
 
         // Save recording to disk if enabled
         let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
-            crate::history::save_recording_to_disk(&samples, 16000)
+            let sr = self.audio_recorder.sample_rate();
+            crate::history::save_recording_to_disk(&samples, sr)
         } else {
             None
         };
