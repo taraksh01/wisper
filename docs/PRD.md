@@ -306,12 +306,12 @@ A React-based settings window accessible from the system tray icon.
 
 | # | Subtask | Status | Description |
 |---|---------|--------|-------------|
-| 4.1 | Display server detection | `pending` | Runtime detection of X11 vs Wayland via env vars |
-| 4.2 | Clipboard manager | `pending` | Save/restore clipboard contents using `arboard` or `wl-copy`/`xclip` |
-| 4.3 | Keystroke simulation | `pending` | Paste via `enigo` (X11), `wtype` (Wayland), with fallback cascade |
+| 4.1 | Display server detection | `completed` | Runtime detection of X11 vs Wayland via env vars |
+| 4.2 | Clipboard manager | `completed` | Save/restore clipboard contents using `arboard` |
+| 4.3 | Keystroke simulation | `completed` | Paste via `enigo` (X11), `wtype`/`ydotool` (Wayland), with fallback cascade |
 | 4.4 | Configurable paste methods | `pending` | Support Ctrl+V, Ctrl+Shift+V, Shift+Insert, direct typing, none |
-| 4.5 | End-to-end pipeline | `pending` | Hotkey → Record → Transcribe → Paste into active app |
-| 4.6 | Verify & commit Phase 4 | `pending` | Test paste into various apps (terminal, browser, editor), commit |
+| 4.5 | End-to-end pipeline | `completed` | Hotkey → Record → Transcribe → Paste into active app |
+| 4.6 | Verify & commit Phase 4 | `completed` | Test paste into various apps (terminal, browser, editor), commit |
 
 ---
 

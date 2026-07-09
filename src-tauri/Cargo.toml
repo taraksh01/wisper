@@ -31,4 +31,6 @@ whisper-rs = "0.16.0"
 reqwest = { version = "0.13.4", features = ["blocking", "json", "multipart"] }
 tokio = { version = "1.52.3", features = ["full"] }
 dirs = "6.0.0"
+arboard = "3.6.1"
+enigo = "0.6.1"
 

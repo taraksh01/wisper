@@ -2,6 +2,7 @@ use crate::audio::{trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
 use std::sync::mpsc::{Receiver, Sender};
 
+use crate::paste::paste_text;
 use crate::stt::{LocalWhisperProvider, SttProvider};
 use std::path::PathBuf;
 
@@ -84,7 +85,9 @@ impl TranscriptionCoordinator {
                 match stt.transcribe(&trimmed, 16000) {
                     Ok(text) => {
                         println!("Transcription: {}", text);
-                        // TODO: Phase 4 (Paste Injection) & Phase 5 (LLM)
+                        if let Err(e) = paste_text(&text) {
+                            eprintln!("Paste failed: {}", e);
+                        }
                     }
                     Err(e) => eprintln!("Transcription error: {}", e),
                 }

@@ -2,6 +2,7 @@ pub mod audio;
 pub mod coordinator;
 pub mod hotkey;
 pub mod models;
+pub mod paste;
 pub mod stt;
 
 use audio::AudioRecorder;
@@ -27,7 +28,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let app_handle = app.handle().clone();
+            let _app_handle = app.handle().clone();
 
             let quit_i = MenuItem::with_id(app, "quit", "Quit v3", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings & History", true, None::<&str>)?;
