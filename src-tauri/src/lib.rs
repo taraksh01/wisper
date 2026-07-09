@@ -121,6 +121,10 @@ pub fn run() {
 
             // Load saved hotkey from settings if available
             let saved_settings = settings::AppSettings::load();
+            coordinator::HOTKEY_MODE.store(
+                saved_settings.hotkey_mode != "toggle",
+                std::sync::atomic::Ordering::Relaxed,
+            );
             let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
                 .unwrap_or(hotkey::HotkeyBinding {
                     ctrl: false,

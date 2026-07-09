@@ -82,6 +82,10 @@ pub fn load_settings() -> AppSettings {
 
 #[tauri::command]
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
+    crate::coordinator::HOTKEY_MODE.store(
+        settings.hotkey_mode != "toggle",
+        std::sync::atomic::Ordering::Relaxed,
+    );
     settings.save()
 }
 

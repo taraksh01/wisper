@@ -1,11 +1,14 @@
 use crate::audio::{trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::history::HistoryManager;
 use crate::paste::paste_text;
 use crate::stt::{LocalWhisperProvider, SttProvider};
 use std::path::PathBuf;
+
+pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CoordinatorState {
@@ -48,18 +51,39 @@ impl TranscriptionCoordinator {
         while let Ok(command) = self.rx.recv() {
             match command {
                 CoordinatorCommand::Hotkey(HotkeyEvent::Pressed) => {
-                    if self.state == CoordinatorState::Idle {
-                        if let Err(e) = self.audio_recorder.start_recording() {
-                            eprintln!("Failed to start recording: {}", e);
-                        } else {
-                            self.play_sound(800.0, 100); // Start recording beep
-                            self.set_state(CoordinatorState::Recording);
+                    let is_push_to_talk = HOTKEY_MODE.load(Ordering::Relaxed);
+                    if is_push_to_talk {
+                        if self.state == CoordinatorState::Idle {
+                            if let Err(e) = self.audio_recorder.start_recording() {
+                                eprintln!("Failed to start recording: {}", e);
+                            } else {
+                                self.play_sound(800.0, 100);
+                                self.set_state(CoordinatorState::Recording);
+                            }
+                        }
+                    } else {
+                        // Toggle mode
+                        match self.state {
+                            CoordinatorState::Idle => {
+                                if let Err(e) = self.audio_recorder.start_recording() {
+                                    eprintln!("Failed to start recording: {}", e);
+                                } else {
+                                    self.play_sound(800.0, 100);
+                                    self.set_state(CoordinatorState::Recording);
+                                }
+                            }
+                            CoordinatorState::Recording => {
+                                self.play_sound(600.0, 150);
+                                self.stop_and_process();
+                            }
+                            _ => {}
                         }
                     }
                 }
                 CoordinatorCommand::Hotkey(HotkeyEvent::Released) => {
-                    if self.state == CoordinatorState::Recording {
-                        self.play_sound(600.0, 150); // Stop recording beep
+                    // Only act on release in push-to-talk mode
+                    if HOTKEY_MODE.load(Ordering::Relaxed) && self.state == CoordinatorState::Recording {
+                        self.play_sound(600.0, 150);
                         self.stop_and_process();
                     }
                 }
