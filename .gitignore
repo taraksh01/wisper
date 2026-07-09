@@ -1,0 +1,36 @@
+# Compiled files
+/target/
+/src-tauri/target/
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tauri
+/src-tauri/WixTools/
+/src-tauri/icons/
+
+# Bun
+bun.lockb
+
+# Build artifacts
+*.AppImage
+*.deb
+*.rpm
+*.dmg
+*.exe
