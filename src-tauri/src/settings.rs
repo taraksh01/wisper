@@ -5,6 +5,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub stt_mode: String,
+    pub stt_provider: String,
     pub stt_base_url: String,
     pub stt_api_key: String,
     pub stt_model: String,
@@ -19,12 +20,14 @@ pub struct AppSettings {
     pub paste_method: String,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
+    pub language: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             stt_mode: "local".into(),
+            stt_provider: "openai".into(),
             stt_base_url: String::new(),
             stt_api_key: String::new(),
             stt_model: "whisper-1".into(),
@@ -39,6 +42,7 @@ impl Default for AppSettings {
             paste_method: "Ctrl+V".into(),
             vad_enabled: true,
             vad_threshold: 0.01,
+            language: "auto".into(),
         }
     }
 }
@@ -79,4 +83,9 @@ pub fn load_settings() -> AppSettings {
 #[tauri::command]
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     settings.save()
+}
+
+#[tauri::command]
+pub fn get_default_settings() -> AppSettings {
+    AppSettings::default()
 }

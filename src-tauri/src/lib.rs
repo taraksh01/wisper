@@ -143,11 +143,14 @@ pub fn run() {
             get_current_state,
             models::list_local_models,
             models::download_model,
+            models::delete_model,
+            models::get_models_dir_path,
             llm::get_default_agents,
             history::get_history_entries,
             history::get_history_stats,
             settings::load_settings,
-            settings::save_settings
+            settings::save_settings,
+            settings::get_default_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

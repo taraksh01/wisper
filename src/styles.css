@@ -1,1 +1,134 @@
 @import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-base: #000000;
+  --color-surface: #0a0a0a;
+  --color-elevated: #141414;
+  --color-accent: #ea580c;
+  --color-accent-dim: #c2410c;
+  --color-ready: #22c55e;
+  --color-recording: #ef4444;
+  --color-warning: #eab308;
+  --color-ink: #f5f5f5;
+  --color-muted: #737373;
+  --color-stroke: #1a1a1a;
+
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-inverse-bg: #ffffff;
+  --color-inverse-ink: #171717;
+  --color-inverse-muted: #a3a3a3;
+  --color-inverse-stroke: #e5e5e5;
+}
+
+/* ─── Light theme overrides ─── */
+.light {
+  --color-base: #ffffff;
+  --color-surface: #fafafa;
+  --color-elevated: #f5f5f5;
+  --color-stroke: #e5e5e5;
+  --color-ink: #171717;
+  --color-muted: #a3a3a3;
+  --color-accent: #ea580c;
+}
+
+/* ─── Waveform State Indicator ─── */
+
+.waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+}
+
+.waveform-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  transform-origin: center;
+  transition: height 100ms ease-out, opacity 200ms ease-out;
+}
+
+.waveform-bar:nth-child(1) { height: 8px; }
+.waveform-bar:nth-child(2) { height: 12px; }
+.waveform-bar:nth-child(3) { height: 6px; }
+.waveform-bar:nth-child(4) { height: 14px; }
+.waveform-bar:nth-child(5) { height: 10px; }
+.waveform-bar:nth-child(6) { height: 4px; }
+.waveform-bar:nth-child(7) { height: 9px; }
+.waveform-bar:nth-child(8) { height: 13px; }
+
+.waveform--idle .waveform-bar {
+  height: 2px !important;
+}
+
+.waveform--recording .waveform-bar {
+  animation: waveform-pulse 0.8s ease-in-out infinite alternate;
+}
+
+.waveform--recording .waveform-bar:nth-child(1) { animation-delay: 0s; }
+.waveform--recording .waveform-bar:nth-child(2) { animation-delay: 0.1s; }
+.waveform--recording .waveform-bar:nth-child(3) { animation-delay: 0.05s; }
+.waveform--recording .waveform-bar:nth-child(4) { animation-delay: 0.15s; }
+.waveform--recording .waveform-bar:nth-child(5) { animation-delay: 0.08s; }
+.waveform--recording .waveform-bar:nth-child(6) { animation-delay: 0.18s; }
+.waveform--recording .waveform-bar:nth-child(7) { animation-delay: 0.03s; }
+.waveform--recording .waveform-bar:nth-child(8) { animation-delay: 0.12s; }
+
+@keyframes waveform-pulse {
+  0% { height: 2px; }
+  50% { height: 16px; }
+  100% { height: 4px; }
+}
+
+/* ── Enter animations ── */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-enter {
+  animation: fade-up 200ms ease-out both;
+}
+
+.panel-enter:nth-child(1) { animation-delay: 0ms; }
+.panel-enter:nth-child(2) { animation-delay: 50ms; }
+.panel-enter:nth-child(3) { animation-delay: 100ms; }
+
+/* ── Scrollbar ── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-stroke);
+  border-radius: 2px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .waveform--recording .waveform-bar {
+    animation: none;
+    height: 12px !important;
+    opacity: 0.6;
+  }
+
+  .panel-enter {
+    animation: none;
+    opacity: 1;
+  }
+}

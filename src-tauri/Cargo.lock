@@ -5475,6 +5475,7 @@ dependencies = [
  "cpal 0.18.1",
  "dirs",
  "enigo",
+ "futures-util",
  "hound",
  "once_cell",
  "rdev",
