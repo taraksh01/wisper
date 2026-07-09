@@ -275,7 +275,7 @@ A React-based settings window accessible from the system tray icon.
 
 | # | Subtask | Status | Description |
 |---|---------|--------|-------------|
-| 2.1 | Audio recording module | `pending` | Implement mic capture via `cpal` with configurable device selection |
+| 2.1 | Audio recording module | `completed` | Implement mic capture via `cpal` with configurable device selection |
 | 2.2 | Voice Activity Detection | `pending` | Integrate Silero VAD or energy-based VAD to filter silence |
 | 2.3 | Global hotkey listener | `pending` | Implement `rdev`-based global key capture for push-to-talk and toggle modes |
 | 2.4 | Transcription coordinator | `pending` | State machine: `Idle → Recording → Processing → Idle` with event channel |

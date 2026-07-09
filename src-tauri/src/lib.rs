@@ -4,6 +4,8 @@ use tauri::{
     Manager, WindowEvent,
 };
 
+pub mod audio;
+
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
