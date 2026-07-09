@@ -124,3 +124,20 @@ impl SttProvider for CloudSttProvider {
         Ok(text.to_string())
     }
 }
+
+pub struct LocalParakeetProvider;
+
+impl SttProvider for LocalParakeetProvider {
+    fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String, String> {
+        Err("Parakeet GGUF models are not yet supported. Please use a whisper model (.bin) from the Engine tab.".to_string())
+    }
+}
+
+pub fn create_local_provider(model_path: PathBuf) -> Box<dyn SttProvider> {
+    let path_str = model_path.to_string_lossy().to_lowercase();
+    if path_str.ends_with(".gguf") {
+        Box::new(LocalParakeetProvider)
+    } else {
+        Box::new(LocalWhisperProvider::new(model_path))
+    }
+}

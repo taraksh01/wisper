@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 
 use crate::paste::paste_text;
-use crate::stt::{LocalWhisperProvider, SttProvider};
+use crate::stt::create_local_provider;
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
@@ -114,7 +114,7 @@ impl TranscriptionCoordinator {
 
             if let Some(model_path) = model_path {
                 if model_path.exists() {
-                    let stt = LocalWhisperProvider::new(model_path);
+                    let stt = create_local_provider(model_path);
                     match stt.transcribe(&trimmed, 16000) {
                     Ok(text) => {
                         println!("Transcription: {}", text);
