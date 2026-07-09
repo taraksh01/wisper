@@ -321,12 +321,12 @@ A React-based settings window accessible from the system tray icon.
 
 | # | Subtask | Status | Description |
 |---|---------|--------|-------------|
-| 5.1 | LLM client module | `pending` | OpenAI-compatible chat completion client (`reqwest`) with configurable Base URL, API Key, Model |
-| 5.2 | Smart Agent data model | `pending` | CRUD for prompt profiles: name, system prompt, active flag. Stored in settings |
-| 5.3 | Default "Auto-Format" agent | `pending` | Built-in system prompt that dynamically adapts formatting based on content |
-| 5.4 | LLM pipeline integration | `pending` | Insert LLM step between transcription and paste (when enabled) |
+| 5.1 | LLM client module | `completed` | OpenAI-compatible chat completion client (`reqwest`) with configurable Base URL, API Key, Model |
+| 5.2 | Smart Agent data model | `completed` | CRUD for prompt profiles: name, system prompt, active flag. Stored in settings |
+| 5.3 | Default "Auto-Format" agent | `completed` | Built-in system prompt that dynamically adapts formatting based on content |
+| 5.4 | LLM pipeline integration | `completed` | Insert LLM step between transcription and paste (when enabled) |
 | 5.5 | Toggle LLM on/off | `pending` | Settings toggle + separate hotkey to transcribe with/without LLM |
-| 5.6 | Verify & commit Phase 5 | `pending` | Test transcription → LLM formatting → paste, commit |
+| 5.6 | Verify & commit Phase 5 | `completed` | Test transcription → LLM formatting → paste, commit |
 
 ---
 

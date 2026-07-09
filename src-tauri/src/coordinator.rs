@@ -85,7 +85,26 @@ impl TranscriptionCoordinator {
                 match stt.transcribe(&trimmed, 16000) {
                     Ok(text) => {
                         println!("Transcription: {}", text);
-                        if let Err(e) = paste_text(&text) {
+                        // LLM post-processing (Phase 5)
+                        let final_text = {
+                            let agent = crate::llm::SmartAgent::auto_format();
+                            let llm = crate::llm::LlmClient::new(
+                                "http://localhost:11434/v1".into(),
+                                "ollama".into(),
+                                "llama3.2".into(),
+                            );
+                            match llm.process(&text, &agent) {
+                                Ok(formatted) => {
+                                    println!("LLM formatted: {}", formatted);
+                                    formatted
+                                }
+                                Err(e) => {
+                                    eprintln!("LLM skipped ({}), using raw text", e);
+                                    text
+                                }
+                            }
+                        };
+                        if let Err(e) = paste_text(&final_text) {
                             eprintln!("Paste failed: {}", e);
                         }
                     }
