@@ -37,6 +37,9 @@ impl HistoryManager {
         )
         .expect("Failed to create history table");
 
+        // Migration: add recording_path column if missing on existing databases
+        let _ = conn.execute("ALTER TABLE history ADD COLUMN recording_path TEXT", []);
+
         Self {
             conn: Mutex::new(conn),
         }
