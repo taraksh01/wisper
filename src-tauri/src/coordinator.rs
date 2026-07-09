@@ -3,12 +3,12 @@ use crate::hotkey::HotkeyEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 
-use crate::history::HistoryManager;
 use crate::paste::paste_text;
 use crate::stt::{LocalWhisperProvider, SttProvider};
 use std::path::PathBuf;
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
+pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CoordinatorState {
@@ -94,7 +94,14 @@ impl TranscriptionCoordinator {
     fn stop_and_process(&mut self) {
         self.set_state(CoordinatorState::Processing);
         let samples = self.audio_recorder.stop_recording();
-        
+
+        // Save recording to disk if enabled
+        let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
+            crate::history::save_recording_to_disk(&samples, 16000)
+        } else {
+            None
+        };
+
         // VAD trimming (100ms window at 16kHz = 1600 samples)
         let trimmed = trim_silence(&samples, 1600, 0.01);
 
@@ -134,8 +141,14 @@ impl TranscriptionCoordinator {
                             eprintln!("Paste failed: {}", e);
                         }
                         // Log to history
-                        let history = HistoryManager::new();
-                        if let Err(e) = history.insert(&text, Some(&final_text), agent_name.as_deref(), samples.len() as i64 / 16) {
+                        let history = crate::history::HistoryManager::new();
+                        if let Err(e) = history.insert(
+                            &text,
+                            Some(&final_text),
+                            agent_name.as_deref(),
+                            samples.len() as i64 / 16,
+                            recording_path.as_deref(),
+                        ) {
                             eprintln!("Failed to log history: {}", e);
                         }
                     }

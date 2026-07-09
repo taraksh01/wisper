@@ -6,6 +6,7 @@ export interface HistoryEntry {
   duration_ms: number;
   word_count: number;
   created_at: string;
+  recording_path: string | null;
 }
 
 export interface SmartAgent {
@@ -32,6 +33,7 @@ export interface AppSettings {
   vad_enabled: boolean;
   vad_threshold: number;
   language: string;
+  keep_recordings: boolean;
 }
 
 export interface ModelInfo {

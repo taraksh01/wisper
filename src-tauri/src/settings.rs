@@ -21,6 +21,7 @@ pub struct AppSettings {
     pub vad_enabled: bool,
     pub vad_threshold: f32,
     pub language: String,
+    pub keep_recordings: bool,
 }
 
 impl Default for AppSettings {
@@ -43,6 +44,7 @@ impl Default for AppSettings {
             vad_enabled: true,
             vad_threshold: 0.01,
             language: "auto".into(),
+            keep_recordings: false,
         }
     }
 }
@@ -86,6 +88,7 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         settings.hotkey_mode != "toggle",
         std::sync::atomic::Ordering::Relaxed,
     );
+    crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
     settings.save()
 }
 

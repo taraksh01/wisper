@@ -125,6 +125,7 @@ pub fn run() {
                 saved_settings.hotkey_mode != "toggle",
                 std::sync::atomic::Ordering::Relaxed,
             );
+            coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
             let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
                 .unwrap_or(hotkey::HotkeyBinding {
                     ctrl: false,
@@ -188,6 +189,8 @@ pub fn run() {
             llm::get_default_agents,
             history::get_history_entries,
             history::get_history_stats,
+            history::delete_history_entry,
+            history::update_history_entry,
             settings::load_settings,
             settings::save_settings,
             settings::get_default_settings
