@@ -126,6 +126,15 @@ pub fn run() {
                 std::sync::atomic::Ordering::Relaxed,
             );
             coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+
+            // Load current model path from settings
+            {
+                let model_dir = models::get_models_dir();
+                let model_path = model_dir.join(&saved_settings.local_model_file);
+                if let Ok(mut current) = coordinator::CURRENT_MODEL.lock() {
+                    *current = if model_path.exists() { Some(model_path) } else { None };
+                }
+            }
             let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
                 .unwrap_or(hotkey::HotkeyBinding {
                     ctrl: false,

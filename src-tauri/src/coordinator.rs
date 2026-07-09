@@ -5,10 +5,10 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use crate::paste::paste_text;
 use crate::stt::{LocalWhisperProvider, SttProvider};
-use std::path::PathBuf;
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
+pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CoordinatorState {
@@ -106,15 +106,16 @@ impl TranscriptionCoordinator {
         let trimmed = trim_silence(&samples, 1600, 0.01);
 
         if !trimmed.is_empty() {
-            // Hardcode local model testing for now (Phase 3)
-            let mut model_path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-            model_path.push("v3");
-            model_path.push("models");
-            model_path.push("ggml-base.en.bin");
+            // Use the user-selected model from settings
+            let model_path = {
+                let guard = CURRENT_MODEL.lock().unwrap();
+                guard.clone()
+            };
 
-            if model_path.exists() {
-                let stt = LocalWhisperProvider::new(model_path);
-                match stt.transcribe(&trimmed, 16000) {
+            if let Some(model_path) = model_path {
+                if model_path.exists() {
+                    let stt = LocalWhisperProvider::new(model_path);
+                    match stt.transcribe(&trimmed, 16000) {
                     Ok(text) => {
                         println!("Transcription: {}", text);
                         // LLM post-processing (Phase 5)
@@ -155,8 +156,12 @@ impl TranscriptionCoordinator {
                     Err(e) => eprintln!("Transcription error: {}", e),
                 }
             } else {
-                eprintln!("Model not found! Please download ggml-base.en.bin");
+                eprintln!("Model file not found at: {:?}", model_path);
             }
+        } else {
+            // No model selected in settings
+            eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
+        }
         }
 
         self.set_state(CoordinatorState::Idle);

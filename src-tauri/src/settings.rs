@@ -89,6 +89,14 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         std::sync::atomic::Ordering::Relaxed,
     );
     crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+
+    // Update current model path
+    let model_dir = crate::models::get_models_dir();
+    let model_path = model_dir.join(&settings.local_model_file);
+    if let Ok(mut current) = crate::coordinator::CURRENT_MODEL.lock() {
+        *current = if model_path.exists() { Some(model_path) } else { None };
+    }
+
     settings.save()
 }
 
