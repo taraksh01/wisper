@@ -49,9 +49,6 @@ function App() {
     (async () => {
       unlisten = await listen<string>("v3:state", (event) => {
         setAppState(event.payload);
-        if (event.payload === "idle") {
-          fetchHistory();
-        }
       });
       unlistenProgress = await listen<{ model: string; progress: number }>("download-progress", (event) => {
         const { model, progress } = event.payload;
@@ -73,6 +70,18 @@ function App() {
       setStats(s);
     } catch {}
   }, []);
+
+  // Auto-refresh history when transcription completes
+  useEffect(() => {
+    if (appState === "idle") {
+      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
+      const s = invoke<[number, number, number]>("get_history_stats");
+      Promise.all([h, s]).then(([entries, stats]) => {
+        setHistory(entries);
+        setStats(stats);
+      }).catch(() => {});
+    }
+  }, [appState]);
 
   const fetchModels = useCallback(async () => {
     try {
