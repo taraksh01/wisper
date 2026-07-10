@@ -21,6 +21,9 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 
+static UNLOAD_ITEM: once_cell::sync::Lazy<std::sync::Mutex<Option<MenuItem<tauri::Wry>>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
 static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
 
@@ -56,6 +59,24 @@ fn set_hotkey(key: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_current_model() -> String {
+    coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn unload_model(_app: tauri::AppHandle) {
+    {
+        let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
+        *current = None;
+    }
+    {
+        let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+        name.clear();
+    }
+    update_tray_menu_text();
+}
+
 fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
     let label = match state {
         CoordinatorState::Idle => "idle",
@@ -63,6 +84,18 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
         CoordinatorState::Processing => "processing",
     };
     let _ = app.emit("v3:state", label);
+}
+
+pub fn update_tray_menu_text() {
+    if let Some(item) = UNLOAD_ITEM.lock().unwrap().as_ref() {
+        let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
+        let text = if name.is_empty() {
+            "No model loaded".into()
+        } else {
+            format!("✕  {}", name)
+        };
+        let _ = item.set_text(&text);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -74,10 +107,23 @@ pub fn run() {
 
             let quit_i = MenuItem::with_id(app, "quit", "Quit v3", true, None::<&str>)?;
             let settings_i =
-                MenuItem::with_id(app, "settings", "Settings & History", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&settings_i, &quit_i])?;
+                MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let unload_i =
+                MenuItem::with_id(app, "unload", "Unload Model", true, None::<&str>)?;
+            {
+                let mut guard = UNLOAD_ITEM.lock().unwrap();
+                *guard = Some(unload_i.clone());
+            }
+            // Set initial text if model is loaded
+            {
+                let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+                if !name.is_empty() {
+                    let _ = unload_i.set_text(&format!("✕  {}", name));
+                }
+            }
+            let menu = Menu::with_items(app, &[&settings_i, &unload_i, &quit_i])?;
 
-            let tray = TrayIconBuilder::new()
+            let tray = TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -90,6 +136,20 @@ pub fn run() {
                         if let Some(win) = app.get_webview_window("main") {
                             let _ = win.show();
                             let _ = win.set_focus();
+                        }
+                    }
+                    "unload" => {
+                        {
+                            let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
+                            *current = None;
+                        }
+                        {
+                            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+                            name.clear();
+                        }
+                        update_tray_menu_text();
+                        if let Some(tray) = app.tray_by_id("main") {
+                            let _ = tray.set_tooltip(Some("v3 Dictation - No model loaded"));
                         }
                     }
                     _ => {}
@@ -132,9 +192,15 @@ pub fn run() {
                 let model_dir = models::get_models_dir();
                 let model_path = model_dir.join(&saved_settings.local_model_file);
                 if let Ok(mut current) = coordinator::CURRENT_MODEL.lock() {
-                    *current = if model_path.exists() { Some(model_path) } else { None };
+                    *current = if model_path.exists() { Some(model_path.clone()) } else { None };
+                }
+                if let Ok(mut name) = coordinator::MODEL_DISPLAY_NAME.lock() {
+                    if model_path.exists() {
+                        *name = coordinator::model_display_name(&model_path);
+                    }
                 }
             }
+
             let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
                 .unwrap_or(hotkey::HotkeyBinding {
                     ctrl: false,
@@ -153,9 +219,12 @@ pub fn run() {
                 TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
 
             // Spawn Coordinator
-            thread::spawn(move || {
-                coordinator.run();
-            });
+            thread::Builder::new()
+                .stack_size(8 * 1024 * 1024)
+                .spawn(move || {
+                    coordinator.run();
+                })
+                .unwrap();
 
             // Spawn Hotkey Manager
             let hotkey_manager = HotkeyManager::new(HOTKEY_BINDING.clone(), hk_tx);
@@ -165,12 +234,19 @@ pub fn run() {
             let app_handle_clone = app_handle.clone();
             thread::spawn(move || {
                 while let Ok(state) = state_rx.recv() {
+                    let model_name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
                     let tooltip = match state {
-                        CoordinatorState::Idle => "v3 Dictation - Idle",
-                        CoordinatorState::Recording => "v3 Dictation - Recording...",
-                        CoordinatorState::Processing => "v3 Dictation - Processing...",
+                        CoordinatorState::Idle => {
+                            if model_name.is_empty() {
+                                "v3 Dictation - Idle".into()
+                            } else {
+                                format!("v3 Dictation - Idle [{}]", model_name)
+                            }
+                        }
+                        CoordinatorState::Recording => "v3 Dictation - Recording...".into(),
+                        CoordinatorState::Processing => "v3 Dictation - Processing...".into(),
                     };
-                    let _ = tray.set_tooltip(Some(tooltip));
+                    let _ = tray.set_tooltip(Some(&tooltip));
                     {
                         let mut lock = STATE_LOCK.lock().unwrap();
                         *lock = state;
@@ -190,6 +266,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             get_current_state,
+            get_current_model,
+            unload_model,
             set_hotkey,
             models::list_local_models,
             models::download_model,

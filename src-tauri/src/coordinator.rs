@@ -2,6 +2,7 @@ use crate::audio::{trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::Mutex;
 
 use crate::paste::paste_text;
 use crate::stt::create_local_provider;
@@ -9,6 +10,16 @@ use crate::stt::create_local_provider;
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
+
+pub fn model_display_name(path: &std::path::Path) -> String {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    if name.starts_with("parakeet-") {
+        name.replace("parakeet-", "Parakeet ").replace("-int8", " (INT8)")
+    } else {
+        name.to_string()
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CoordinatorState {
@@ -94,17 +105,24 @@ impl TranscriptionCoordinator {
     fn stop_and_process(&mut self) {
         self.set_state(CoordinatorState::Processing);
         let samples = self.audio_recorder.stop_recording();
+        let device_sr = self.audio_recorder.sample_rate();
 
-        // Save recording to disk if enabled
+        // Resample to 16kHz once, then work with 16kHz audio everywhere
+        let resampled = if device_sr != 16000 {
+            crate::stt::resample(&samples, device_sr, 16000)
+        } else {
+            samples.clone()
+        };
+
+        // Save recording to disk if enabled (at original sample rate for playback)
         let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
-            let sr = self.audio_recorder.sample_rate();
-            crate::history::save_recording_to_disk(&samples, sr)
+            crate::history::save_recording_to_disk(&samples, device_sr)
         } else {
             None
         };
 
         // VAD trimming (100ms window at 16kHz = 1600 samples)
-        let trimmed = trim_silence(&samples, 1600, 0.01);
+        let trimmed = trim_silence(&resampled, 1600, 0.01);
 
         if !trimmed.is_empty() {
             // Use the user-selected model from settings

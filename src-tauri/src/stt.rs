@@ -5,59 +5,51 @@ pub trait SttProvider: Send + Sync {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String>;
 }
 
-pub struct LocalWhisperProvider {
-    model_path: PathBuf,
+pub struct ParakeetOnnxProvider {
+    model_dir: PathBuf,
 }
 
-impl LocalWhisperProvider {
-    pub fn new(model_path: PathBuf) -> Self {
-        Self { model_path }
+impl ParakeetOnnxProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
     }
 }
 
-impl SttProvider for LocalWhisperProvider {
+impl SttProvider for ParakeetOnnxProvider {
     fn transcribe(&self, audio: &[f32], _sample_rate: u32) -> Result<String, String> {
-        use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+        use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
+        use transcribe_rs::onnx::Quantization;
 
-        if !self.model_path.exists() {
-            return Err(format!("Model file not found at: {:?}", self.model_path));
-        }
+        let samples = if _sample_rate != 16000 {
+            resample(audio, _sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
 
-        let ctx = WhisperContext::new_with_params(
-            self.model_path.to_str().unwrap(),
-            WhisperContextParameters::default(),
-        )
-        .map_err(|e| format!("Failed to load Whisper model: {}", e))?;
+        let mut model = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+            .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
 
-        let mut state = ctx
-            .create_state()
-            .map_err(|e| format!("Failed to create Whisper state: {}", e))?;
+        let result = model
+            .transcribe_with(&samples, &ParakeetParams::default())
+            .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(Some("en"));
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-
-        state
-            .full(params, audio)
-            .map_err(|e| format!("Transcription failed: {}", e))?;
-
-        let num_segments = state.full_n_segments();
-
-        let mut text = String::new();
-        for i in 0..num_segments {
-            if let Some(segment) = state.get_segment(i) {
-                if let Ok(str_text) = segment.to_str() {
-                    text.push_str(str_text);
-                    text.push(' ');
-                }
-            }
-        }
-
-        Ok(text.trim().to_string())
+        Ok(result.text.trim().to_string())
     }
+}
+
+pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
+    if input_rate == output_rate {
+        return input.to_vec();
+    }
+    let ratio = output_rate as f64 / input_rate as f64;
+    let output_len = (input.len() as f64 * ratio) as usize;
+    let mut output = Vec::with_capacity(output_len);
+    for i in 0..output_len {
+        let src_idx = (i as f64 / ratio) as usize;
+        let src_idx = src_idx.min(input.len().saturating_sub(1));
+        output.push(input[src_idx]);
+    }
+    output
 }
 
 pub struct CloudSttProvider {
@@ -78,10 +70,9 @@ impl CloudSttProvider {
 
 impl SttProvider for CloudSttProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
-        // Save audio to temporary WAV file
         let temp_dir = std::env::temp_dir();
         let wav_path = temp_dir.join("v3_dictate_temp.wav");
-        
+
         crate::audio::save_wav(wav_path.to_str().unwrap(), audio, sample_rate)
             .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
 
@@ -125,19 +116,6 @@ impl SttProvider for CloudSttProvider {
     }
 }
 
-pub struct LocalParakeetProvider;
-
-impl SttProvider for LocalParakeetProvider {
-    fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String, String> {
-        Err("Parakeet GGUF models are not yet supported. Please use a whisper model (.bin) from the Engine tab.".to_string())
-    }
-}
-
 pub fn create_local_provider(model_path: PathBuf) -> Box<dyn SttProvider> {
-    let path_str = model_path.to_string_lossy().to_lowercase();
-    if path_str.ends_with(".gguf") {
-        Box::new(LocalParakeetProvider)
-    } else {
-        Box::new(LocalWhisperProvider::new(model_path))
-    }
+    Box::new(ParakeetOnnxProvider::new(model_path))
 }

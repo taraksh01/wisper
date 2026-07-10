@@ -18,13 +18,10 @@ pub fn list_local_models() -> Vec<String> {
     let mut models = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
             if let Ok(file_type) = entry.file_type() {
-                if file_type.is_file() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if name.ends_with(".bin") || name.ends_with(".gguf") {
-                            models.push(name.to_string());
-                        }
-                    }
+                if file_type.is_dir() && name.starts_with("parakeet-") {
+                    models.push(name);
                 }
             }
         }
@@ -34,27 +31,19 @@ pub fn list_local_models() -> Vec<String> {
 
 pub fn download_url(model_name: &str) -> Option<String> {
     let url = match model_name {
-        "tiny.en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
-        "base.en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
-        "small.en" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-        "tiny" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-        "base" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-        "small" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-        "medium" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-        "large-v3" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-        "large-v3-turbo" => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-        "parakeet-tdt_ctc-110m" => "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-tdt_ctc-110m-f16.gguf",
-        "parakeet-tdt-0.6b-v2" => "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v2-f16.gguf",
-        "parakeet-tdt-0.6b-v3" => "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/tdt-0.6b-v3-f16.gguf",
-        "parakeet-ctc-0.6b" => "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-ctc-0.6b-f16.gguf",
-        "parakeet-tdt-1.1b" => "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main/parakeet-tdt-1.1b-f16.gguf",
+        "parakeet-onnx-tdt-0.6b-v3" => "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
+        "parakeet-onnx-tdt-0.6b-v2" => "https://blob.handy.computer/parakeet-v2-int8.tar.gz",
         _ => return None,
     };
     Some(url.to_string())
 }
 
-fn is_gguf_model(model_name: &str) -> bool {
-    model_name.starts_with("parakeet-")
+fn onnx_dir_name(model_name: &str) -> Option<String> {
+    match model_name {
+        "parakeet-onnx-tdt-0.6b-v3" => Some("parakeet-tdt-0.6b-v3-int8".into()),
+        "parakeet-onnx-tdt-0.6b-v2" => Some("parakeet-tdt-0.6b-v2-int8".into()),
+        _ => None,
+    }
 }
 
 #[tauri::command]
@@ -63,23 +52,21 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         format!("Unknown model: {}.", model_name)
     })?;
 
-    let filename = if is_gguf_model(&model_name) {
-        format!("{}.gguf", model_name)
-    } else {
-        format!("ggml-{}.bin", model_name)
-    };
+    let models_dir = get_models_dir();
 
-    let target_path = get_models_dir().join(&filename);
-    if target_path.exists() {
-        return Ok(target_path.to_string_lossy().to_string());
+    let dir_name = onnx_dir_name(&model_name).ok_or("Missing directory name for ONNX model")?;
+    let target_dir = models_dir.join(&dir_name);
+    if target_dir.exists() {
+        return Ok(target_dir.to_string_lossy().to_string());
     }
+
+    let temp_archive = std::env::temp_dir().join(format!("v3_{}.tar.gz", &model_name));
 
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
-
     let total = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut file = fs::File::create(&target_path).map_err(|e| e.to_string())?;
+    let mut file = fs::File::create(&temp_archive).map_err(|e| e.to_string())?;
 
     let mut stream = response.bytes_stream();
     let mut last_emitted = 0u32;
@@ -101,7 +88,14 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         }
     }
 
-    Ok(target_path.to_string_lossy().to_string())
+    // Extract archive
+    let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+    archive.unpack(&models_dir).map_err(|e| format!("Failed to extract model: {}", e))?;
+
+    let _ = fs::remove_file(&temp_archive);
+
+    Ok(target_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -110,7 +104,11 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("Model '{}' not found", model_name));
     }
-    fs::remove_file(&path).map_err(|e| format!("Failed to delete model: {}", e))
+    if path.is_dir() {
+        fs::remove_dir_all(&path).map_err(|e| format!("Failed to delete model: {}", e))
+    } else {
+        fs::remove_file(&path).map_err(|e| format!("Failed to delete model: {}", e))
+    }
 }
 
 #[tauri::command]

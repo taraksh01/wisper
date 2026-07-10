@@ -32,7 +32,7 @@ impl Default for AppSettings {
             stt_base_url: String::new(),
             stt_api_key: String::new(),
             stt_model: "whisper-1".into(),
-            local_model_file: "ggml-base.en.bin".into(),
+            local_model_file: "parakeet-tdt-0.6b-v3-int8".into(),
             llm_enabled: true,
             llm_base_url: "http://localhost:11434/v1".into(),
             llm_api_key: String::new(),
@@ -94,8 +94,19 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
     if let Ok(mut current) = crate::coordinator::CURRENT_MODEL.lock() {
-        *current = if model_path.exists() { Some(model_path) } else { None };
+        *current = if model_path.exists() { Some(model_path.clone()) } else { None };
     }
+
+    // Update display name for tray tooltip
+    if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
+        if model_path.exists() {
+            *name = crate::coordinator::model_display_name(&model_path);
+        } else {
+            name.clear();
+        }
+    }
+
+    crate::update_tray_menu_text();
 
     settings.save()
 }

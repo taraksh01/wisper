@@ -1,4 +1,4 @@
-import { ModelInfo } from "../types";
+import { ModelInfo, formatModelFilename } from "../types";
 
 interface ModelCardProps {
   modelKey: string;
@@ -27,7 +27,7 @@ function ModelCard({
   onDownload,
   onDelete,
 }: ModelCardProps) {
-  const filename = info.format === "ggml" ? `ggml-${modelKey}.bin` : `${modelKey}.gguf`;
+  const filename = formatModelFilename(modelKey, info.format);
 
   return (
     <div

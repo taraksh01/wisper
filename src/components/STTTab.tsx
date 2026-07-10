@@ -77,7 +77,7 @@ export function STTTab({
                 : "text-muted hover:text-ink"
             }`}
           >
-            {mode === "local" ? "Local (Whisper)" : "Cloud API"}
+            {mode === "local" ? "Local Engine" : "Cloud API"}
           </button>
         ))}
       </div>
@@ -91,7 +91,7 @@ export function STTTab({
           }`}
         >
           <div className="space-y-4">
-            <p className="text-[10px] text-muted mb-1">Stored at <span className="text-ink">{modelsPath}</span></p>
+            <p className="text-[10px] text-muted">Stored at <span className="text-ink">{modelsPath}</span></p>
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <div className="relative flex-1">

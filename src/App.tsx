@@ -35,6 +35,7 @@ function App() {
   const [modelsPath, setModelsPath] = useState("");
   const [modelLangFilter, setModelLangFilter] = useState("all");
   const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [currentModelName, setCurrentModelName] = useState("");
 
   useEffect(() => {
     invoke<AppSettings>("load_settings").then(setSettings).catch(console.error);
@@ -43,6 +44,7 @@ function App() {
     fetchAgents();
     invoke<string>("get_models_dir_path").then(setModelsPath).catch(console.error);
     invoke<string>("get_current_state").then(setAppState).catch(console.error);
+    invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
 
     let unlisten: UnlistenFn | undefined;
     let unlistenProgress: UnlistenFn | undefined;
@@ -127,6 +129,9 @@ function App() {
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     invoke("save_settings", { settings: updated }).catch(console.error);
+    if (key === "local_model_file") {
+      invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
+    }
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
@@ -134,6 +139,14 @@ function App() {
     const merged = { ...settings, ...updates };
     setSettings(merged);
     invoke("save_settings", { settings: merged }).catch(console.error);
+    if ("local_model_file" in updates) {
+      invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
+    }
+  };
+
+  const unloadModel = async () => {
+    await invoke("unload_model");
+    setCurrentModelName("");
   };
 
   const resetTabSettings = async () => {
@@ -200,6 +213,22 @@ function App() {
               <p className="text-[10px] font-mono text-muted tracking-widest uppercase">Voice</p>
             </div>
           </div>
+          {currentModelName && (
+            <div className="flex items-center gap-1.5 mb-6 px-1">
+              <span className="text-[10px] font-mono text-accent truncate flex-1" title={currentModelName}>
+                {currentModelName}
+              </span>
+              <button
+                onClick={unloadModel}
+                className="shrink-0 p-0.5 rounded text-muted hover:text-recording hover:bg-recording/10 transition-colors"
+                title="Unload model"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
           <nav className="space-y-1">
             {tabs.map((tab) => {
               const isActive = activeTab === tab.id;
