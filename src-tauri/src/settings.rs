@@ -140,6 +140,9 @@ pub fn update_display_name(settings: &AppSettings) {
 
 #[tauri::command]
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
+    eprintln!("[save_settings] called with {} fields", serde_json::to_string(&settings).unwrap_or_default().len());
+    let path = AppSettings::path();
+    eprintln!("[save_settings] path: {:?}", path);
     crate::coordinator::HOTKEY_MODE.store(
         settings.hotkey_mode != "toggle",
         std::sync::atomic::Ordering::Relaxed,
@@ -181,7 +184,9 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     update_display_name(&settings);
     crate::update_tray_menu_text();
 
-    settings.save()
+    let result = settings.save();
+    eprintln!("[save_settings] result: {:?}", result);
+    result
 }
 
 #[tauri::command]

@@ -137,7 +137,8 @@ function App() {
     if (!settings) return;
     const updated = { ...settings, [key]: value };
     setSettings(updated);
-    invoke("save_settings", { settings: updated }).catch(console.error);
+    console.log("[saveSetting]", key, value);
+    invoke("save_settings", { settings: updated }).then(() => console.log("[saveSetting] ok")).catch(console.error);
     refreshCurrentModel();
   };
 
@@ -145,7 +146,8 @@ function App() {
     if (!settings) return;
     const merged = { ...settings, ...updates };
     setSettings(merged);
-    invoke("save_settings", { settings: merged }).catch(console.error);
+    console.log("[saveAllSettings]", updates);
+    invoke("save_settings", { settings: merged }).then(() => console.log("[saveAllSettings] ok")).catch(console.error);
     refreshCurrentModel();
   };
 
