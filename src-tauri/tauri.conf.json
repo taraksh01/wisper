@@ -13,8 +13,9 @@
     "windows": [
       {
         "title": "v3",
-        "width": 700,
-        "height": 600
+        "width": 736,
+        "height": 640,
+        "resizable": false
       }
     ],
     "security": {
