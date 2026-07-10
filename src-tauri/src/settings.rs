@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     pub stt_mode: String,
     pub stt_provider: String,
@@ -31,6 +32,7 @@ pub struct AppSettings {
     pub llm_api_key_custom: String,
     pub llm_model: String,
     pub llm_agent_name: String,
+    pub llm_agent_prompt: String,
     pub hotkey: String,
     pub hotkey_mode: String,
     pub paste_method: String,
@@ -70,6 +72,7 @@ impl Default for AppSettings {
             llm_api_key_custom: String::new(),
             llm_model: "llama3.2".into(),
             llm_agent_name: "Auto-Format".into(),
+            llm_agent_prompt: String::new(),
             hotkey: "F12".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Ctrl+V".into(),

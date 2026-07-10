@@ -43,6 +43,7 @@ export interface AppSettings {
   llm_api_key_custom: string;
   llm_model: string;
   llm_agent_name: string;
+  llm_agent_prompt: string;
   hotkey: string;
   hotkey_mode: string;
   paste_method: string;

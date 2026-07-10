@@ -83,6 +83,8 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
   function handleModelChange(value: string) {
     if (value !== "__custom__") {
       onSave("llm_model", value);
+    } else {
+      onSave("llm_model", "");
     }
   }
 
@@ -180,14 +182,20 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
                   )}
                   {onResetAgent && (
                     <button
-                      onClick={onResetAgent}
+                      onClick={() => {
+                        onSave("llm_agent_prompt", "");
+                        onResetAgent!();
+                      }}
                       className="ml-auto text-[10px] font-mono text-muted hover:text-accent transition-colors"
                     >
                       Reset
                     </button>
                   )}
                 </div>
-                <AutoTextarea value={agent.system_prompt} />
+                <AutoTextarea
+                  value={settings.llm_agent_prompt || agent.system_prompt}
+                  onChange={(v) => onSave("llm_agent_prompt", v)}
+                />
               </div>
             ))}
           </section>
@@ -197,7 +205,7 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
   );
 }
 
-function AutoTextarea({ value }: { value: string }) {
+function AutoTextarea({ value, onChange }: { value: string; onChange?: (v: string) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -210,9 +218,10 @@ function AutoTextarea({ value }: { value: string }) {
   return (
     <textarea
       ref={ref}
-      readOnly
+      readOnly={!onChange}
       value={value}
-      className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs text-muted leading-relaxed resize-none outline-none ring-1 ring-stroke min-h-[60px]"
+      onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+      className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs text-muted leading-relaxed resize-none outline-none ring-1 ring-stroke min-h-[60px] focus:ring-accent/50 focus:text-ink transition-all"
     />
   );
 }

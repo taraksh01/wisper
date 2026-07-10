@@ -174,7 +174,14 @@ impl TranscriptionCoordinator {
                         let llm_base_url = LLM_BASE_URL.lock().unwrap().clone();
                         let llm_api_key = LLM_API_KEY.lock().unwrap().clone();
                         let llm_model = LLM_MODEL.lock().unwrap().clone();
-                        let agent = crate::llm::SmartAgent::auto_format();
+                        let agent = {
+                            let settings = crate::settings::AppSettings::load();
+                            if settings.llm_agent_prompt.is_empty() {
+                                crate::llm::SmartAgent::auto_format()
+                            } else {
+                                crate::llm::SmartAgent::with_prompt(settings.llm_agent_prompt)
+                            }
+                        };
                         let llm = crate::llm::LlmClient::new(
                             llm_base_url,
                             llm_api_key,
