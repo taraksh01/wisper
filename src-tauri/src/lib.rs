@@ -351,6 +351,7 @@ pub fn run() {
             history::update_history_entry,
             history::retranscribe_recording,
             history::get_recording_data,
+            history::clear_history,
             settings::load_settings,
             settings::save_settings,
             settings::get_default_settings

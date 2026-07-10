@@ -126,6 +126,12 @@ impl HistoryManager {
         Ok((total, total_words, avg_words))
     }
 
+    pub fn clear_all(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM history", [])?;
+        Ok(())
+    }
+
     pub fn get_recording_dir() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
         path.push("v3");
@@ -237,6 +243,30 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
     }
 
     provider.transcribe(&trimmed, sample_rate)
+}
+
+#[tauri::command]
+pub fn clear_history() -> Result<(), String> {
+    let manager = HistoryManager::new();
+
+    // Collect all recording paths before deleting
+    let entries = manager
+        .get_history(i64::MAX)
+        .map_err(|e| format!("Failed to get history: {}", e))?;
+
+    // Delete recording files
+    for entry in &entries {
+        if let Some(ref path) = entry.recording_path {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    // Delete all rows from the table
+    manager
+        .clear_all()
+        .map_err(|e| format!("Failed to clear history: {}", e))?;
+
+    Ok(())
 }
 
 #[tauri::command]

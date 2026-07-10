@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
+import { SectionCard } from "./SectionCard";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
@@ -58,6 +60,32 @@ function RetryIcon() {
   );
 }
 
+function ConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
+      <div className="bg-surface border border-stroke rounded-xl p-5 max-w-xs w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-bold font-mono text-ink mb-2">Clear all history?</h3>
+        <p className="text-xs text-muted mb-4 leading-relaxed">This will permanently delete all dictations and recordings.</p>
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-xs font-mono text-muted hover:text-ink rounded-md ring-1 ring-stroke hover:ring-muted transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-xs font-mono text-white bg-recording rounded-md hover:bg-red-500 transition-all"
+          >
+            Clear all
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 const audioCache = new Map<string, string>();
 
 export function HistoryTab({ history, stats, settings, onSave, onRefresh }: HistoryTabProps) {
@@ -67,6 +95,8 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -105,9 +135,29 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       await invoke("delete_history_entry", { id });
       onRefresh();
     } catch (e) {
-      console.error("Failed to delete:", e);
+      console.error("Delete failed:", e);
     }
   }, [onRefresh]);
+
+  const deleteSelected = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    try {
+      await Promise.all(ids.map((id) => invoke("delete_history_entry", { id })));
+      setSelectedIds(new Set());
+      onRefresh();
+    } catch (e) {
+      console.error("Delete selected failed:", e);
+    }
+  }, [selectedIds, onRefresh]);
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const copyEntry = useCallback(async (entry: HistoryEntry) => {
     const text = entry.formatted_text || entry.raw_text;
@@ -166,8 +216,18 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   }, [onRefresh]);
 
   return (
-    <div className="space-y-3 panel-enter">
-      <section className="panel-enter">
+    <div className="max-w-lg space-y-4 card-enter">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <h1 className="text-sm font-bold font-mono text-ink tracking-tight">History</h1>
+        </div>
+      </div>
+
+      <SectionCard className="card-enter">
         <div className="grid grid-cols-3 gap-2">
           {[
             { label: "Dictations", value: stats[0] },
@@ -180,11 +240,11 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             </div>
           ))}
         </div>
-      </section>
+      </SectionCard>
 
-      <section className="panel-enter">
+      <SectionCard className="card-enter">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-xs font-mono text-muted tracking-wider uppercase">Recent</div>
+          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Recent</h2>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-[11px] font-mono text-muted cursor-pointer">
               <input
@@ -195,6 +255,14 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
               />
               Keep recordings
             </label>
+            {history.length > 0 && (
+              <button
+                onClick={() => setShowClearConfirm(true)}
+                className="text-[11px] font-mono text-recording/70 hover:text-recording transition-colors"
+              >
+                Clear all
+              </button>
+            )}
             <button
               onClick={onRefresh}
               className="text-[11px] font-mono text-accent hover:text-accent-dim transition-colors"
@@ -203,6 +271,33 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             </button>
           </div>
         </div>
+
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-[11px] font-mono text-muted hover:text-ink transition-colors"
+            >
+              Clear selection
+            </button>
+            <span className="text-[10px] font-mono text-muted tabular-nums">{selectedIds.size} selected</span>
+            {selectedIds.size < history.length && (
+              <button
+                onClick={() => setSelectedIds(new Set(history.map((e) => e.id)))}
+                className="text-[11px] font-mono text-accent/70 hover:text-accent transition-colors"
+              >
+                Select all
+              </button>
+            )}
+            <button
+              onClick={deleteSelected}
+              className="ml-auto text-[11px] font-mono text-recording/70 hover:text-recording transition-colors"
+            >
+              Delete selected
+            </button>
+          </div>
+        )}
+
         {history.length === 0 ? (
           <p className="text-xs text-muted">No history yet. Press {settings.hotkey} to dictate.</p>
         ) : (
@@ -210,7 +305,11 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             {history.map((entry) => (
               <div
                 key={entry.id}
-                className="bg-elevated/30 rounded-md px-2.5 py-2 hover:bg-elevated/60 transition-colors"
+                className={`rounded-md px-2.5 py-2 transition-colors ${
+                  selectedIds.has(entry.id)
+                    ? "bg-accent/8 border-l-2 border-accent"
+                    : "bg-elevated/30 hover:bg-elevated/60"
+                }`}
               >
                 {editingId === entry.id ? (
                   <div className="space-y-2">
@@ -247,6 +346,12 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
                   <>
                     <div className="flex items-center justify-between mb-0.5">
                       <div className="flex items-center gap-1.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(entry.id)}
+                          onChange={() => toggleSelect(entry.id)}
+                          className="w-3 h-3 accent-accent shrink-0"
+                        />
                         {entry.recording_path && (
                           <button
                             onClick={() => togglePlay(entry.id, entry.recording_path!)}
@@ -313,7 +418,22 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             ))}
           </div>
         )}
-      </section>
+      </SectionCard>
+
+      {showClearConfirm && (
+        <ConfirmModal
+          onConfirm={async () => {
+            setShowClearConfirm(false);
+            try {
+              await invoke("clear_history");
+              onRefresh();
+            } catch (e) {
+              console.error("Failed to clear history:", e);
+            }
+          }}
+          onCancel={() => setShowClearConfirm(false)}
+        />
+      )}
     </div>
   );
 }

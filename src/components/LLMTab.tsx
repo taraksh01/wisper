@@ -3,6 +3,7 @@ import { AppSettings, SmartAgent, LLM_PROVIDERS } from "../types";
 import { Select } from "./Select";
 import { Field } from "./Field";
 import { ResetButton } from "./ResetButton";
+import { SectionCard } from "./SectionCard";
 
 interface LLMTabProps {
   settings: AppSettings;
@@ -93,28 +94,35 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
   }
 
   return (
-    <div className="space-y-3 panel-enter">
-      <div className="flex items-center justify-between panel-enter">
-        <div />
+    <div className="max-w-lg space-y-4 card-enter">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+          </svg>
+          <h1 className="text-sm font-bold font-mono text-ink tracking-tight">Process</h1>
+        </div>
         <ResetButton onClick={onReset} />
       </div>
 
-      <section className="panel-enter flex items-center justify-between">
-        <span className="text-xs font-mono text-muted tracking-wider uppercase">LLM Post-Processing</span>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={settings.llm_enabled}
-            onChange={(e) => onSave("llm_enabled", e.target.checked)}
-            className="accent-accent size-3.5"
-          />
-          <span className="text-xs text-muted font-mono">Enabled</span>
-        </label>
-      </section>
+      <SectionCard className="card-enter">
+        <div className="flex items-center justify-between">
+          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">LLM Post-Processing</h2>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.llm_enabled}
+              onChange={(e) => onSave("llm_enabled", e.target.checked)}
+              className="accent-accent size-3.5"
+            />
+            <span className="text-xs text-muted font-mono">Enabled</span>
+          </label>
+        </div>
+      </SectionCard>
 
       {settings.llm_enabled && (
         <>
-          <section className="panel-enter space-y-2.5">
+          <SectionCard title="Provider" className="card-enter space-y-3">
             <Select
               label="Provider"
               value={settings.llm_provider}
@@ -169,10 +177,9 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
             <Field label="Base URL" value={settings.llm_base_url} onChange={(v) => onSave("llm_base_url", v)} placeholder="http://localhost:11434/v1" />
 
             <Field label="LLM API Key" value={settings.llm_api_key} onChange={(v) => onSave("llm_api_key", v)} placeholder="sk-..." secret />
-          </section>
+          </SectionCard>
 
-          <section className="panel-enter">
-            <div className="text-xs font-mono text-muted mb-3 tracking-wider uppercase">Smart Agents</div>
+          <SectionCard title="Smart Agent" className="card-enter">
             {agents.map((agent) => (
               <div key={agent.name} className="mb-3 last:mb-0">
                 <div className="flex items-center gap-2 mb-1.5">
@@ -198,7 +205,7 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
                 />
               </div>
             ))}
-          </section>
+          </SectionCard>
         </>
       )}
     </div>
