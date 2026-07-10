@@ -9,6 +9,7 @@ import { LLMTab } from "./components/LLMTab";
 import { HistoryTab } from "./components/HistoryTab";
 import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
+import { UpdateBanner } from "./components/UpdateBanner";
 import "./styles.css";
 
 function useSystemTheme() {
@@ -234,6 +235,7 @@ function App() {
 
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
+          <UpdateBanner />
           {renderTab()}
         </div>
 
