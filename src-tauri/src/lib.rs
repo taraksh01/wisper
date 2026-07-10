@@ -233,6 +233,16 @@ pub fn run() {
         std::sync::atomic::Ordering::Relaxed,
     );
     coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+    coordinator::LLM_ENABLED.store(saved_settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut v) = coordinator::LLM_BASE_URL.lock() {
+        *v = saved_settings.llm_base_url.clone();
+    }
+    if let Ok(mut v) = coordinator::LLM_API_KEY.lock() {
+        *v = saved_settings.llm_api_key.clone();
+    }
+    if let Ok(mut v) = coordinator::LLM_MODEL.lock() {
+        *v = saved_settings.llm_model.clone();
+    }
     if let Ok(mut method) = coordinator::PASTE_METHOD.lock() {
         *method = saved_settings.paste_method.clone();
     }
@@ -246,7 +256,7 @@ pub fn run() {
         *v = saved_settings.stt_base_url.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_API_KEY.lock() {
-        *v = saved_settings.stt_api_key.clone();
+        *v = saved_settings.voice_api_key.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_MODEL.lock() {
         *v = saved_settings.stt_model.clone();

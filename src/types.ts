@@ -19,12 +19,28 @@ export interface AppSettings {
   stt_mode: string;
   stt_provider: string;
   stt_base_url: string;
-  stt_api_key: string;
+  voice_api_key: string;
+  voice_api_key_openai: string;
+  voice_api_key_groq: string;
+  voice_api_key_custom: string;
   stt_model: string;
   local_model_file: string;
   llm_enabled: boolean;
+  llm_provider: string;
   llm_base_url: string;
   llm_api_key: string;
+  llm_api_key_openai: string;
+  llm_api_key_anthropic: string;
+  llm_api_key_google: string;
+  llm_api_key_groq: string;
+  llm_api_key_together: string;
+  llm_api_key_deepseek: string;
+  llm_api_key_kimi: string;
+  llm_api_key_qwen: string;
+  llm_api_key_glm: string;
+  llm_api_key_openrouter: string;
+  llm_api_key_ollama: string;
+  llm_api_key_custom: string;
   llm_model: string;
   llm_agent_name: string;
   hotkey: string;
@@ -56,7 +72,6 @@ export const openaiModels = ["whisper-1"];
 export const groqModels = [
   "whisper-large-v3",
   "whisper-large-v3-turbo",
-  "distil-whisper-large-v3-en",
 ];
 
 export const modelCatalog: Record<string, ModelInfo> = {
@@ -122,3 +137,92 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
   };
   return map[key] || key;
 }
+
+export interface LlmProvider {
+  name: string;
+  label: string;
+  base_url: string;
+  models: string[];
+}
+
+export const LLM_PROVIDERS: LlmProvider[] = [
+  {
+    name: "openai",
+    label: "OpenAI",
+    base_url: "https://api.openai.com/v1",
+    models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-nano"],
+  },
+  {
+    name: "anthropic",
+    label: "Anthropic",
+    base_url: "https://api.anthropic.com/v1",
+    models: ["claude-haiku-3-5-20241022", "claude-sonnet-4-20250514"],
+  },
+  {
+    name: "google",
+    label: "Google Gemini",
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+    models: ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
+  },
+  {
+    name: "groq",
+    label: "Groq",
+    base_url: "https://api.groq.com/openai/v1",
+    models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"],
+  },
+  {
+    name: "together",
+    label: "Together AI",
+    base_url: "https://api.together.xyz/v1",
+    models: ["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+  },
+  {
+    name: "deepseek",
+    label: "DeepSeek",
+    base_url: "https://api.deepseek.com/v1",
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+  },
+  {
+    name: "kimi",
+    label: "Kimi (Moonshot)",
+    base_url: "https://api.moonshot.ai/v1",
+    models: ["kimi-k2.6", "kimi-k2.5"],
+  },
+  {
+    name: "qwen",
+    label: "Qwen (Alibaba)",
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    models: ["qwen3.6-flash", "qwen3.6-plus", "qwen3.7-max"],
+  },
+  {
+    name: "glm",
+    label: "GLM (Zhipu AI)",
+    base_url: "https://api.z.ai/api/v1",
+    models: ["glm-4.7-flashx", "glm-5.1", "glm-5.2"],
+  },
+  {
+    name: "openrouter",
+    label: "OpenRouter",
+    base_url: "https://openrouter.ai/api/v1",
+    models: [
+      "openrouter/auto",
+      "meta-llama/llama-3.2-3b-instruct:free",
+      "google/gemini-2.0-flash-exp:free",
+      "openai/gpt-4o-mini",
+      "anthropic/claude-3.5-haiku",
+      "deepseek/deepseek-v4-flash:free",
+    ],
+  },
+  {
+    name: "ollama",
+    label: "Ollama (Local)",
+    base_url: "http://localhost:11434/v1",
+    models: ["llama3.2", "mistral", "phi4", "qwen2.5"],
+  },
+  {
+    name: "custom",
+    label: "Custom",
+    base_url: "",
+    models: [],
+  },
+];

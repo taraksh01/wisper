@@ -2,20 +2,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, languages } from "../types";
 import { Select } from "./Select";
-
-function ResetButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="text-[10px] font-mono text-accent/60 hover:text-accent transition-colors flex items-center gap-1"
-    >
-      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-      </svg>
-      Reset tab
-    </button>
-  );
-}
+import { PillGroup } from "./PillGroup";
+import { ResetButton } from "./ResetButton";
 
 interface GeneralTabProps {
   settings: AppSettings;
@@ -108,24 +96,14 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
         </div>
         <div>
           <label className="text-[11px] font-mono text-muted block mb-1.5 tracking-wider">Mode</label>
-          <div className="flex gap-1.5">
-            {[
-              { id: "push-to-talk", label: "Push to Talk" },
-              { id: "toggle", label: "Toggle" },
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => onSave("hotkey_mode", mode.id)}
-                className={`px-3 py-1.5 text-xs font-mono font-medium rounded-md transition-all duration-150 ${
-                  settings.hotkey_mode === mode.id
-                    ? "bg-accent/15 text-accent ring-1 ring-accent/30"
-                    : "text-muted hover:text-ink hover:bg-elevated"
-                }`}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </div>
+          <PillGroup
+            value={settings.hotkey_mode}
+            options={[
+              { value: "push-to-talk", label: "Push to Talk" },
+              { value: "toggle", label: "Toggle" },
+            ]}
+            onChange={(v) => onSave("hotkey_mode", v)}
+          />
         </div>
       </section>
 
@@ -140,21 +118,16 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
 
       <section className="panel-enter">
         <div className="text-xs font-mono text-muted mb-2 tracking-wider uppercase">Output</div>
-        <div className="flex flex-wrap gap-1.5">
-          {["Ctrl+V", "Ctrl+Shift+V", "Shift+Insert", "Direct Typing"].map((method) => (
-            <button
-              key={method}
-              onClick={() => onSave("paste_method", method)}
-              className={`px-3 py-1.5 text-xs font-mono font-medium rounded-md transition-all duration-150 ${
-                settings.paste_method === method
-                  ? "bg-accent/15 text-accent ring-1 ring-accent/30"
-                  : "text-muted hover:text-ink hover:bg-elevated"
-              }`}
-            >
-              {method}
-            </button>
-          ))}
-        </div>
+          <PillGroup
+            value={settings.paste_method}
+            options={[
+              { value: "Ctrl+V", label: "Ctrl+V" },
+              { value: "Ctrl+Shift+V", label: "Ctrl+Shift+V" },
+              { value: "Shift+Insert", label: "Shift+Insert" },
+              { value: "Direct Typing", label: "Direct Typing" },
+            ]}
+            onChange={(v) => onSave("paste_method", v)}
+          />
       </section>
     </div>
   );

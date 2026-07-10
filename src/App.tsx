@@ -203,7 +203,7 @@ function App() {
           />
         );
       case "llm":
-        return <LLMTab settings={settings} agents={agents} onSave={saveSetting} onReset={resetTabSettings} />;
+        return <LLMTab settings={settings} agents={agents} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={resetTabSettings} onResetAgent={fetchAgents} />;
       case "history":
         return <HistoryTab history={history} stats={stats} settings={settings} onSave={saveSetting} onRefresh={fetchHistory} />;
       default:

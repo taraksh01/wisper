@@ -7,12 +7,28 @@ pub struct AppSettings {
     pub stt_mode: String,
     pub stt_provider: String,
     pub stt_base_url: String,
-    pub stt_api_key: String,
+    pub voice_api_key: String,
+    pub voice_api_key_openai: String,
+    pub voice_api_key_groq: String,
+    pub voice_api_key_custom: String,
     pub stt_model: String,
     pub local_model_file: String,
     pub llm_enabled: bool,
+    pub llm_provider: String,
     pub llm_base_url: String,
     pub llm_api_key: String,
+    pub llm_api_key_openai: String,
+    pub llm_api_key_anthropic: String,
+    pub llm_api_key_google: String,
+    pub llm_api_key_groq: String,
+    pub llm_api_key_together: String,
+    pub llm_api_key_deepseek: String,
+    pub llm_api_key_kimi: String,
+    pub llm_api_key_qwen: String,
+    pub llm_api_key_glm: String,
+    pub llm_api_key_openrouter: String,
+    pub llm_api_key_ollama: String,
+    pub llm_api_key_custom: String,
     pub llm_model: String,
     pub llm_agent_name: String,
     pub hotkey: String,
@@ -30,12 +46,28 @@ impl Default for AppSettings {
             stt_mode: "local".into(),
             stt_provider: "openai".into(),
             stt_base_url: String::new(),
-            stt_api_key: String::new(),
+            voice_api_key: String::new(),
+            voice_api_key_openai: String::new(),
+            voice_api_key_groq: String::new(),
+            voice_api_key_custom: String::new(),
             stt_model: "whisper-1".into(),
             local_model_file: "parakeet-tdt-0.6b-v3-int8".into(),
             llm_enabled: true,
+            llm_provider: "ollama".into(),
             llm_base_url: "http://localhost:11434/v1".into(),
             llm_api_key: String::new(),
+            llm_api_key_openai: String::new(),
+            llm_api_key_anthropic: String::new(),
+            llm_api_key_google: String::new(),
+            llm_api_key_groq: String::new(),
+            llm_api_key_together: String::new(),
+            llm_api_key_deepseek: String::new(),
+            llm_api_key_kimi: String::new(),
+            llm_api_key_qwen: String::new(),
+            llm_api_key_glm: String::new(),
+            llm_api_key_openrouter: String::new(),
+            llm_api_key_ollama: String::new(),
+            llm_api_key_custom: String::new(),
             llm_model: "llama3.2".into(),
             llm_agent_name: "Auto-Format".into(),
             hotkey: "F12".into(),
@@ -113,6 +145,16 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         std::sync::atomic::Ordering::Relaxed,
     );
     crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::LLM_ENABLED.store(settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut v) = crate::coordinator::LLM_BASE_URL.lock() {
+        *v = settings.llm_base_url.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::LLM_API_KEY.lock() {
+        *v = settings.llm_api_key.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::LLM_MODEL.lock() {
+        *v = settings.llm_model.clone();
+    }
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
     }
@@ -123,7 +165,7 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         *v = settings.stt_base_url.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_API_KEY.lock() {
-        *v = settings.stt_api_key.clone();
+        *v = settings.voice_api_key.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_MODEL.lock() {
         *v = settings.stt_model.clone();

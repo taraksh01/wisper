@@ -24,7 +24,7 @@ export function Select({
         <button
           onClick={() => setOpen(!open)}
           onBlur={() => setOpen(false)}
-          className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink text-left outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all cursor-pointer flex items-center justify-between gap-2"
+          className="w-full bg-elevated rounded-md px-2.5 py-1.5 text-xs font-mono text-ink text-left outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all cursor-pointer flex items-center justify-between gap-2"
         >
         <span>{selected?.label ?? value}</span>
         <svg
@@ -39,7 +39,16 @@ export function Select({
       </button>
 
       {open && (
-        <div className="absolute z-10 mt-1 w-full bg-elevated border border-stroke rounded-md shadow-lg max-h-48 overflow-y-auto custom-scrollbar">
+        <div
+          className="absolute z-10 mt-1 w-full bg-surface border border-stroke rounded-md shadow-lg max-h-48 overflow-y-auto custom-scrollbar"
+          onWheel={(e) => {
+            const el = e.currentTarget;
+            const atTop = el.scrollTop === 0;
+            const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight;
+            if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) return;
+            e.stopPropagation();
+          }}
+        >
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -50,7 +59,7 @@ export function Select({
               }}
               className={`w-full text-left px-2.5 py-1.5 text-xs font-mono transition-colors cursor-pointer ${
                 value === opt.value
-                  ? "bg-accent/15 text-accent"
+                  ? "bg-accent/20 text-accent"
                   : "text-muted hover:bg-elevated hover:text-ink"
               }`}
             >

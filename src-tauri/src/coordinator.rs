@@ -14,6 +14,10 @@ pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static STT_MODE: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
+pub static LLM_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static LLM_BASE_URL: Mutex<String> = Mutex::new(String::new());
+pub static LLM_API_KEY: Mutex<String> = Mutex::new(String::new());
+pub static LLM_MODEL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -166,12 +170,15 @@ impl TranscriptionCoordinator {
                     println!("Transcription: {}", text);
                     let mut final_text = text.clone();
                     let mut agent_name = None;
-                    {
+                    if LLM_ENABLED.load(Ordering::Relaxed) {
+                        let llm_base_url = LLM_BASE_URL.lock().unwrap().clone();
+                        let llm_api_key = LLM_API_KEY.lock().unwrap().clone();
+                        let llm_model = LLM_MODEL.lock().unwrap().clone();
                         let agent = crate::llm::SmartAgent::auto_format();
                         let llm = crate::llm::LlmClient::new(
-                            "http://localhost:11434/v1".into(),
-                            "ollama".into(),
-                            "llama3.2".into(),
+                            llm_base_url,
+                            llm_api_key,
+                            llm_model,
                         );
                         match llm.process(&text, &agent) {
                             Ok(formatted) => {
