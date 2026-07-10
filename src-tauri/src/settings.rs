@@ -82,6 +82,30 @@ pub fn load_settings() -> AppSettings {
     AppSettings::load()
 }
 
+pub fn update_display_name(settings: &AppSettings) {
+    if let Ok(mut mode) = crate::coordinator::STT_MODE.lock() {
+        *mode = settings.stt_mode.clone();
+    }
+    if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
+        if settings.stt_mode == "cloud" {
+            let provider_label = match settings.stt_provider.as_str() {
+                "openai" => "OpenAI",
+                "groq" => "Groq",
+                _ => "Custom",
+            };
+            *name = format!("{} · {}", provider_label, settings.stt_model);
+        } else {
+            let model_dir = crate::models::get_models_dir();
+            let model_path = model_dir.join(&settings.local_model_file);
+            if model_path.exists() {
+                *name = crate::coordinator::model_display_name(&model_path);
+            } else {
+                name.clear();
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     crate::coordinator::HOTKEY_MODE.store(
@@ -97,15 +121,7 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         *current = if model_path.exists() { Some(model_path.clone()) } else { None };
     }
 
-    // Update display name for tray tooltip
-    if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
-        if model_path.exists() {
-            *name = crate::coordinator::model_display_name(&model_path);
-        } else {
-            name.clear();
-        }
-    }
-
+    update_display_name(&settings);
     crate::update_tray_menu_text();
 
     settings.save()

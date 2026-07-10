@@ -24,6 +24,9 @@ use tauri::{
 static UNLOAD_ITEM: once_cell::sync::Lazy<std::sync::Mutex<Option<MenuItem<tauri::Wry>>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
+static APP_HANDLE: once_cell::sync::Lazy<std::sync::Mutex<Option<tauri::AppHandle>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
 static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
 
@@ -66,15 +69,24 @@ fn get_current_model() -> String {
 
 #[tauri::command]
 fn unload_model(_app: tauri::AppHandle) {
-    {
-        let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
-        *current = None;
+    let mode = coordinator::STT_MODE.lock().unwrap().clone();
+    if mode == "cloud" {
+        if let Some(win) = _app.get_webview_window("main") {
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+        let _ = _app.emit("v3:open-tab", "stt");
+    } else {
+        {
+            let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
+            *current = None;
+        }
+        {
+            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+            name.clear();
+        }
+        update_tray_menu_text();
     }
-    {
-        let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
-        name.clear();
-    }
-    update_tray_menu_text();
 }
 
 fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
@@ -89,12 +101,34 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
 pub fn update_tray_menu_text() {
     if let Some(item) = UNLOAD_ITEM.lock().unwrap().as_ref() {
         let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
+        let mode = coordinator::STT_MODE.lock().unwrap().clone();
         let text = if name.is_empty() {
             "No model loaded".into()
+        } else if mode == "cloud" {
+            name.clone()
         } else {
-            format!("✕  {}", name)
+            format!("✕  {}", name.clone())
         };
         let _ = item.set_text(&text);
+
+        // Update tooltip too
+        if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
+            if let Some(tray) = handle.tray_by_id("main") {
+                let state = STATE_LOCK.lock().unwrap();
+                let label = match *state {
+                    CoordinatorState::Idle => {
+                        if name.is_empty() {
+                            "v3 Dictation - Idle".into()
+                        } else {
+                            format!("v3 Dictation - Idle [{}]", name)
+                        }
+                    }
+                    CoordinatorState::Recording => "v3 Dictation - Recording...".into(),
+                    CoordinatorState::Processing => "v3 Dictation - Processing...".into(),
+                };
+                let _ = tray.set_tooltip(Some(&label));
+            }
+        }
     }
 }
 
@@ -104,6 +138,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
+            {
+                let mut guard = APP_HANDLE.lock().unwrap();
+                *guard = Some(app_handle.clone());
+            }
 
             let quit_i = MenuItem::with_id(app, "quit", "Quit v3", true, None::<&str>)?;
             let settings_i =
@@ -139,17 +177,26 @@ pub fn run() {
                         }
                     }
                     "unload" => {
-                        {
-                            let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
-                            *current = None;
-                        }
-                        {
-                            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
-                            name.clear();
-                        }
-                        update_tray_menu_text();
-                        if let Some(tray) = app.tray_by_id("main") {
-                            let _ = tray.set_tooltip(Some("v3 Dictation - No model loaded"));
+                        let mode = coordinator::STT_MODE.lock().unwrap().clone();
+                        if mode == "cloud" {
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                            let _ = app.emit("v3:open-tab", "stt");
+                        } else {
+                            {
+                                let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
+                                *current = None;
+                            }
+                            {
+                                let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+                                name.clear();
+                            }
+                            update_tray_menu_text();
+                            if let Some(tray) = app.tray_by_id("main") {
+                                let _ = tray.set_tooltip(Some("v3 Dictation - No model loaded"));
+                            }
                         }
                     }
                     _ => {}
@@ -179,27 +226,23 @@ pub fn run() {
                 }
             });
 
-            // Load saved hotkey from settings if available
-            let saved_settings = settings::AppSettings::load();
-            coordinator::HOTKEY_MODE.store(
-                saved_settings.hotkey_mode != "toggle",
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+    // Load saved settings
+    let saved_settings = settings::AppSettings::load();
+    coordinator::HOTKEY_MODE.store(
+        saved_settings.hotkey_mode != "toggle",
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
 
-            // Load current model path from settings
-            {
-                let model_dir = models::get_models_dir();
-                let model_path = model_dir.join(&saved_settings.local_model_file);
-                if let Ok(mut current) = coordinator::CURRENT_MODEL.lock() {
-                    *current = if model_path.exists() { Some(model_path.clone()) } else { None };
-                }
-                if let Ok(mut name) = coordinator::MODEL_DISPLAY_NAME.lock() {
-                    if model_path.exists() {
-                        *name = coordinator::model_display_name(&model_path);
-                    }
-                }
-            }
+    // Load current model path and update display name
+    {
+        let model_dir = models::get_models_dir();
+        let model_path = model_dir.join(&saved_settings.local_model_file);
+        if let Ok(mut current) = coordinator::CURRENT_MODEL.lock() {
+            *current = if model_path.exists() { Some(model_path.clone()) } else { None };
+        }
+    }
+    settings::update_display_name(&saved_settings);
 
             let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
                 .unwrap_or(hotkey::HotkeyBinding {

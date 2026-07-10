@@ -11,6 +11,7 @@ pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-ta
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
+pub static STT_MODE: Mutex<String> = Mutex::new(String::new());
 
 pub fn model_display_name(path: &std::path::Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();

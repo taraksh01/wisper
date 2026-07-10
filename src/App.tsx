@@ -48,6 +48,7 @@ function App() {
 
     let unlisten: UnlistenFn | undefined;
     let unlistenProgress: UnlistenFn | undefined;
+    let unlistenTab: UnlistenFn | undefined;
     (async () => {
       unlisten = await listen<string>("v3:state", (event) => {
         setAppState(event.payload);
@@ -56,11 +57,15 @@ function App() {
         const { model, progress } = event.payload;
         setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
       });
+      unlistenTab = await listen<string>("v3:open-tab", (event) => {
+        setActiveTab(event.payload);
+      });
     })();
 
     return () => {
       if (unlisten) unlisten();
       if (unlistenProgress) unlistenProgress();
+      if (unlistenTab) unlistenTab();
     };
   }, []);
 
@@ -124,14 +129,16 @@ function App() {
     }
   };
 
+  const refreshCurrentModel = () => {
+    invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
+  };
+
   const saveSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     if (!settings) return;
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     invoke("save_settings", { settings: updated }).catch(console.error);
-    if (key === "local_model_file") {
-      invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
-    }
+    refreshCurrentModel();
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
@@ -139,14 +146,16 @@ function App() {
     const merged = { ...settings, ...updates };
     setSettings(merged);
     invoke("save_settings", { settings: merged }).catch(console.error);
-    if ("local_model_file" in updates) {
-      invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
-    }
+    refreshCurrentModel();
   };
 
   const unloadModel = async () => {
     await invoke("unload_model");
-    setCurrentModelName("");
+    refreshCurrentModel();
+  };
+
+  const openEngineTab = () => {
+    setActiveTab("stt");
   };
 
   const resetTabSettings = async () => {
@@ -213,7 +222,7 @@ function App() {
               <p className="text-[10px] font-mono text-muted tracking-widest uppercase">Voice</p>
             </div>
           </div>
-          {currentModelName && (
+          {currentModelName && settings.stt_mode === "local" && (
             <div className="flex items-center gap-1.5 mb-6 px-1">
               <span className="text-[10px] font-mono text-accent truncate flex-1" title={currentModelName}>
                 {currentModelName}
@@ -228,6 +237,20 @@ function App() {
                 </svg>
               </button>
             </div>
+          )}
+          {currentModelName && settings.stt_mode === "cloud" && (
+            <button
+              onClick={openEngineTab}
+              className="flex items-center gap-1.5 mb-6 px-1 w-full text-left rounded hover:bg-elevated/40 transition-colors"
+              title="Open Engine settings"
+            >
+              <svg className="w-3 h-3 shrink-0 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+              <span className="text-[10px] font-mono text-accent truncate flex-1" title={currentModelName}>
+                {currentModelName}
+              </span>
+            </button>
           )}
           <nav className="space-y-1">
             {tabs.map((tab) => {
