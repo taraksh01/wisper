@@ -129,6 +129,8 @@ export const tabs = [
   { id: "stt", label: "Engine" },
   { id: "llm", label: "Process" },
   { id: "history", label: "History" },
+  { id: "about", label: "About" },
+  { id: "donate", label: "Donate" },
 ];
 
 export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onnx"): string {

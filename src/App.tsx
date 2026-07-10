@@ -7,6 +7,8 @@ import { GeneralTab } from "./components/GeneralTab";
 import { STTTab } from "./components/STTTab";
 import { LLMTab } from "./components/LLMTab";
 import { HistoryTab } from "./components/HistoryTab";
+import { AboutTab } from "./components/AboutTab";
+import { DonateTab } from "./components/DonateTab";
 import "./styles.css";
 
 function useSystemTheme() {
@@ -209,6 +211,10 @@ function App() {
         return <LLMTab settings={settings} agents={agents} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={resetTabSettings} onResetAgent={fetchAgents} />;
       case "history":
         return <HistoryTab history={history} stats={stats} settings={settings} onSave={saveSetting} onRefresh={fetchHistory} />;
+      case "about":
+        return <AboutTab />;
+      case "donate":
+        return <DonateTab />;
       default:
         return <GeneralTab settings={settings} onSave={saveSetting} onReset={resetTabSettings} />;
     }
