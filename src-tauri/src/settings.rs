@@ -113,6 +113,21 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
         std::sync::atomic::Ordering::Relaxed,
     );
     crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
+        *method = settings.paste_method.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::CLOUD_PROVIDER.lock() {
+        *v = settings.stt_provider.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::CLOUD_BASE_URL.lock() {
+        *v = settings.stt_base_url.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::CLOUD_API_KEY.lock() {
+        *v = settings.stt_api_key.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::CLOUD_MODEL.lock() {
+        *v = settings.stt_model.clone();
+    }
 
     // Update current model path
     let model_dir = crate::models::get_models_dir();

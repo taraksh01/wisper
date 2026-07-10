@@ -1,43 +1,52 @@
 use arboard::Clipboard;
-use std::process::Command;
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-pub fn is_wayland() -> bool {
-    std::env::var("WAYLAND_DISPLAY").is_ok()
-        || std::env::var("XDG_SESSION_TYPE")
-            .map(|v| v.to_lowercase() == "wayland")
+pub fn detect_paste_backend() -> String {
+    let check = |tool: &str| -> bool {
+        Command::new("sh")
+            .args(["-c", &format!("command -v {}", tool)])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
             .unwrap_or(false)
+    };
+
+    if check("wtype") {
+        "wtype".into()
+    } else if check("ydotool") {
+        "ydotool".into()
+    } else {
+        "enigo".into()
+    }
 }
 
-pub fn paste_text(text: &str) -> Result<(), String> {
-    // 1. Backup existing clipboard content
+pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
+    match method {
+        "Direct Typing" => type_text_directly(text),
+        _ => paste_via_clipboard(text, method),
+    }
+}
+
+fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     let mut clipboard = match Clipboard::new() {
         Ok(c) => c,
-        Err(_e) => {
-            // Fallback to typing directly if clipboard fails
-            return type_text_directly(text);
-        }
+        Err(_e) => return type_text_directly(text),
     };
 
     let original_text = clipboard.get_text().ok();
 
-    // 2. Set clipboard to new text
     if let Err(e) = clipboard.set_text(text.to_string()) {
         return Err(format!("Failed to set clipboard text: {}", e));
     }
 
-    // Small delay for clipboard synchronization
     thread::sleep(Duration::from_millis(50));
 
-    // 3. Simulate Ctrl+V (or wtype/ydotool on Wayland)
-    let paste_result = if is_wayland() {
-        paste_wayland()
-    } else {
-        paste_x11()
-    };
+    let paste_result = simulate_key_combo(method);
 
-    // 4. Restore original clipboard asynchronously after paste completes
     if let Some(orig) = original_text {
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(250));
@@ -50,55 +59,113 @@ pub fn paste_text(text: &str) -> Result<(), String> {
     paste_result
 }
 
-fn paste_wayland() -> Result<(), String> {
-    // Try wtype first
-    let status = Command::new("wtype")
-        .args(["-M", "ctrl", "-k", "v", "-m", "ctrl"])
-        .status();
-
-    if let Ok(s) = status {
-        if s.success() {
-            return Ok(());
-        }
+fn simulate_key_combo(method: &str) -> Result<(), String> {
+    let backend = crate::coordinator::PASTE_BACKEND.lock().unwrap().clone();
+    match backend.as_str() {
+        "wtype" => wtype_paste(method),
+        "ydotool" => ydotool_paste(method),
+        _ => enigo_paste(method),
     }
-
-    // Try ydotool second (KEY_LEFTCTRL=29, KEY_V=47)
-    let status = Command::new("ydotool")
-        .args(["key", "29:1", "47:1", "47:0", "29:0"])
-        .status();
-
-    if let Ok(s) = status {
-        if s.success() {
-            return Ok(());
-        }
-    }
-
-    // Fallback to enigo
-    paste_x11()
 }
 
-fn paste_x11() -> Result<(), String> {
-    use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+fn wtype_paste(method: &str) -> Result<(), String> {
+    let args: Vec<&str> = match method {
+        "Ctrl+Shift+V" => vec!["-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
+        "Shift+Insert" => vec!["-M", "shift", "-k", "Insert", "-m", "shift"],
+        _ => vec!["-M", "ctrl", "-k", "v", "-m", "ctrl"],
+    };
 
+    let status = Command::new("wtype")
+        .args(args)
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("Failed to run wtype: {}", e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("wtype returned non-zero exit status".into())
+    }
+}
+
+fn ydotool_paste(method: &str) -> Result<(), String> {
+    let args: Vec<&str> = match method {
+        "Ctrl+Shift+V" => vec!["29:1", "42:1", "47:1", "47:0", "42:0", "29:0"],
+        "Shift+Insert" => vec!["42:1", "110:1", "110:0", "42:0"],
+        _ => vec!["29:1", "47:1", "47:0", "29:0"],
+    };
+
+    let status = Command::new("ydotool")
+        .arg("key")
+        .args(args)
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("Failed to run ydotool: {}", e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("ydotool returned non-zero exit status".into())
+    }
+}
+
+fn enigo_paste(method: &str) -> Result<(), String> {
     let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("Failed to create Enigo instance: {:?}", e))?;
+        .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
 
-    let _ = enigo.key(Key::Control, Direction::Press);
-    let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-    let _ = enigo.key(Key::Control, Direction::Release);
+    match method {
+        "Ctrl+Shift+V" => {
+            let _ = enigo.key(Key::Control, Direction::Press);
+            let _ = enigo.key(Key::Shift, Direction::Press);
+            let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+            let _ = enigo.key(Key::Shift, Direction::Release);
+            let _ = enigo.key(Key::Control, Direction::Release);
+        }
+        "Shift+Insert" => {
+            let _ = enigo.key(Key::Shift, Direction::Press);
+            let _ = enigo.key(Key::Insert, Direction::Click);
+            let _ = enigo.key(Key::Shift, Direction::Release);
+        }
+        _ => {
+            let _ = enigo.key(Key::Control, Direction::Press);
+            let _ = enigo.key(Key::Unicode('v'), Direction::Click);
+            let _ = enigo.key(Key::Control, Direction::Release);
+        }
+    }
 
     Ok(())
 }
 
 fn type_text_directly(text: &str) -> Result<(), String> {
-    use enigo::{Enigo, Keyboard, Settings};
+    let backend = crate::coordinator::PASTE_BACKEND.lock().unwrap().clone();
+    match backend.as_str() {
+        "wtype" => {
+            let status = Command::new("wtype")
+                .arg(text)
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| format!("Failed to run wtype: {}", e))?;
+            if status.success() {
+                return Ok(());
+            }
+        }
+        "ydotool" => {
+            let status = Command::new("ydotool")
+                .args(["type", "-d", "0", text])
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
+            if status.success() {
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
 
     let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("Failed to create Enigo instance: {:?}", e))?;
+        .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
 
     enigo
         .text(text)
-        .map_err(|e| format!("Failed to type text: {:?}", e))?;
-
-    Ok(())
+        .map_err(|e| format!("Failed to type text: {:?}", e))
 }

@@ -233,6 +233,24 @@ pub fn run() {
         std::sync::atomic::Ordering::Relaxed,
     );
     coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut method) = coordinator::PASTE_METHOD.lock() {
+        *method = saved_settings.paste_method.clone();
+    }
+    if let Ok(mut backend) = coordinator::PASTE_BACKEND.lock() {
+        *backend = paste::detect_paste_backend();
+    }
+    if let Ok(mut v) = coordinator::CLOUD_PROVIDER.lock() {
+        *v = saved_settings.stt_provider.clone();
+    }
+    if let Ok(mut v) = coordinator::CLOUD_BASE_URL.lock() {
+        *v = saved_settings.stt_base_url.clone();
+    }
+    if let Ok(mut v) = coordinator::CLOUD_API_KEY.lock() {
+        *v = saved_settings.stt_api_key.clone();
+    }
+    if let Ok(mut v) = coordinator::CLOUD_MODEL.lock() {
+        *v = saved_settings.stt_model.clone();
+    }
 
     // Load current model path and update display name
     {

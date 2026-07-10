@@ -5,13 +5,19 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 
 use crate::paste::paste_text;
-use crate::stt::create_local_provider;
+use crate::stt::{create_local_provider, CloudSttProvider, SttProvider};
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static STT_MODE: Mutex<String> = Mutex::new(String::new());
+pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
+pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
+pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
+pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
+pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
+pub static CLOUD_MODEL: Mutex<String> = Mutex::new(String::new());
 
 pub fn model_display_name(path: &std::path::Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -126,62 +132,74 @@ impl TranscriptionCoordinator {
         let trimmed = trim_silence(&resampled, 1600, 0.01);
 
         if !trimmed.is_empty() {
-            // Use the user-selected model from settings
-            let model_path = {
-                let guard = CURRENT_MODEL.lock().unwrap();
-                guard.clone()
+            let mode = STT_MODE.lock().unwrap().clone();
+            let result = if mode == "cloud" {
+                let _provider = CLOUD_PROVIDER.lock().unwrap().clone();
+                let base_url = CLOUD_BASE_URL.lock().unwrap().clone();
+                let api_key = CLOUD_API_KEY.lock().unwrap().clone();
+                let model = CLOUD_MODEL.lock().unwrap().clone();
+                let stt = CloudSttProvider::new(base_url, api_key, model);
+                stt.transcribe(&trimmed, 16000)
+            } else {
+                let model_path = {
+                    let guard = CURRENT_MODEL.lock().unwrap();
+                    guard.clone()
+                };
+                match model_path {
+                    Some(path) if path.exists() => {
+                        let stt = create_local_provider(path);
+                        stt.transcribe(&trimmed, 16000)
+                    }
+                    Some(path) => {
+                        eprintln!("Model file not found at: {:?}", path);
+                        return;
+                    }
+                    None => {
+                        eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
+                        return;
+                    }
+                }
             };
 
-            if let Some(model_path) = model_path {
-                if model_path.exists() {
-                    let stt = create_local_provider(model_path);
-                    match stt.transcribe(&trimmed, 16000) {
-                    Ok(text) => {
-                        println!("Transcription: {}", text);
-                        // LLM post-processing (Phase 5)
-                        let mut final_text = text.clone();
-                        let mut agent_name = None;
-                        {
-                            let agent = crate::llm::SmartAgent::auto_format();
-                            let llm = crate::llm::LlmClient::new(
-                                "http://localhost:11434/v1".into(),
-                                "ollama".into(),
-                                "llama3.2".into(),
-                            );
-                            match llm.process(&text, &agent) {
-                                Ok(formatted) => {
-                                    final_text = formatted;
-                                    agent_name = Some(agent.name);
-                                }
-                                Err(e) => {
-                                    eprintln!("LLM skipped ({}), using raw text", e);
-                                }
+            match result {
+                Ok(text) => {
+                    println!("Transcription: {}", text);
+                    let mut final_text = text.clone();
+                    let mut agent_name = None;
+                    {
+                        let agent = crate::llm::SmartAgent::auto_format();
+                        let llm = crate::llm::LlmClient::new(
+                            "http://localhost:11434/v1".into(),
+                            "ollama".into(),
+                            "llama3.2".into(),
+                        );
+                        match llm.process(&text, &agent) {
+                            Ok(formatted) => {
+                                final_text = formatted;
+                                agent_name = Some(agent.name);
+                            }
+                            Err(e) => {
+                                eprintln!("LLM skipped ({}), using raw text", e);
                             }
                         }
-                        if let Err(e) = paste_text(&final_text) {
-                            eprintln!("Paste failed: {}", e);
-                        }
-                        // Log to history
-                        let history = crate::history::HistoryManager::new();
-                        if let Err(e) = history.insert(
-                            &text,
-                            Some(&final_text),
-                            agent_name.as_deref(),
-                            samples.len() as i64 / 16,
-                            recording_path.as_deref(),
-                        ) {
-                            eprintln!("Failed to log history: {}", e);
-                        }
                     }
-                    Err(e) => eprintln!("Transcription error: {}", e),
+                    let paste_method = PASTE_METHOD.lock().unwrap().clone();
+                    if let Err(e) = paste_text(&final_text, &paste_method) {
+                        eprintln!("Paste failed: {}", e);
+                    }
+                    let history = crate::history::HistoryManager::new();
+                    if let Err(e) = history.insert(
+                        &text,
+                        Some(&final_text),
+                        agent_name.as_deref(),
+                        samples.len() as i64 / 16,
+                        recording_path.as_deref(),
+                    ) {
+                        eprintln!("Failed to log history: {}", e);
+                    }
                 }
-            } else {
-                eprintln!("Model file not found at: {:?}", model_path);
+                Err(e) => eprintln!("Transcription error: {}", e),
             }
-        } else {
-            // No model selected in settings
-            eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
-        }
         }
 
         self.set_state(CoordinatorState::Idle);
