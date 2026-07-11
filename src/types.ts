@@ -74,6 +74,7 @@ export interface AppSettings {
   language: string;
   keep_recordings: boolean;
   launch_to_tray: boolean;
+  autostart: boolean;
 }
 
 export interface ModelInfo {

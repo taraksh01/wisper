@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -45,23 +46,24 @@ pub struct AppSettings {
     pub language: String,
     pub keep_recordings: bool,
     pub launch_to_tray: bool,
+    pub autostart: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             stt_mode: "local".into(),
-            stt_provider: "openai".into(),
+            stt_provider: String::new(),
             stt_base_url: String::new(),
             voice_api_key: String::new(),
             voice_api_key_openai: String::new(),
             voice_api_key_groq: String::new(),
             voice_api_key_custom: String::new(),
-            stt_model: "whisper-1".into(),
-            local_model_file: "parakeet-tdt-0.6b-v3-int8".into(),
-            llm_enabled: true,
-            llm_provider: "ollama".into(),
-            llm_base_url: "http://localhost:11434/v1".into(),
+            stt_model: String::new(),
+            local_model_file: String::new(),
+            llm_enabled: false,
+            llm_provider: String::new(),
+            llm_base_url: String::new(),
             llm_api_key: String::new(),
             llm_api_key_openai: String::new(),
             llm_api_key_anthropic: String::new(),
@@ -75,13 +77,13 @@ impl Default for AppSettings {
             llm_api_key_openrouter: String::new(),
             llm_api_key_ollama: String::new(),
             llm_api_key_custom: String::new(),
-            llm_model: "llama3.2".into(),
+            llm_model: String::new(),
             llm_max_tokens: 0,
             llm_agent_profile: "auto".into(),
             llm_agent_name: "Auto-Format".into(),
             llm_agent_prompt: String::new(),
             vocabulary_enabled: true,
-            hotkey: "F12".into(),
+            hotkey: "RightCtrl".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Ctrl+V".into(),
             paste_tool: "auto".into(),
@@ -90,6 +92,7 @@ impl Default for AppSettings {
             language: "auto".into(),
             keep_recordings: false,
             launch_to_tray: false,
+            autostart: false,
         }
     }
 }
@@ -152,7 +155,7 @@ pub fn update_display_name(settings: &AppSettings) {
 }
 
 #[tauri::command]
-pub fn save_settings(settings: AppSettings) -> Result<(), String> {
+pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
     eprintln!("[save_settings] called with {} fields", serde_json::to_string(&settings).unwrap_or_default().len());
     let path = AppSettings::path();
     eprintln!("[save_settings] path: {:?}", path);
@@ -203,6 +206,13 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     }
 
     update_display_name(&settings);
+
+    if settings.autostart {
+        let _ = app.autolaunch().enable();
+    } else {
+        let _ = app.autolaunch().disable();
+    }
+
     crate::update_tray_menu_text();
 
     let result = settings.save();

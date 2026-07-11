@@ -21,6 +21,7 @@ use tauri::{
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
+use tauri_plugin_autostart::ManagerExt;
 
 static UNLOAD_ITEM: once_cell::sync::Lazy<std::sync::Mutex<Option<MenuItem<tauri::Wry>>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
@@ -302,6 +303,12 @@ pub fn run() {
     }
     settings::update_display_name(&saved_settings);
 
+            if saved_settings.autostart {
+                let _ = app.autolaunch().enable();
+            } else {
+                let _ = app.autolaunch().disable();
+            }
+
             // Show the window on startup unless the user prefers launching to
             // the tray only (they still need the window to configure the app).
             if !saved_settings.launch_to_tray {
@@ -317,7 +324,7 @@ pub fn run() {
                     alt: false,
                     shift: false,
                     meta: false,
-                    key: rdev::Key::F12,
+                    key: rdev::Key::ControlRight,
                 });
             {
                 let mut hk = HOTKEY_BINDING.lock().unwrap();
