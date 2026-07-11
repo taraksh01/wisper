@@ -16,6 +16,23 @@ export interface AgentProfile {
   system_prompt: string;
 }
 
+export interface VocabEntry {
+  id: number;
+  phrase: string;
+  variants: string;
+  case_sensitive: boolean;
+  whole_word: boolean;
+  auto: boolean;
+  hits: number;
+  created_at: string;
+}
+
+export interface VocabSuggestion {
+  phrase: string;
+  variants: string[];
+  count: number;
+}
+
 export interface AppSettings {
   stt_mode: string;
   stt_provider: string;
@@ -47,6 +64,7 @@ export interface AppSettings {
   llm_agent_profile: string;
   llm_agent_name: string;
   llm_agent_prompt: string;
+  vocabulary_enabled: boolean;
   hotkey: string;
   hotkey_mode: string;
   paste_method: string;
@@ -132,6 +150,7 @@ export const tabs = [
   { id: "general", label: "General" },
   { id: "stt", label: "Engine" },
   { id: "llm", label: "Process" },
+  { id: "vocab", label: "Words" },
   { id: "history", label: "History" },
   { id: "about", label: "About" },
   { id: "donate", label: "Donate" },

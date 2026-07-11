@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
+import { AppSettings, HistoryEntry, AgentProfile, VocabSuggestion, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { GeneralTab } from "./components/GeneralTab";
 import { STTTab } from "./components/STTTab";
 import { LLMTab } from "./components/LLMTab";
+import { VocabTab } from "./components/VocabTab";
 import { HistoryTab } from "./components/HistoryTab";
 import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
@@ -39,6 +40,9 @@ function App() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
+  const [vocabSuggestions, setVocabSuggestions] = useState<VocabSuggestion[]>([]);
+  const [vocabScanning, setVocabScanning] = useState(false);
+  const [vocabScanMsg, setVocabScanMsg] = useState("");
   const [modelsPath, setModelsPath] = useState("");
   const [modelLangFilter, setModelLangFilter] = useState("all");
   const [modelSearchQuery, setModelSearchQuery] = useState("");
@@ -113,6 +117,22 @@ function App() {
       const a = await invoke<AgentProfile[]>("get_agent_profiles");
       setAgentProfiles(a);
     } catch {}
+  }, []);
+
+  const scanVocabulary = useCallback(async () => {
+    setVocabScanning(true);
+    setVocabScanMsg("Reading your recent dictations…");
+    setVocabSuggestions([]);
+    try {
+      const s = await invoke<VocabSuggestion[]>("suggest_vocabulary");
+      setVocabSuggestions(s);
+      if (s.length === 0) setVocabScanMsg("No new terms found in your recent dictations.");
+      else setVocabScanMsg("");
+    } catch (e: any) {
+      setVocabScanMsg(String(e));
+    } finally {
+      setVocabScanning(false);
+    }
   }, []);
 
   const downloadModel = async (name: string) => {
@@ -217,6 +237,19 @@ function App() {
         );
       case "llm":
         return <LLMTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={resetTabSettings} />;
+      case "vocab":
+        return (
+          <VocabTab
+            settings={settings}
+            onSave={saveSetting}
+            onReset={resetTabSettings}
+            suggestions={vocabSuggestions}
+            scanning={vocabScanning}
+            scanMsg={vocabScanMsg}
+            onScan={scanVocabulary}
+            setSuggestions={setVocabSuggestions}
+          />
+        );
       case "history":
         return <HistoryTab history={history} stats={stats} settings={settings} onSave={saveSetting} onRefresh={fetchHistory} />;
       case "about":
