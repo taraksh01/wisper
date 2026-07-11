@@ -191,10 +191,23 @@ function App() {
     setActiveTab("stt");
   };
 
-  const resetTabSettings = async () => {
+  const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
+    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool"],
+    llm: ["llm_enabled", "llm_provider", "llm_base_url", "llm_api_key", "llm_api_key_openai", "llm_api_key_anthropic", "llm_api_key_google", "llm_api_key_groq", "llm_api_key_together", "llm_api_key_deepseek", "llm_api_key_kimi", "llm_api_key_qwen", "llm_api_key_glm", "llm_api_key_openrouter", "llm_api_key_ollama", "llm_api_key_custom", "llm_model", "llm_max_tokens", "llm_agent_profile", "llm_agent_name", "llm_agent_prompt"],
+    vocab: ["vocabulary_enabled"],
+  };
+
+  const resetTab = async (tab: string) => {
+    if (!settings) return;
     try {
       const defaults = await invoke<AppSettings>("get_default_settings");
-      const merged = { ...defaults };
+      const fields = TAB_FIELDS[tab] ?? [];
+      const merged = { ...settings };
+      const defs = defaults as unknown as Record<string, unknown>;
+      const target = merged as unknown as Record<string, unknown>;
+      for (const f of fields) {
+        target[f as string] = defs[f as string];
+      }
       setSettings(merged);
       await invoke("save_settings", { settings: merged });
     } catch (e) {
@@ -216,7 +229,7 @@ function App() {
   const renderTab = () => {
     switch (activeTab) {
       case "general":
-        return <GeneralTab settings={settings} onSave={saveSetting} onReset={resetTabSettings} />;
+        return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
       case "stt":
         return (
           <STTTab
@@ -236,13 +249,13 @@ function App() {
           />
         );
       case "llm":
-        return <LLMTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={resetTabSettings} />;
+        return <LLMTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("llm")} />;
       case "vocab":
         return (
           <VocabTab
             settings={settings}
             onSave={saveSetting}
-            onReset={resetTabSettings}
+            onReset={() => resetTab("vocab")}
             suggestions={vocabSuggestions}
             scanning={vocabScanning}
             scanMsg={vocabScanMsg}
@@ -257,7 +270,7 @@ function App() {
       case "donate":
         return <DonateTab />;
       default:
-        return <GeneralTab settings={settings} onSave={saveSetting} onReset={resetTabSettings} />;
+        return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
     }
   };
 
