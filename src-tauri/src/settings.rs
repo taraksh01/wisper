@@ -36,6 +36,7 @@ pub struct AppSettings {
     pub hotkey: String,
     pub hotkey_mode: String,
     pub paste_method: String,
+    pub paste_tool: String,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
     pub language: String,
@@ -76,6 +77,7 @@ impl Default for AppSettings {
             hotkey: "F12".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Ctrl+V".into(),
+            paste_tool: "auto".into(),
             vad_enabled: true,
             vad_threshold: 0.01,
             language: "auto".into(),
@@ -163,6 +165,12 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     }
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
+    }
+    if let Ok(mut backend) = crate::coordinator::PASTE_BACKEND.lock() {
+        *backend = crate::paste::resolve_paste_backend(&settings.paste_tool);
+    }
+    if let Ok(mut tool) = crate::coordinator::PASTE_TOOL.lock() {
+        *tool = settings.paste_tool.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_PROVIDER.lock() {
         *v = settings.stt_provider.clone();

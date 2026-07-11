@@ -14,6 +14,7 @@ pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static STT_MODE: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
+pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
 pub static LLM_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static LLM_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static LLM_API_KEY: Mutex<String> = Mutex::new(String::new());

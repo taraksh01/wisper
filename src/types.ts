@@ -47,6 +47,7 @@ export interface AppSettings {
   hotkey: string;
   hotkey_mode: string;
   paste_method: string;
+  paste_tool: string;
   vad_enabled: boolean;
   vad_threshold: number;
   language: string;

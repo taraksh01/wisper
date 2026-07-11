@@ -1,27 +1,115 @@
 use arboard::Clipboard;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use serde::Serialize;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-pub fn detect_paste_backend() -> String {
-    let check = |tool: &str| -> bool {
-        Command::new("sh")
-            .args(["-c", &format!("command -v {}", tool)])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    };
+/// Returns true if the given command is available on PATH.
+fn command_exists(tool: &str) -> bool {
+    Command::new("sh")
+        .args(["-c", &format!("command -v {}", tool)])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
 
-    if check("wtype") {
+/// Detects the current display server session: "wayland", "x11", or "unknown".
+pub fn detect_session_type() -> String {
+    if let Ok(t) = std::env::var("XDG_SESSION_TYPE") {
+        let t = t.to_lowercase();
+        if t == "wayland" || t == "x11" {
+            return t;
+        }
+    }
+    if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        return "wayland".into();
+    }
+    if std::env::var("DISPLAY").is_ok() {
+        return "x11".into();
+    }
+    "unknown".into()
+}
+
+/// Auto-detects the best available paste backend, preferring native tools.
+pub fn detect_paste_backend() -> String {
+    if command_exists("wtype") {
         "wtype".into()
-    } else if check("ydotool") {
+    } else if command_exists("ydotool") {
         "ydotool".into()
     } else {
         "enigo".into()
     }
+}
+
+/// Resolves the user's preferred paste tool against what's actually installed.
+///
+/// `preference` may be "auto", "wtype", "ydotool", or "enigo". A specific
+/// choice is honored when that tool is available; otherwise it gracefully
+/// falls back to auto-detection so paste never silently breaks.
+pub fn resolve_paste_backend(preference: &str) -> String {
+    match preference {
+        "wtype" if command_exists("wtype") => "wtype".into(),
+        "ydotool" if command_exists("ydotool") => "ydotool".into(),
+        "enigo" => "enigo".into(),
+        // "auto" or an unavailable explicit choice -> auto-detect
+        _ => detect_paste_backend(),
+    }
+}
+
+#[derive(Serialize)]
+pub struct PasteEnvironment {
+    /// "wayland", "x11", or "unknown"
+    pub session_type: String,
+    /// The paste backend that will actually be used: "wtype", "ydotool", or "enigo"
+    pub backend: String,
+    /// Whether paste is expected to work reliably in the current environment
+    pub reliable: bool,
+    /// True when the user's explicit tool choice was requested but not installed
+    pub preference_unavailable: bool,
+    pub has_wtype: bool,
+    pub has_ydotool: bool,
+}
+
+/// Reports the paste environment for a given user preference so the UI can warn
+/// when paste may be unreliable (Wayland without a dedicated tool, since enigo
+/// relies on X11) or when a chosen tool isn't installed.
+pub fn get_paste_environment(preference: &str) -> PasteEnvironment {
+    let session_type = detect_session_type();
+    let has_wtype = command_exists("wtype");
+    let has_ydotool = command_exists("ydotool");
+    let backend = resolve_paste_backend(preference);
+
+    let preference_unavailable = matches!(
+        (preference, has_wtype, has_ydotool),
+        ("wtype", false, _) | ("ydotool", _, false)
+    );
+
+    // enigo injects via X11; on native Wayland it can fail for other apps.
+    // Paste is reliable unless the effective backend is enigo on Wayland.
+    let reliable = session_type != "wayland" || backend != "enigo";
+
+    PasteEnvironment {
+        session_type,
+        backend,
+        reliable,
+        preference_unavailable,
+        has_wtype,
+        has_ydotool,
+    }
+}
+
+/// Resolves the paste backend to use right now, re-checking installed tools on
+/// every call so a newly installed wtype/ydotool is picked up without a restart.
+fn active_backend() -> String {
+    let preference = crate::coordinator::PASTE_TOOL.lock().unwrap().clone();
+    if preference.is_empty() {
+        // Fall back to the cached backend if no preference has been set yet.
+        return crate::coordinator::PASTE_BACKEND.lock().unwrap().clone();
+    }
+    resolve_paste_backend(&preference)
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
@@ -60,7 +148,7 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
 }
 
 fn simulate_key_combo(method: &str) -> Result<(), String> {
-    let backend = crate::coordinator::PASTE_BACKEND.lock().unwrap().clone();
+    let backend = active_backend();
     match backend.as_str() {
         "wtype" => wtype_paste(method),
         "ydotool" => ydotool_paste(method),
@@ -137,7 +225,7 @@ fn enigo_paste(method: &str) -> Result<(), String> {
 }
 
 fn type_text_directly(text: &str) -> Result<(), String> {
-    let backend = crate::coordinator::PASTE_BACKEND.lock().unwrap().clone();
+    let backend = active_backend();
     match backend.as_str() {
         "wtype" => {
             let status = Command::new("wtype")

@@ -47,6 +47,11 @@ fn get_app_version() -> String {
 }
 
 #[tauri::command]
+fn get_paste_environment(preference: String) -> paste::PasteEnvironment {
+    paste::get_paste_environment(&preference)
+}
+
+#[tauri::command]
 fn get_current_state() -> String {
     let state = STATE_LOCK.lock().unwrap();
     format!("{:?}", *state)
@@ -249,7 +254,10 @@ pub fn run() {
         *method = saved_settings.paste_method.clone();
     }
     if let Ok(mut backend) = coordinator::PASTE_BACKEND.lock() {
-        *backend = paste::detect_paste_backend();
+        *backend = paste::resolve_paste_backend(&saved_settings.paste_tool);
+    }
+    if let Ok(mut tool) = coordinator::PASTE_TOOL.lock() {
+        *tool = saved_settings.paste_tool.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_PROVIDER.lock() {
         *v = saved_settings.stt_provider.clone();
@@ -338,6 +346,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            get_paste_environment,
             get_current_state,
             get_current_model,
             unload_model,

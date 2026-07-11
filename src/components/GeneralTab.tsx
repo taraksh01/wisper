@@ -43,6 +43,97 @@ function HotkeyDisplay({ hotkey }: { hotkey: string }) {
   );
 }
 
+interface PasteEnvironment {
+  session_type: string;
+  backend: string;
+  reliable: boolean;
+  preference_unavailable: boolean;
+  has_wtype: boolean;
+  has_ydotool: boolean;
+}
+
+function PasteToolControl({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [env, setEnv] = useState<PasteEnvironment | null>(null);
+
+  const refresh = useCallback(() => {
+    invoke<PasteEnvironment>("get_paste_environment", { preference: value })
+      .then(setEnv)
+      .catch(() => setEnv(null));
+  }, [value]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Re-check installed tools when the window regains focus, so a wtype/ydotool
+  // installed while the app is open is picked up without a manual refresh.
+  useEffect(() => {
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refresh]);
+
+  const options = [
+    { value: "auto", label: "Auto" },
+    {
+      value: "wtype",
+      label: "wtype",
+      disabled: env ? !env.has_wtype : false,
+      title: env && !env.has_wtype ? "wtype is not installed — install it to enable this option" : undefined,
+    },
+    {
+      value: "ydotool",
+      label: "ydotool",
+      disabled: env ? !env.has_ydotool : false,
+      title: env && !env.has_ydotool ? "ydotool is not installed — install it to enable this option" : undefined,
+    },
+    { value: "enigo", label: "Built-in" },
+  ];
+
+  return (
+    <div>
+      <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Paste Tool</label>
+      <PillGroup value={value} options={options} onChange={onChange} />
+
+      {env && (
+        <div className="mt-2 space-y-1.5">
+          <div className="flex items-center gap-3 text-[10px] font-mono text-muted">
+            <span>
+              session: <span className="text-ink">{env.session_type}</span>
+            </span>
+            <span className="w-1 h-1 rounded-full bg-stroke" />
+            <span>
+              using: <span className="text-ink">{env.backend === "enigo" ? "built-in" : env.backend}</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] font-mono">
+            <span className={env.has_wtype ? "text-ready" : "text-muted/50"}>
+              {env.has_wtype ? "✓" : "✗"} wtype
+            </span>
+            <span className={env.has_ydotool ? "text-ready" : "text-muted/50"}>
+              {env.has_ydotool ? "✓" : "✗"} ydotool
+            </span>
+          </div>
+
+          {env.preference_unavailable && (
+            <p className="text-[10px] font-mono text-warning leading-relaxed">
+              {value} isn't installed — falling back to {env.backend === "enigo" ? "built-in" : env.backend}.
+            </p>
+          )}
+
+          {!env.reliable && (
+            <p className="text-[10px] font-mono text-recording leading-relaxed">
+              On Wayland the built-in method can't reliably paste into other apps.
+              Install <span className="text-ink">wtype</span> or <span className="text-ink">ydotool</span> for dependable pasting.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   const [listening, setListening] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
@@ -164,7 +255,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       </SectionCard>
 
       <SectionCard title="Output" className="card-enter">
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div>
             <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Paste Method</label>
             <PillGroup
@@ -178,6 +269,11 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               onChange={(v) => onSave("paste_method", v)}
             />
           </div>
+
+          <PasteToolControl
+            value={settings.paste_tool}
+            onChange={(v) => onSave("paste_tool", v)}
+          />
         </div>
       </SectionCard>
     </div>
