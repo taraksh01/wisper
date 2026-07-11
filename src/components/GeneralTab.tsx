@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { AppSettings, languages } from "../types";
 import { Select } from "./Select";
 import { PillGroup } from "./PillGroup";
@@ -136,51 +135,71 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
    );
  }
 
-function StartupControl() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    isEnabled().then(setEnabled).catch(() => setEnabled(null));
-  }, []);
-
-  const toggle = useCallback(async (next: boolean) => {
-    setBusy(true);
-    try {
-      if (next) {
-        await enable();
-      } else {
-        await disable();
-      }
-      setEnabled(await isEnabled());
-    } catch {
-      // reflect the real state if the change failed
-      try {
-        setEnabled(await isEnabled());
-      } catch {
-        setEnabled(null);
-      }
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
+function StartupControl({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-xs text-muted">Start Wisper automatically when you log in</span>
       <Switch
-        checked={enabled ?? false}
-        disabled={enabled === null || busy}
-        onChange={toggle}
+        checked={value}
+        onChange={onChange}
       />
     </div>
   );
+}
+
+const MODIFIER_CODES = new Set([
+  "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight",
+  "AltLeft", "AltRight", "MetaLeft", "MetaRight",
+]);
+
+function isModifierCode(code: string): boolean {
+  return MODIFIER_CODES.has(code);
+}
+
+function codeToToken(code: string): string | null {
+  switch (code) {
+    case "ControlLeft": return "LeftCtrl";
+    case "ControlRight": return "RightCtrl";
+    case "ShiftLeft": return "LeftShift";
+    case "ShiftRight": return "RightShift";
+    case "AltLeft": return "LeftAlt";
+    case "AltRight": return "RightAlt";
+    case "MetaLeft": return "LeftMeta";
+    case "MetaRight": return "RightMeta";
+  }
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  if (code.startsWith("F") && /^[0-9]+$/.test(code.slice(1))) return code;
+  const map: Record<string, string> = {
+    Space: "Space",
+    Enter: "Enter",
+    Tab: "Tab",
+    Backspace: "Backspace",
+    Escape: "Escape",
+    Delete: "Delete",
+    Insert: "Insert",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+    ArrowUp: "UpArrow",
+    ArrowDown: "DownArrow",
+    ArrowLeft: "LeftArrow",
+    ArrowRight: "RightArrow",
+    CapsLock: "CapsLock",
+    ScrollLock: "ScrollLock",
+    Pause: "Pause",
+    PrintScreen: "PrintScreen",
+    NumLock: "NumLock",
+  };
+  return map[code] ?? null;
 }
 
 export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   const [listening, setListening] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const pendingModsRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -194,6 +213,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   }, []);
 
   const startListening = useCallback(() => {
+    pendingModsRef.current.clear();
     setListening(true);
     setMessage(null);
     setTimeout(() => btnRef.current?.focus(), 0);
@@ -209,6 +229,45 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       showMessage(String(e), false);
     }
   }, [onSave, showMessage]);
+
+  useEffect(() => {
+    if (!listening) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const code = e.code;
+      if (code === "Escape") {
+        setListening(false);
+        return;
+      }
+      const token = codeToToken(code);
+      if (!token) return;
+      if (isModifierCode(code)) {
+        pendingModsRef.current.add(token);
+        return;
+      }
+      setListening(false);
+      const mods = Array.from(pendingModsRef.current);
+      pendingModsRef.current.clear();
+      setHotkey(mods.length > 0 ? [...mods, token].join("+") : token);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      const code = e.code;
+      if (!isModifierCode(code)) return;
+      const token = codeToToken(code);
+      if (token && pendingModsRef.current.has(token)) {
+        setListening(false);
+        pendingModsRef.current.clear();
+        setHotkey(token);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [listening, setHotkey]);
 
   return (
     <div className="max-w-lg space-y-4 card-enter">
@@ -231,26 +290,6 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               <button
                 ref={btnRef}
                 onClick={startListening}
-                onBlur={() => setListening(false)}
-                onKeyDown={(e) => {
-                  if (!listening) return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const key = e.key;
-                  const ignored = ["Shift", "Control", "Alt", "Meta", "CapsLock", "Tab", "Enter"];
-                  if (ignored.includes(key)) return;
-                  setListening(false);
-
-                  const mods: string[] = [];
-                  if (e.ctrlKey) mods.push("Ctrl");
-                  if (e.altKey) mods.push("Alt");
-                  if (e.shiftKey) mods.push("Shift");
-                  if (e.metaKey) mods.push("Meta");
-
-                  const mainKey = key === " " ? "Space" : key.length === 1 ? key.toUpperCase() : key;
-                  const hotkey = mods.length > 0 ? [...mods, mainKey].join("+") : mainKey;
-                  setHotkey(hotkey);
-                }}
                 tabIndex={0}
                 className={`relative px-4 py-2 rounded-lg text-xs font-mono font-medium text-left outline-none ring-1 transition-all cursor-pointer min-w-[140px] ${
                   listening
@@ -321,7 +360,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       </SectionCard>
 
       <SectionCard title="Startup" className="card-enter">
-        <StartupControl />
+        <StartupControl value={settings.autostart} onChange={(v) => onSave("autostart", v)} />
 
         <div className="flex items-center justify-between gap-3 pt-4 mt-4 border-t border-stroke">
           <div>

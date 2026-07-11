@@ -20,6 +20,10 @@ pub struct HotkeyBinding {
 
 impl HotkeyBinding {
     pub fn matches(&self, pressed: &HashSet<Key>) -> bool {
+        if is_modifier_binding_key(self.key) {
+            return pressed.contains(&self.key);
+        }
+
         let has_ctrl = pressed.contains(&Key::ControlLeft) || pressed.contains(&Key::ControlRight);
         let has_alt = pressed.contains(&Key::Alt) || pressed.contains(&Key::AltGr);
         let has_shift = pressed.contains(&Key::ShiftLeft) || pressed.contains(&Key::ShiftRight);
@@ -90,23 +94,49 @@ pub fn parse_binding(s: &str) -> Option<HotkeyBinding> {
 
     for &p in &parts[..parts.len() - 1] {
         match p {
-            "Control" | "Ctrl" => ctrl = true,
-            "Alt" => alt = true,
-            "Shift" => shift = true,
-            "Meta" | "Cmd" | "Super" | "Windows" => meta = true,
+            "Control" | "Ctrl" | "LeftCtrl" | "RightCtrl" => ctrl = true,
+            "Alt" | "LeftAlt" | "RightAlt" => alt = true,
+            "Shift" | "LeftShift" | "RightShift" => shift = true,
+            "Meta" | "Cmd" | "Super" | "Windows" | "LeftMeta" | "RightMeta" => meta = true,
             _ => return None,
         }
     }
 
     let key = parse_key(parts[parts.len() - 1])?;
 
+    if is_modifier_binding_key(key) {
+        return Some(HotkeyBinding { ctrl: false, alt: false, shift: false, meta: false, key });
+    }
+
     Some(HotkeyBinding { ctrl, alt, shift, meta, key })
 }
 
-pub fn parse_key(name: &str) -> Option<Key> {
-    let key = match name {
-        "Alt" | "AltGr" => return None,
-        "Backspace" => Key::Backspace,
+fn is_modifier_binding_key(key: Key) -> bool {
+    matches!(
+        key,
+        Key::ControlLeft
+            | Key::ControlRight
+            | Key::ShiftLeft
+            | Key::ShiftRight
+            | Key::Alt
+            | Key::AltGr
+            | Key::MetaLeft
+            | Key::MetaRight
+    )
+}
+
+    pub fn parse_key(name: &str) -> Option<Key> {
+        let key = match name {
+            "Alt" | "AltGr" => return None,
+            "LeftCtrl" | "ControlLeft" => Key::ControlLeft,
+            "RightCtrl" | "ControlRight" => Key::ControlRight,
+            "LeftShift" | "ShiftLeft" => Key::ShiftLeft,
+            "RightShift" | "ShiftRight" => Key::ShiftRight,
+            "LeftAlt" | "AltLeft" => Key::Alt,
+            "RightAlt" | "AltRight" => Key::AltGr,
+            "LeftMeta" | "MetaLeft" => Key::MetaLeft,
+            "RightMeta" | "MetaRight" => Key::MetaRight,
+            "Backspace" => Key::Backspace,
         "CapsLock" => Key::CapsLock,
         "Delete" => Key::Delete,
         "DownArrow" | "ArrowDown" => Key::DownArrow,
