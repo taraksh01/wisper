@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { SectionCard } from "./SectionCard";
+import { WisperLogo } from "./WisperLogo";
 
 export function AboutTab() {
   const [version, setVersion] = useState("");
@@ -22,7 +23,8 @@ export function AboutTab() {
 
       <SectionCard className="card-enter">
         <div className="text-center py-2">
-          <h2 className="text-lg font-bold font-mono text-ink">Wisper</h2>
+          <WisperLogo className="w-14 h-14 mx-auto rounded-2xl" background />
+          <h2 className="text-lg font-bold font-mono text-ink mt-3">Wisper</h2>
           <p className="text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase">Version {version}</p>
         </div>
         <p className="text-xs text-muted leading-relaxed mt-3">

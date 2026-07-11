@@ -41,6 +41,19 @@ static HOTKEY_BINDING: once_cell::sync::Lazy<Arc<Mutex<hotkey::HotkeyBinding>>> 
         }))
     });
 
+static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
+#[tauri::command]
+fn get_input_level() -> f32 {
+    RECORDER
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|r| r.current_level())
+        .unwrap_or(0.0)
+}
+
 #[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -300,6 +313,10 @@ pub fn run() {
             }
 
             let recorder = AudioRecorder::new();
+            {
+                let mut guard = RECORDER.lock().unwrap();
+                *guard = Some(recorder.clone());
+            }
             let coordinator =
                 TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
 
@@ -351,6 +368,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             get_paste_environment,
+            get_input_level,
             get_current_state,
             get_current_model,
             unload_model,

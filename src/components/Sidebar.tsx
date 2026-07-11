@@ -1,6 +1,8 @@
 import { type JSX, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, tabs } from "../types";
+import { WisperLogo } from "./WisperLogo";
 
 interface SidebarProps {
   activeTab: string;
@@ -56,14 +58,6 @@ const tabIcons: Record<string, JSX.Element> = {
   ),
 };
 
-const stateDot = (state: string) => {
-  switch (state) {
-    case "recording": return "bg-recording animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.6)]";
-    case "processing": return "bg-warning animate-pulse shadow-[0_0_6px_rgba(234,179,8,0.6)]";
-    default: return "bg-ready";
-  }
-};
-
 const stateLabel = (state: string) => {
   switch (state) {
     case "recording": return "Recording";
@@ -74,16 +68,41 @@ const stateLabel = (state: string) => {
 
 export function Sidebar({ activeTab, appState, settings, currentModelName, onTabChange, onUnloadModel, onOpenEngineTab }: SidebarProps) {
   const [version, setVersion] = useState("");
+  const [level, setLevel] = useState(0);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
 
+  // Poll the live microphone amplitude only while recording, so the waveform
+  // reacts to the user's actual voice instead of a canned animation.
+  useEffect(() => {
+    if (appState !== "recording") {
+      setLevel(0);
+      return;
+    }
+    let active = true;
+    const tick = async () => {
+      try {
+        const l = await invoke<number>("get_input_level");
+        if (active) setLevel(l);
+      } catch {
+        // ignore
+      }
+    };
+    const id = setInterval(tick, 60);
+    tick();
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [appState]);
+
   return (
     <aside className="w-44 shrink-0 bg-surface border-r border-stroke flex flex-col">
       <div className="flex-1 px-4 py-5 flex flex-col gap-6">
         <div className="flex items-center gap-2.5 px-1">
-          <div className={`w-2.5 h-2.5 rounded-full ${stateDot(appState)} transition-all duration-300`} />
+          <WisperLogo className="w-8 h-8 shrink-0" state={appState as "idle" | "recording" | "processing"} level={level} />
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-bold tracking-tight text-ink font-mono leading-tight">Wisper</h1>
             <p className="text-[9px] font-mono text-muted tracking-[0.15em] uppercase leading-tight">{stateLabel(appState)}</p>

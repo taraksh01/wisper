@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, Stream};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -8,6 +9,8 @@ pub struct AudioRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
     stream: Arc<Mutex<Option<Stream>>>,
     sample_rate: Arc<Mutex<u32>>,
+    /// Latest input RMS amplitude (f32 bits), updated live in the audio callback.
+    level: Arc<AtomicU32>,
 }
 
 impl AudioRecorder {
@@ -16,7 +19,13 @@ impl AudioRecorder {
             buffer: Arc::new(Mutex::new(Vec::new())),
             stream: Arc::new(Mutex::new(None)),
             sample_rate: Arc::new(Mutex::new(16000)),
+            level: Arc::new(AtomicU32::new(0)),
         }
+    }
+
+    /// Current input amplitude (RMS, 0.0..~1.0). 0 when not recording.
+    pub fn current_level(&self) -> f32 {
+        f32::from_bits(self.level.load(Ordering::Relaxed))
     }
 
     pub fn start_recording(&self) -> Result<(), String> {
@@ -37,13 +46,15 @@ impl AudioRecorder {
 
         // Clear the buffer before starting
         self.buffer.lock().unwrap().clear();
+        self.level.store(0, Ordering::Relaxed);
 
         let buffer_clone = self.buffer.clone();
+        let level_clone = self.level.clone();
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => Self::build_stream::<f32>(&device, &config.into(), buffer_clone),
-            cpal::SampleFormat::I16 => Self::build_stream::<i16>(&device, &config.into(), buffer_clone),
-            cpal::SampleFormat::U16 => Self::build_stream::<u16>(&device, &config.into(), buffer_clone),
+            cpal::SampleFormat::F32 => Self::build_stream::<f32>(&device, &config.into(), buffer_clone, level_clone),
+            cpal::SampleFormat::I16 => Self::build_stream::<i16>(&device, &config.into(), buffer_clone, level_clone),
+            cpal::SampleFormat::U16 => Self::build_stream::<u16>(&device, &config.into(), buffer_clone, level_clone),
             _ => Err("Unsupported sample format".into()),
         }?;
 
@@ -58,6 +69,7 @@ impl AudioRecorder {
     pub fn stop_recording(&self) -> Vec<f32> {
         let mut current_stream = self.stream.lock().unwrap();
         *current_stream = None;
+        self.level.store(0, Ordering::Relaxed);
 
         let mut buffer = self.buffer.lock().unwrap();
         let final_buffer = buffer.clone();
@@ -73,6 +85,7 @@ impl AudioRecorder {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         buffer: Arc<Mutex<Vec<f32>>>,
+        level: Arc<AtomicU32>,
     ) -> Result<Stream, String>
     where
         T: Sample + cpal::SizedSample,
@@ -86,13 +99,32 @@ impl AudioRecorder {
                 config.clone(),
                 move |data: &[T], _: &_| {
                     let mut b = buffer.lock().unwrap();
+                    let mut sum_sq: f32 = 0.0;
+                    let mut count: usize = 0;
                     // Downmix to mono if stereo, and convert to f32
                     for frame in data.chunks(channels) {
                         let mut sum: f32 = 0.0;
                         for sample in frame {
                             sum += sample.to_sample::<f32>();
                         }
-                        b.push(sum / channels as f32);
+                        let mono = sum / channels as f32;
+                        b.push(mono);
+                        sum_sq += mono * mono;
+                        count += 1;
+                    }
+                    // Update the live RMS amplitude for the UI, smoothing toward
+                    // the new value so the meter feels responsive but not jittery.
+                    if count > 0 {
+                        let rms = (sum_sq / count as f32).sqrt();
+                        let prev = f32::from_bits(level.load(Ordering::Relaxed));
+                        let smoothed = if rms > prev {
+                            // rise quickly
+                            prev + (rms - prev) * 0.6
+                        } else {
+                            // fall more gently
+                            prev + (rms - prev) * 0.3
+                        };
+                        level.store(smoothed.to_bits(), Ordering::Relaxed);
                     }
                 },
                 err_fn,
