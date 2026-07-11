@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { AppSettings, HistoryEntry, SmartAgent } from "./types";
+import { AppSettings, HistoryEntry, AgentProfile } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { GeneralTab } from "./components/GeneralTab";
 import { STTTab } from "./components/STTTab";
@@ -35,7 +35,7 @@ function App() {
   const [localModels, setLocalModels] = useState<string[]>([]);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
-  const [agents, setAgents] = useState<SmartAgent[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const [modelsPath, setModelsPath] = useState("");
   const [modelLangFilter, setModelLangFilter] = useState("all");
   const [modelSearchQuery, setModelSearchQuery] = useState("");
@@ -45,7 +45,7 @@ function App() {
     invoke<AppSettings>("load_settings").then(setSettings).catch(console.error);
     fetchHistory();
     fetchModels();
-    fetchAgents();
+    fetchAgentProfiles();
     invoke<string>("get_models_dir_path").then(setModelsPath).catch(console.error);
     invoke<string>("get_current_state").then(setAppState).catch(console.error);
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
@@ -101,10 +101,10 @@ function App() {
     } catch {}
   }, []);
 
-  const fetchAgents = useCallback(async () => {
+  const fetchAgentProfiles = useCallback(async () => {
     try {
-      const a = await invoke<SmartAgent[]>("get_default_agents");
-      setAgents(a);
+      const a = await invoke<AgentProfile[]>("get_agent_profiles");
+      setAgentProfiles(a);
     } catch {}
   }, []);
 
@@ -209,7 +209,7 @@ function App() {
           />
         );
       case "llm":
-        return <LLMTab settings={settings} agents={agents} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={resetTabSettings} onResetAgent={fetchAgents} />;
+        return <LLMTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={resetTabSettings} />;
       case "history":
         return <HistoryTab history={history} stats={stats} settings={settings} onSave={saveSetting} onRefresh={fetchHistory} />;
       case "about":

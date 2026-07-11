@@ -377,7 +377,7 @@ pub fn run() {
             models::download_model,
             models::delete_model,
             models::get_models_dir_path,
-            llm::get_default_agents,
+            llm::get_agent_profiles,
             history::get_history_entries,
             history::get_history_stats,
             history::delete_history_entry,

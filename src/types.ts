@@ -9,10 +9,11 @@ export interface HistoryEntry {
   recording_path: string | null;
 }
 
-export interface SmartAgent {
+export interface AgentProfile {
+  id: string;
   name: string;
+  description: string;
   system_prompt: string;
-  active: boolean;
 }
 
 export interface AppSettings {
@@ -42,6 +43,7 @@ export interface AppSettings {
   llm_api_key_ollama: string;
   llm_api_key_custom: string;
   llm_model: string;
+  llm_agent_profile: string;
   llm_agent_name: string;
   llm_agent_prompt: string;
   hotkey: string;

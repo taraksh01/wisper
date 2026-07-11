@@ -177,11 +177,11 @@ impl TranscriptionCoordinator {
                         let llm_model = LLM_MODEL.lock().unwrap().clone();
                         let agent = {
                             let settings = crate::settings::AppSettings::load();
-                            if settings.llm_agent_prompt.is_empty() {
-                                crate::llm::SmartAgent::auto_format()
-                            } else {
-                                crate::llm::SmartAgent::with_prompt(settings.llm_agent_prompt)
-                            }
+                            crate::llm::SmartAgent::resolve(
+                                &settings.llm_agent_profile,
+                                &settings.llm_agent_prompt,
+                                &text,
+                            )
                         };
                         let llm = crate::llm::LlmClient::new(
                             llm_base_url,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { AppSettings, SmartAgent, LLM_PROVIDERS } from "../types";
+import { AppSettings, AgentProfile, LLM_PROVIDERS } from "../types";
 import { Select } from "./Select";
 import { Field } from "./Field";
 import { ResetButton } from "./ResetButton";
@@ -8,21 +8,22 @@ import { Switch } from "./Switch";
 
 interface LLMTabProps {
   settings: AppSettings;
-  agents: SmartAgent[];
+  profiles: AgentProfile[];
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onSaveAll: (updates: Partial<AppSettings>) => void;
   onReset: () => void;
-  onResetAgent?: () => void;
 }
 
-export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAgent }: LLMTabProps) {
+export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTabProps) {
   const selectedProvider = LLM_PROVIDERS.find((p) => p.name === settings.llm_provider) ?? LLM_PROVIDERS[0];
+  const activeProfileId = settings.llm_agent_profile || "auto";
+  const selectedProfile = profiles.find((p) => p.id === activeProfileId);
+  const isCustomProfile = activeProfileId === "custom";
   const [freeModels, setFreeModels] = useState<string[] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState("");
 
-  const isOpenRouter = settings.llm_provider === "openrouter";
-  const modelOptionsBase = isOpenRouter && freeModels
+  const isOpenRouter = settings.llm_provider === "openrouter";  const modelOptionsBase = isOpenRouter && freeModels
     ? freeModels
     : selectedProvider.models;
   const modelInList = settings.llm_model ? modelOptionsBase.includes(settings.llm_model) : false;
@@ -178,32 +179,51 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
             <Field label="LLM API Key" value={settings.llm_api_key} onChange={(v) => onSave("llm_api_key", v)} placeholder="sk-..." secret />
           </SectionCard>
 
-          <SectionCard title="Smart Agent" className="card-enter">
-            {agents.map((agent) => (
-              <div key={agent.name} className="mb-3 last:mb-0">
+          <SectionCard title="Wisper Agent" className="card-enter space-y-3">
+            <p className="text-[11px] text-muted leading-relaxed">
+              Choose how Wisper reshapes your dictation before pasting. Auto picks the best style for each utterance.
+            </p>
+
+            <Select
+              label="Profile"
+              value={settings.llm_agent_profile || "auto"}
+              options={profiles.map((p) => ({ value: p.id, label: p.name }))}
+              onChange={(v) => onSave("llm_agent_profile", v)}
+            />
+
+            {selectedProfile && (
+              <p className="text-[11px] font-mono text-muted/80 leading-relaxed">
+                {selectedProfile.description}
+              </p>
+            )}
+
+            {isCustomProfile ? (
+              <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs font-mono text-ink">{agent.name}</span>
-                  {agent.active && (
-                    <span className="text-[10px] font-mono bg-accent/15 text-accent px-1.5 py-0.5 rounded-sm">active</span>
-                  )}
-                  {onResetAgent && (
+                  <label className="text-[11px] font-mono text-muted tracking-wider">Custom instructions</label>
+                  {settings.llm_agent_prompt && (
                     <button
-                      onClick={() => {
-                        onSave("llm_agent_prompt", "");
-                        onResetAgent!();
-                      }}
+                      onClick={() => onSave("llm_agent_prompt", "")}
                       className="ml-auto text-[10px] font-mono text-muted hover:text-accent transition-colors"
                     >
-                      Reset
+                      Clear
                     </button>
                   )}
                 </div>
                 <AutoTextarea
-                  value={settings.llm_agent_prompt || agent.system_prompt}
+                  value={settings.llm_agent_prompt}
                   onChange={(v) => onSave("llm_agent_prompt", v)}
+                  placeholder="Describe how Wisper should rewrite your speech..."
                 />
               </div>
-            ))}
+            ) : (
+              selectedProfile && selectedProfile.system_prompt && (
+                <div>
+                  <label className="text-[11px] font-mono text-muted block mb-1.5 tracking-wider">Prompt preview</label>
+                  <AutoTextarea value={selectedProfile.system_prompt} />
+                </div>
+              )
+            )}
           </SectionCard>
         </>
       )}
@@ -211,7 +231,7 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
   );
 }
 
-function AutoTextarea({ value, onChange }: { value: string; onChange?: (v: string) => void }) {
+function AutoTextarea({ value, onChange, placeholder }: { value: string; onChange?: (v: string) => void; placeholder?: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -226,6 +246,7 @@ function AutoTextarea({ value, onChange }: { value: string; onChange?: (v: strin
       ref={ref}
       readOnly={!onChange}
       value={value}
+      placeholder={placeholder}
       onChange={onChange ? (e) => onChange(e.target.value) : undefined}
       className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs text-muted leading-relaxed resize-none outline-none ring-1 ring-stroke min-h-[60px] focus:ring-accent/50 focus:text-ink transition-all"
     />
