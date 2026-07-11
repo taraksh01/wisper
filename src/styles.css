@@ -35,6 +35,14 @@
   --color-accent: #ea580c;
 }
 
+/* ─── Theme color scheme (native scrollbars, form controls) ─── */
+.dark {
+  color-scheme: dark;
+}
+.light {
+  color-scheme: light;
+}
+
 /* ─── Waveform State Indicator ─── */
 
 .waveform {
