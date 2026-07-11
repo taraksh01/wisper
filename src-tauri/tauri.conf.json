@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "v3",
+  "productName": "Wisper",
   "version": "0.1.0",
-  "identifier": "com.taraksh01.v3",
+  "identifier": "com.taraksh01.wisper",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "v3",
+        "title": "Wisper",
         "width": 736,
         "height": 640,
         "resizable": false

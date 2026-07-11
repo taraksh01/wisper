@@ -14,7 +14,7 @@ export function AboutTab() {
 
       <SectionCard className="card-enter">
         <div className="text-center py-2">
-          <h2 className="text-lg font-bold font-mono text-ink">v3 Dictation</h2>
+          <h2 className="text-lg font-bold font-mono text-ink">Wisper</h2>
           <p className="text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase">Version 0.1.0</p>
         </div>
         <p className="text-xs text-muted leading-relaxed mt-3">

@@ -87,7 +87,7 @@ impl Default for AppSettings {
 impl AppSettings {
     fn path() -> PathBuf {
         let mut p = dirs::config_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        p.push("v3");
+        p.push("wisper");
         let _ = fs::create_dir_all(&p);
         p.push("settings.json");
         p

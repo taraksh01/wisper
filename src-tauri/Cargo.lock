@@ -5822,35 +5822,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "v3"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "cpal 0.18.1",
- "dirs",
- "enigo",
- "flate2",
- "futures-util",
- "hound",
- "once_cell",
- "rdev",
- "reqwest",
- "rodio",
- "rubato",
- "rusqlite",
- "serde",
- "serde_json",
- "tar",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tokio",
- "transcribe-rs",
-]
-
-[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6614,6 +6585,35 @@ checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
 dependencies = [
  "cfg-if",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "wisper"
+version = "0.1.0"
+dependencies = [
+ "arboard",
+ "cpal 0.18.1",
+ "dirs",
+ "enigo",
+ "flate2",
+ "futures-util",
+ "hound",
+ "once_cell",
+ "rdev",
+ "reqwest",
+ "rodio",
+ "rubato",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tar",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tokio",
+ "transcribe-rs",
 ]
 
 [[package]]

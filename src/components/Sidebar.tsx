@@ -1,4 +1,5 @@
-import { type JSX } from "react";
+import { type JSX, useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { AppSettings, tabs } from "../types";
 
 interface SidebarProps {
@@ -72,13 +73,19 @@ const stateLabel = (state: string) => {
 };
 
 export function Sidebar({ activeTab, appState, settings, currentModelName, onTabChange, onUnloadModel, onOpenEngineTab }: SidebarProps) {
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+
   return (
     <aside className="w-44 shrink-0 bg-surface border-r border-stroke flex flex-col">
       <div className="flex-1 px-4 py-5 flex flex-col gap-6">
         <div className="flex items-center gap-2.5 px-1">
           <div className={`w-2.5 h-2.5 rounded-full ${stateDot(appState)} transition-all duration-300`} />
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-bold tracking-tight text-ink font-mono leading-tight">v3</h1>
+            <h1 className="text-sm font-bold tracking-tight text-ink font-mono leading-tight">Wisper</h1>
             <p className="text-[9px] font-mono text-muted tracking-[0.15em] uppercase leading-tight">{stateLabel(appState)}</p>
           </div>
         </div>
@@ -140,7 +147,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
       </div>
 
       <div className="px-4 py-3 border-t border-stroke text-[9px] font-mono text-muted/50 tracking-wider">
-        v3 Dictation &bull; 0.1.0
+        Wisper &bull; {version}
       </div>
     </aside>
   );

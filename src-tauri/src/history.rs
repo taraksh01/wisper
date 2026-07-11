@@ -47,7 +47,7 @@ impl HistoryManager {
 
     fn get_db_path() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push("v3");
+        path.push("wisper");
         let _ = std::fs::create_dir_all(&path);
         path.push("history.db");
         path
@@ -134,7 +134,7 @@ impl HistoryManager {
 
     pub fn get_recording_dir() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push("v3");
+        path.push("wisper");
         path.push("recordings");
         let _ = std::fs::create_dir_all(&path);
         path
@@ -147,7 +147,7 @@ pub fn save_recording_to_disk(samples: &[f32], sample_rate: u32) -> Option<Strin
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let filename = format!("v3_{}.wav", timestamp);
+    let filename = format!("wisper_{}.wav", timestamp);
     let path = dir.join(&filename);
 
     match wav_from_samples(samples, sample_rate, &path) {

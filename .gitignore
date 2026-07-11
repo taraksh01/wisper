@@ -26,7 +26,6 @@ pnpm-debug.log*
 
 # Tauri
 /src-tauri/WixTools/
-/src-tauri/icons/
 .tauri/update.key
 
 # Updater artifacts (generated during build)

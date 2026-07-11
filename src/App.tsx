@@ -54,14 +54,14 @@ function App() {
     let unlistenProgress: UnlistenFn | undefined;
     let unlistenTab: UnlistenFn | undefined;
     (async () => {
-      unlisten = await listen<string>("v3:state", (event) => {
+      unlisten = await listen<string>("wisper:state", (event) => {
         setAppState(event.payload);
       });
       unlistenProgress = await listen<{ model: string; progress: number }>("download-progress", (event) => {
         const { model, progress } = event.payload;
         setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
       });
-      unlistenTab = await listen<string>("v3:open-tab", (event) => {
+      unlistenTab = await listen<string>("wisper:open-tab", (event) => {
         setActiveTab(event.payload);
       });
     })();

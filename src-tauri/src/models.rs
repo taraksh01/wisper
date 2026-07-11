@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter};
 
 pub fn get_models_dir() -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("v3");
+    path.push("wisper");
     path.push("models");
     let _ = fs::create_dir_all(&path);
     path
@@ -60,7 +60,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         return Ok(target_dir.to_string_lossy().to_string());
     }
 
-    let temp_archive = std::env::temp_dir().join(format!("v3_{}.tar.gz", &model_name));
+    let temp_archive = std::env::temp_dir().join(format!("wisper_{}.tar.gz", &model_name));
 
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;

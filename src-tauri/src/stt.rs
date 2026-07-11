@@ -71,7 +71,7 @@ impl CloudSttProvider {
 impl SttProvider for CloudSttProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
         let temp_dir = std::env::temp_dir();
-        let wav_path = temp_dir.join("v3_dictate_temp.wav");
+        let wav_path = temp_dir.join("wisper_dictate_temp.wav");
 
         crate::audio::save_wav(wav_path.to_str().unwrap(), audio, sample_rate)
             .map_err(|e| format!("Failed to save temporary wav: {}", e))?;

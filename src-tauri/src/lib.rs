@@ -75,7 +75,7 @@ fn unload_model(_app: tauri::AppHandle) {
             let _ = win.show();
             let _ = win.set_focus();
         }
-        let _ = _app.emit("v3:open-tab", "stt");
+        let _ = _app.emit("wisper:open-tab", "stt");
     } else {
         {
             let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
@@ -95,7 +95,7 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
         CoordinatorState::Recording => "recording",
         CoordinatorState::Processing => "processing",
     };
-    let _ = app.emit("v3:state", label);
+    let _ = app.emit("wisper:state", label);
 }
 
 pub fn update_tray_menu_text() {
@@ -118,13 +118,13 @@ pub fn update_tray_menu_text() {
                 let label = match *state {
                     CoordinatorState::Idle => {
                         if name.is_empty() {
-                            "v3 Dictation - Idle".into()
+                            "Wisper - Idle".into()
                         } else {
-                            format!("v3 Dictation - Idle [{}]", name)
+                            format!("Wisper - Idle [{}]", name)
                         }
                     }
-                    CoordinatorState::Recording => "v3 Dictation - Recording...".into(),
-                    CoordinatorState::Processing => "v3 Dictation - Processing...".into(),
+                    CoordinatorState::Recording => "Wisper - Recording...".into(),
+                    CoordinatorState::Processing => "Wisper - Processing...".into(),
                 };
                 let _ = tray.set_tooltip(Some(&label));
             }
@@ -145,7 +145,7 @@ pub fn run() {
                 *guard = Some(app_handle.clone());
             }
 
-            let quit_i = MenuItem::with_id(app, "quit", "Quit v3", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Quit Wisper", true, None::<&str>)?;
             let settings_i =
                 MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let unload_i =
@@ -167,7 +167,7 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .tooltip("v3 Dictation - Idle")
+                .tooltip("Wisper - Idle")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => {
                         app.exit(0);
@@ -185,7 +185,7 @@ pub fn run() {
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
-                            let _ = app.emit("v3:open-tab", "stt");
+                            let _ = app.emit("wisper:open-tab", "stt");
                         } else {
                             {
                                 let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
@@ -197,7 +197,7 @@ pub fn run() {
                             }
                             update_tray_menu_text();
                             if let Some(tray) = app.tray_by_id("main") {
-                                let _ = tray.set_tooltip(Some("v3 Dictation - No model loaded"));
+                                let _ = tray.set_tooltip(Some("Wisper - No model loaded"));
                             }
                         }
                     }
@@ -311,13 +311,13 @@ pub fn run() {
                     let tooltip = match state {
                         CoordinatorState::Idle => {
                             if model_name.is_empty() {
-                                "v3 Dictation - Idle".into()
+                                "Wisper - Idle".into()
                             } else {
-                                format!("v3 Dictation - Idle [{}]", model_name)
+                                format!("Wisper - Idle [{}]", model_name)
                             }
                         }
-                        CoordinatorState::Recording => "v3 Dictation - Recording...".into(),
-                        CoordinatorState::Processing => "v3 Dictation - Processing...".into(),
+                        CoordinatorState::Recording => "Wisper - Recording...".into(),
+                        CoordinatorState::Processing => "Wisper - Processing...".into(),
                     };
                     let _ = tray.set_tooltip(Some(&tooltip));
                     {
