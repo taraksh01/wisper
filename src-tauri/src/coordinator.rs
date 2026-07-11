@@ -19,6 +19,7 @@ pub static LLM_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static LLM_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static LLM_API_KEY: Mutex<String> = Mutex::new(String::new());
 pub static LLM_MODEL: Mutex<String> = Mutex::new(String::new());
+pub static LLM_MAX_TOKENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -175,6 +176,7 @@ impl TranscriptionCoordinator {
                         let llm_base_url = LLM_BASE_URL.lock().unwrap().clone();
                         let llm_api_key = LLM_API_KEY.lock().unwrap().clone();
                         let llm_model = LLM_MODEL.lock().unwrap().clone();
+                        let llm_max_tokens = LLM_MAX_TOKENS.load(Ordering::Relaxed);
                         let agent = {
                             let settings = crate::settings::AppSettings::load();
                             crate::llm::SmartAgent::resolve(
@@ -187,6 +189,7 @@ impl TranscriptionCoordinator {
                             llm_base_url,
                             llm_api_key,
                             llm_model,
+                            llm_max_tokens,
                         );
                         match llm.process(&text, &agent) {
                             Ok(formatted) => {

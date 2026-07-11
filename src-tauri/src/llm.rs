@@ -227,14 +227,16 @@ pub struct LlmClient {
     base_url: String,
     api_key: String,
     model: String,
+    max_tokens: u32,
 }
 
 impl LlmClient {
-    pub fn new(base_url: String, api_key: String, model: String) -> Self {
+    pub fn new(base_url: String, api_key: String, model: String, max_tokens: u32) -> Self {
         Self {
             base_url,
             api_key,
             model,
+            max_tokens,
         }
     }
 
@@ -242,15 +244,18 @@ impl LlmClient {
         let client = reqwest::blocking::Client::new();
         let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": self.model,
             "messages": [
                 {"role": "system", "content": agent.system_prompt},
                 {"role": "user", "content": text}
             ],
-            "temperature": 0.3,
-            "max_tokens": 1024
+            "temperature": 0.3
         });
+        // Only send max_tokens when the user set a limit (0 = auto / model default).
+        if self.max_tokens > 0 {
+            body["max_tokens"] = serde_json::json!(self.max_tokens);
+        }
 
         let resp = client
             .post(&endpoint)
@@ -270,9 +275,20 @@ impl LlmClient {
         let content = json["choices"][0]["message"]["content"]
             .as_str()
             .ok_or("No content in LLM response")?
+            .trim()
             .to_string();
 
-        Ok(content.trim().to_string())
+        // A reasoning model can exhaust its token budget on the thinking phase and
+        // return empty content. Treat that as a failure so the caller keeps the raw text.
+        if content.is_empty() {
+            let finish = json["choices"][0]["finish_reason"].as_str().unwrap_or("");
+            return Err(format!(
+                "LLM returned empty content (finish_reason: {}). Try increasing max tokens.",
+                finish
+            ));
+        }
+
+        Ok(content)
     }
 }
 

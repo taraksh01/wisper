@@ -43,6 +43,7 @@ export interface AppSettings {
   llm_api_key_ollama: string;
   llm_api_key_custom: string;
   llm_model: string;
+  llm_max_tokens: number;
   llm_agent_profile: string;
   llm_agent_name: string;
   llm_agent_prompt: string;

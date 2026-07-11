@@ -267,6 +267,7 @@ pub fn run() {
     if let Ok(mut v) = coordinator::LLM_MODEL.lock() {
         *v = saved_settings.llm_model.clone();
     }
+    coordinator::LLM_MAX_TOKENS.store(saved_settings.llm_max_tokens, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut method) = coordinator::PASTE_METHOD.lock() {
         *method = saved_settings.paste_method.clone();
     }

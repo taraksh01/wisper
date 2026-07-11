@@ -177,6 +177,24 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
             <Field label="Base URL" value={settings.llm_base_url} onChange={(v) => onSave("llm_base_url", v)} placeholder="http://localhost:11434/v1" />
 
             <Field label="LLM API Key" value={settings.llm_api_key} onChange={(v) => onSave("llm_api_key", v)} placeholder="sk-..." secret />
+
+            <div>
+              <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Max Tokens</label>
+              <input
+                type="number"
+                min={0}
+                value={settings.llm_max_tokens === 0 ? "" : settings.llm_max_tokens}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  onSave("llm_max_tokens", Number.isFinite(n) && n > 0 ? n : 0);
+                }}
+                placeholder="Auto (model default)"
+                className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
+              />
+              <p className="text-[10px] text-muted mt-1 leading-relaxed">
+                Leave empty for automatic. Raise it if a reasoning model returns blank output; lower it to cap cost.
+              </p>
+            </div>
           </SectionCard>
 
           <SectionCard title="Wisper Agent" className="card-enter space-y-3">

@@ -31,6 +31,7 @@ pub struct AppSettings {
     pub llm_api_key_ollama: String,
     pub llm_api_key_custom: String,
     pub llm_model: String,
+    pub llm_max_tokens: u32,
     pub llm_agent_profile: String,
     pub llm_agent_name: String,
     pub llm_agent_prompt: String,
@@ -73,6 +74,7 @@ impl Default for AppSettings {
             llm_api_key_ollama: String::new(),
             llm_api_key_custom: String::new(),
             llm_model: "llama3.2".into(),
+            llm_max_tokens: 0,
             llm_agent_profile: "auto".into(),
             llm_agent_name: "Auto-Format".into(),
             llm_agent_prompt: String::new(),
@@ -165,6 +167,7 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     if let Ok(mut v) = crate::coordinator::LLM_MODEL.lock() {
         *v = settings.llm_model.clone();
     }
+    crate::coordinator::LLM_MAX_TOKENS.store(settings.llm_max_tokens, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
     }
