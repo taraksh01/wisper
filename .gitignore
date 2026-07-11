@@ -24,6 +24,9 @@ pnpm-debug.log*
 *.swo
 .DS_Store
 
+# Personal notes (never commit)
+IDEAS.md
+
 # Tauri
 /src-tauri/WixTools/
 .tauri/update.key
