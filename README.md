@@ -23,6 +23,32 @@ Speak → Record → Transcribe → [Refine] → Insert
 
 You speak, Wisper records locally, transcribes your voice to text, optionally refines it with an AI model, then types it at your cursor or copies it to the clipboard.
 
+## Requirements
+
+Wisper inserts text by simulating a paste/keystroke into whatever app is focused. How well this works depends on your display server:
+
+- **X11:** works out of the box with the built-in method — no extra tools needed.
+- **Wayland:** the built-in method **cannot reliably paste into other applications** (Wayland blocks apps from injecting input for security). On Wayland it also falls back to the desktop's **RemoteDesktop portal**, so the system will pop up a **"remote control / remote desktop" permission prompt** each time it needs to type. Install one of the following helper tools for dependable pasting *without* that prompt:
+
+  ```bash
+  # Debian / Ubuntu
+  sudo apt install wtype        # or: sudo apt install ydotool
+
+  # Fedora
+  sudo dnf install wtype        # or: sudo dnf install ydotool
+
+  # Arch
+  sudo pacman -S wtype          # or: sudo pacman -S ydotool
+  ```
+
+  `wtype` is recommended for most Wayland desktops. `ydotool` works everywhere (X11 and Wayland) but requires a running `ydotoold` daemon and input-group permissions.
+
+By default Wisper auto-detects the best available tool, but you can pick a specific one under **General → Output → Paste Tool**. The app also shows a warning there if you're on Wayland without a suitable tool installed.
+
+> **Why does it ask for remote desktop permission?** When you use the **built-in** paste tool on Wayland, Wisper has no direct way to type into other apps, so it routes input through the XDG Desktop Portal's RemoteDesktop interface — the same mechanism screen-sharing tools use — which requires your consent. This is a Wayland limitation, not a bug. Installing `wtype` or `ydotool` avoids the portal (and the prompt) entirely, since they inject input through dedicated channels.
+
+> **Note:** If you install the `.deb` or `.rpm` package, these tools may be pulled in automatically. AppImage users should install them manually as shown above.
+
 ## Tech Stack
 
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
