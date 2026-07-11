@@ -73,6 +73,7 @@ export interface AppSettings {
   vad_threshold: number;
   language: string;
   keep_recordings: boolean;
+  launch_to_tray: boolean;
 }
 
 export interface ModelInfo {

@@ -44,6 +44,7 @@ pub struct AppSettings {
     pub vad_threshold: f32,
     pub language: String,
     pub keep_recordings: bool,
+    pub launch_to_tray: bool,
 }
 
 impl Default for AppSettings {
@@ -88,6 +89,7 @@ impl Default for AppSettings {
             vad_threshold: 0.01,
             language: "auto".into(),
             keep_recordings: false,
+            launch_to_tray: false,
         }
     }
 }

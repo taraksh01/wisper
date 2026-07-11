@@ -322,6 +322,19 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
 
       <SectionCard title="Startup" className="card-enter">
         <StartupControl />
+
+        <div className="flex items-center justify-between gap-3 pt-4 mt-4 border-t border-stroke">
+          <div>
+            <span className="text-xs text-muted">Launch to system tray</span>
+            <p className="text-[10px] font-mono text-muted/60 mt-0.5">
+              Start hidden with only the tray icon. The window opens on launch by default so you can set up Wisper.
+            </p>
+          </div>
+          <Switch
+            checked={settings.launch_to_tray}
+            onChange={(v) => onSave("launch_to_tray", v)}
+          />
+        </div>
       </SectionCard>
     </div>
   );

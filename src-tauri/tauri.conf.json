@@ -15,7 +15,8 @@
         "title": "Wisper",
         "width": 736,
         "height": 640,
-        "resizable": false
+        "resizable": false,
+        "visible": false
       }
     ],
     "security": {

@@ -302,6 +302,15 @@ pub fn run() {
     }
     settings::update_display_name(&saved_settings);
 
+            // Show the window on startup unless the user prefers launching to
+            // the tray only (they still need the window to configure the app).
+            if !saved_settings.launch_to_tray {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+
             let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
                 .unwrap_or(hotkey::HotkeyBinding {
                     ctrl: false,
