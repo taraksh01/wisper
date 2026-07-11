@@ -16,6 +16,7 @@ pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
 pub static LLM_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static VOCAB_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static LLM_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static LLM_API_KEY: Mutex<String> = Mutex::new(String::new());
 pub static LLM_MODEL: Mutex<String> = Mutex::new(String::new());
@@ -172,12 +173,13 @@ impl TranscriptionCoordinator {
                     println!("Transcription: {}", text);
                     let mut final_text = text.clone();
                     let mut agent_name = None;
+                    let vocab_enabled = VOCAB_ENABLED.load(Ordering::Relaxed);
                     if LLM_ENABLED.load(Ordering::Relaxed) {
                         let llm_base_url = LLM_BASE_URL.lock().unwrap().clone();
                         let llm_api_key = LLM_API_KEY.lock().unwrap().clone();
                         let llm_model = LLM_MODEL.lock().unwrap().clone();
                         let llm_max_tokens = LLM_MAX_TOKENS.load(Ordering::Relaxed);
-                        let agent = {
+                        let mut agent = {
                             let settings = crate::settings::AppSettings::load();
                             crate::llm::SmartAgent::resolve(
                                 &settings.llm_agent_profile,
@@ -185,6 +187,13 @@ impl TranscriptionCoordinator {
                                 &text,
                             )
                         };
+                        // Bias the LLM toward the user's canonical spellings.
+                        if vocab_enabled {
+                            let hint = crate::vocab::vocabulary_prompt_hint();
+                            if !hint.is_empty() {
+                                agent.system_prompt.push_str(&hint);
+                            }
+                        }
                         let llm = crate::llm::LlmClient::new(
                             llm_base_url,
                             llm_api_key,
@@ -200,6 +209,11 @@ impl TranscriptionCoordinator {
                                 eprintln!("LLM skipped ({}), using raw text", e);
                             }
                         }
+                    }
+                    // Deterministic vocabulary correction as a final guarantee,
+                    // whether or not the LLM ran.
+                    if vocab_enabled {
+                        final_text = crate::vocab::apply_vocabulary(&final_text);
                     }
                     let paste_method = PASTE_METHOD.lock().unwrap().clone();
                     if let Err(e) = paste_text(&final_text, &paste_method) {

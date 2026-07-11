@@ -241,7 +241,10 @@ impl LlmClient {
     }
 
     pub fn process(&self, text: &str, agent: &SmartAgent) -> Result<String, String> {
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
         let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
 
         let mut body = serde_json::json!({

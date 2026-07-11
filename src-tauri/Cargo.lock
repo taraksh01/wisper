@@ -6665,6 +6665,7 @@ dependencies = [
  "hound",
  "once_cell",
  "rdev",
+ "regex",
  "reqwest",
  "rodio",
  "rubato",

@@ -7,6 +7,7 @@ pub mod models;
 pub mod paste;
 pub mod settings;
 pub mod stt;
+pub mod vocab;
 
 use audio::AudioRecorder;
 use coordinator::{CoordinatorCommand, CoordinatorState, TranscriptionCoordinator};
@@ -258,6 +259,7 @@ pub fn run() {
     );
     coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
     coordinator::LLM_ENABLED.store(saved_settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
+    coordinator::VOCAB_ENABLED.store(saved_settings.vocabulary_enabled, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut v) = coordinator::LLM_BASE_URL.lock() {
         *v = saved_settings.llm_base_url.clone();
     }
@@ -379,6 +381,15 @@ pub fn run() {
             models::delete_model,
             models::get_models_dir_path,
             llm::get_agent_profiles,
+            vocab::get_vocabulary,
+            vocab::add_vocab_entry,
+            vocab::update_vocab_entry,
+            vocab::delete_vocab_entry,
+            vocab::suggest_vocabulary,
+            vocab::ignore_vocab_suggestion,
+            vocab::get_ignored_terms,
+            vocab::unignore_vocab_term,
+            vocab::add_ignored_to_dictionary,
             history::get_history_entries,
             history::get_history_stats,
             history::delete_history_entry,

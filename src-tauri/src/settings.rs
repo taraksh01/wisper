@@ -35,6 +35,7 @@ pub struct AppSettings {
     pub llm_agent_profile: String,
     pub llm_agent_name: String,
     pub llm_agent_prompt: String,
+    pub vocabulary_enabled: bool,
     pub hotkey: String,
     pub hotkey_mode: String,
     pub paste_method: String,
@@ -78,6 +79,7 @@ impl Default for AppSettings {
             llm_agent_profile: "auto".into(),
             llm_agent_name: "Auto-Format".into(),
             llm_agent_prompt: String::new(),
+            vocabulary_enabled: true,
             hotkey: "F12".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Ctrl+V".into(),
@@ -158,6 +160,7 @@ pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     );
     crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::LLM_ENABLED.store(settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::VOCAB_ENABLED.store(settings.vocabulary_enabled, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut v) = crate::coordinator::LLM_BASE_URL.lock() {
         *v = settings.llm_base_url.clone();
     }
