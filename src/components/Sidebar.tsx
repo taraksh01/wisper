@@ -111,7 +111,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
       <div className="flex-1 px-4 py-5 flex flex-col gap-6">
         <div className="flex items-center gap-2.5 px-1">
           <WisperLogo className="w-8 h-8 shrink-0" state={appState as "idle" | "recording" | "processing"} level={level} />
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
             <h1 className="text-sm font-bold tracking-tight text-ink font-mono leading-tight">Wisper</h1>
             <p className="text-[9px] font-mono text-muted tracking-[0.15em] uppercase leading-tight">{stateLabel(appState)}</p>
           </div>
