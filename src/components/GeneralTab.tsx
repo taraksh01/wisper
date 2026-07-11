@@ -1,9 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { AppSettings, languages } from "../types";
 import { Select } from "./Select";
 import { PillGroup } from "./PillGroup";
 import { ResetButton } from "./ResetButton";
+import { Switch } from "./Switch";
 
 interface GeneralTabProps {
   settings: AppSettings;
@@ -130,6 +132,47 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
           )}
         </div>
       )}
+     </div>
+   );
+ }
+
+function StartupControl() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    isEnabled().then(setEnabled).catch(() => setEnabled(null));
+  }, []);
+
+  const toggle = useCallback(async (next: boolean) => {
+    setBusy(true);
+    try {
+      if (next) {
+        await enable();
+      } else {
+        await disable();
+      }
+      setEnabled(await isEnabled());
+    } catch {
+      // reflect the real state if the change failed
+      try {
+        setEnabled(await isEnabled());
+      } catch {
+        setEnabled(null);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-muted">Start Wisper automatically when you log in</span>
+      <Switch
+        checked={enabled ?? false}
+        disabled={enabled === null || busy}
+        onChange={toggle}
+      />
     </div>
   );
 }
@@ -275,6 +318,10 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
             onChange={(v) => onSave("paste_tool", v)}
           />
         </div>
+      </SectionCard>
+
+      <SectionCard title="Startup" className="card-enter">
+        <StartupControl />
       </SectionCard>
     </div>
   );
