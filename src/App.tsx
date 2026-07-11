@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { AppSettings, HistoryEntry, AgentProfile } from "./types";
+import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { GeneralTab } from "./components/GeneralTab";
 import { STTTab } from "./components/STTTab";
@@ -27,7 +27,10 @@ function useSystemTheme() {
 
 function App() {
   const dark = useSystemTheme();
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = localStorage.getItem("wisper:active-tab");
+    return saved && tabs.some((t) => t.id === saved) ? saved : "general";
+  });
   const [appState, setAppState] = useState("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -40,6 +43,10 @@ function App() {
   const [modelLangFilter, setModelLangFilter] = useState("all");
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [currentModelName, setCurrentModelName] = useState("");
+
+  useEffect(() => {
+    localStorage.setItem("wisper:active-tab", activeTab);
+  }, [activeTab]);
 
   useEffect(() => {
     invoke<AppSettings>("load_settings").then(setSettings).catch(console.error);
