@@ -1,6 +1,14 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { SectionCard } from "./SectionCard";
 
 export function AboutTab() {
+  const [version, setVersion] = useState("");
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
+
   return (
     <div className="max-w-lg space-y-4 card-enter">
       <div className="flex items-center gap-2">
@@ -15,16 +23,86 @@ export function AboutTab() {
       <SectionCard className="card-enter">
         <div className="text-center py-2">
           <h2 className="text-lg font-bold font-mono text-ink">Wisper</h2>
-          <p className="text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase">Version 0.1.0</p>
+          <p className="text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase">Version {version}</p>
         </div>
         <p className="text-xs text-muted leading-relaxed mt-3">
-          A privacy-first dictation tool that runs locally and lets you choose your own AI provider.
-          Speak, transcribe, process with an LLM, and paste — all without leaving your keyboard.
+          Turn your voice into text right on your device, with your privacy always in your hands.
+          Just speak, and your words are ready to paste anywhere. Everything stays on your computer
+          by default, with optional cloud providers available whenever you choose to use them.
         </p>
         <p className="text-xs text-muted leading-relaxed mt-2">
           Special thanks to <a href="https://groq.com" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-dim transition-colors">Groq</a> for providing free API access with a generous rate limit,
           making local + cloud hybrid dictation accessible to everyone.
         </p>
+      </SectionCard>
+
+      <SectionCard title="How it works" className="card-enter">
+        <div className="relative py-1">
+          <div className="space-y-1">
+            {[
+              { label: "Speak", desc: "Hold your hotkey and talk.", d: "M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" },
+              { label: "Record", desc: "Captured right on your device.", d: "M2 12h2M6 8v8M10 4v16M14 7v10M18 9v6" },
+              { label: "Transcribe", desc: "Your voice becomes text.", d: "M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2M9 20h6M12 4v16" },
+              { label: "Refine", desc: "AI cleans up and formats it.", optional: true, d: "M12 4l1.6 4L18 9.5l-4.4 1.6L12 15l-1.6-4L6 9.5l4.4-1.5L12 4z" },
+              { label: "Insert", desc: "Typed at your cursor or copied.", d: "M17 22h-1a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4h1M7 22h1a4 4 0 0 0 4-4V6a4 4 0 0 0-4-4H7" },
+            ].map((step, i, arr) => {
+              const left = i % 2 === 0;
+              const accent = !step.optional;
+              const isLast = i === arr.length - 1;
+              const content = (
+                <div className={`min-w-0 ${left ? "text-right pr-3" : "text-left pl-3"}`}>
+                  <div className={`flex items-center gap-1.5 ${left ? "justify-end" : "justify-start"}`}>
+                    <span className="text-xs font-mono text-ink font-semibold">{step.label}</span>
+                    {step.optional && (
+                      <span className="text-[7px] font-mono text-muted tracking-[0.1em] uppercase px-1 py-0.5 rounded ring-1 ring-stroke">
+                        optional
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted leading-snug mt-0.5">{step.desc}</p>
+                </div>
+              );
+
+              return (
+                <div
+                  key={step.label}
+                  className="grid grid-cols-[1fr_auto_1fr] items-center card-enter"
+                  style={{ animationDelay: `${i * 90}ms` }}
+                >
+                  {left ? content : <div />}
+
+                  {/* node */}
+                  <div className="relative flex flex-col items-center py-1.5">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center ring-1 ${
+                        accent
+                          ? "bg-accent/10 ring-accent/30 shadow-[0_0_12px_-4px] shadow-accent/40"
+                          : "bg-elevated/40 ring-stroke ring-dashed"
+                      }`}
+                    >
+                      <svg
+                        className={`w-4 h-4 ${accent ? "text-accent" : "text-muted"}`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d={step.d} />
+                      </svg>
+                    </div>
+                    {!isLast && (
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 h-2 w-0 border-l border-dashed border-accent/50" />
+                    )}
+                  </div>
+
+                  {left ? <div /> : content}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </SectionCard>
 
       <SectionCard title="Links" className="card-enter">

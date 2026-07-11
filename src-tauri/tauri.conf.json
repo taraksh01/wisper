@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wisper",
-  "version": "0.1.0",
+  "version": "3.0.0",
   "identifier": "com.taraksh01.wisper",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -25,6 +25,9 @@
   "bundle": {
     "active": true,
     "targets": "appimage",
+    "publisher": "Tarak Shaw",
+    "shortDescription": "Turn your voice into text right on your device, with your privacy always in your hands.",
+    "longDescription": "Turn your voice into text right on your device, with your privacy always in your hands. Just speak, and your words are ready to paste anywhere. Everything stays on your computer by default, with optional cloud providers available whenever you choose to use them.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
