@@ -3,6 +3,7 @@ import ModelCard from "./ModelCard";
 import { Select } from "./Select";
 import { Field } from "./Field";
 import { SectionCard } from "./SectionCard";
+import { Switch } from "./Switch";
 
 interface STTTabProps {
   settings: AppSettings;
@@ -236,15 +237,13 @@ export function STTTab({
       )}
 
       <SectionCard title="Recording" className="card-enter">
-        <label className="flex items-center gap-3 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={settings.vad_enabled}
-            onChange={(e) => onSave("vad_enabled", e.target.checked)}
-            className="accent-accent size-3.5 shrink-0"
-          />
+        <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-muted">Trim silence from recordings</span>
-        </label>
+          <Switch
+            checked={settings.vad_enabled}
+            onChange={(v) => onSave("vad_enabled", v)}
+          />
+        </div>
       </SectionCard>
     </div>
   );

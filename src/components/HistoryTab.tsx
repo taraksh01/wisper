@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
 import { SectionCard } from "./SectionCard";
+import { Switch } from "./Switch";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
@@ -246,15 +247,13 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Recent</h2>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 text-[11px] font-mono text-muted cursor-pointer">
-              <input
-                type="checkbox"
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted">
+              <span>Keep recordings</span>
+              <Switch
                 checked={settings.keep_recordings}
-                onChange={(e) => onSave("keep_recordings", e.target.checked)}
-                className="w-3 h-3 accent-accent"
+                onChange={(v) => onSave("keep_recordings", v)}
               />
-              Keep recordings
-            </label>
+            </div>
             {history.length > 0 && (
               <button
                 onClick={() => setShowClearConfirm(true)}

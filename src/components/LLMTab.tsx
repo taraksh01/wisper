@@ -4,6 +4,7 @@ import { Select } from "./Select";
 import { Field } from "./Field";
 import { ResetButton } from "./ResetButton";
 import { SectionCard } from "./SectionCard";
+import { Switch } from "./Switch";
 
 interface LLMTabProps {
   settings: AppSettings;
@@ -108,15 +109,13 @@ export function LLMTab({ settings, agents, onSave, onSaveAll, onReset, onResetAg
       <SectionCard className="card-enter">
         <div className="flex items-center justify-between">
           <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">LLM Post-Processing</h2>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.llm_enabled}
-              onChange={(e) => onSave("llm_enabled", e.target.checked)}
-              className="accent-accent size-3.5"
-            />
+          <div className="flex items-center gap-2">
             <span className="text-xs text-muted font-mono">Enabled</span>
-          </label>
+            <Switch
+              checked={settings.llm_enabled}
+              onChange={(v) => onSave("llm_enabled", v)}
+            />
+          </div>
         </div>
       </SectionCard>
 
