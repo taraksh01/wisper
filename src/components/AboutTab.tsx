@@ -30,7 +30,7 @@ export function AboutTab() {
       <SectionCard title="Links" className="card-enter">
         <div className="space-y-1.5">
           <a
-            href="https://github.com/taraksh01/v3"
+            href="https://github.com/taraksh01/wisper"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 text-xs font-mono text-accent hover:text-accent-dim transition-colors"

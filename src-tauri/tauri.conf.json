@@ -38,7 +38,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlBRTM0RUEzOEY5MjkyREYKUldUZmtwS1BvMDdqbXNzL2YxN2dFakZpWHdmeFlrWVRWMmV3cEszUUJnS3FQaFFlVjVQWVJ1SGoK",
       "endpoints": [
-        "https://github.com/taraksh01/v3/releases/latest/download/updater.json"
+        "https://github.com/taraksh01/wisper/releases/latest/download/updater.json"
       ]
     }
   }
