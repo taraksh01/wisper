@@ -71,7 +71,7 @@ export function STTTab({
             <line x1="12" y1="19" x2="12" y2="23" />
             <line x1="8" y1="23" x2="16" y2="23" />
           </svg>
-          <h1 className="text-sm font-bold font-mono text-ink tracking-tight">Engine</h1>
+          <h1 className="text-sm font-semibold text-ink tracking-tight">Engine</h1>
         </div>
       </div>
 
@@ -168,7 +168,13 @@ export function STTTab({
 
           {availableKeys.length === 0 && downloadedKeys.length === 0 && (
             <SectionCard className="card-enter">
-              <p className="text-xs text-muted">No models match your filters.</p>
+              <div className="flex flex-col items-center justify-center text-center py-6 px-4">
+                <svg className="w-7 h-7 text-muted/50 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m20 20-4.35-4.35" />
+                </svg>
+                <p className="text-xs text-muted">No models match your filters.</p>
+              </div>
             </SectionCard>
           )}
         </>

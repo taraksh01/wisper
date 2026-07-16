@@ -15,6 +15,7 @@ export function Select({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [, setForceRender] = useState(0);
   const [pos, setPos] = useState<{
     top: number;
     left: number;
@@ -26,6 +27,17 @@ export function Select({
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const selected = options.find((o) => o.value === value);
+  const enabledOptions = options;
+  const activeIndexRef = useRef(Math.max(0, enabledOptions.findIndex((o) => o.value === value)));
+
+  const moveActive = useCallback((dir: 1 | -1) => {
+    if (enabledOptions.length === 0) return;
+    const next = (activeIndexRef.current + dir + enabledOptions.length) % enabledOptions.length;
+    activeIndexRef.current = next;
+    const list = document.getElementById(`select-list-${buttonRef.current?.id ?? ""}`);
+    list?.querySelectorAll<HTMLElement>("[data-opt]")[next]?.scrollIntoView({ block: "nearest" });
+    setForceRender((r) => r + 1);
+  }, [enabledOptions.length]);
 
   const updatePos = useCallback(() => {
     if (!buttonRef.current) return;
@@ -71,11 +83,32 @@ export function Select({
 
   return (
     <div className={className}>
-      {label && <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">{label}</label>}
+      {label && <label className="label-soft block mb-1">{label}</label>}
       <div className="relative w-full" ref={containerRef}>
         <button
+          id={label ? `select-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined}
           ref={buttonRef}
+          aria-haspopup="listbox"
+          aria-expanded={open}
           onClick={() => setOpen((p) => !p)}
+          onKeyDown={(e) => {
+            if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
+              e.preventDefault();
+              setOpen(true);
+            } else if (open && e.key === "ArrowDown") {
+              e.preventDefault();
+              moveActive(1);
+            } else if (open && e.key === "ArrowUp") {
+              e.preventDefault();
+              moveActive(-1);
+            } else if (open && e.key === "Enter") {
+              e.preventDefault();
+              onChange(enabledOptions[activeIndexRef.current].value);
+              setOpen(false);
+            } else if (e.key === "Escape") {
+              setOpen(false);
+            }
+          }}
           className="w-full bg-elevated rounded-md px-2.5 py-1.5 text-xs font-mono text-ink text-left outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all cursor-pointer flex items-center justify-between gap-2"
         >
           <span className="truncate">{selected?.label ?? value}</span>
@@ -92,7 +125,9 @@ export function Select({
 
         {open && pos && createPortal(
           <div
-            className="fixed z-[9999] bg-surface border border-stroke rounded-md shadow-lg overflow-y-auto custom-scrollbar"
+            id={buttonRef.current?.id ? `select-list-${buttonRef.current.id}` : undefined}
+            role="listbox"
+            className="fixed z-[9999] bg-surface border border-stroke rounded-md shadow-lg overflow-y-auto custom-scrollbar py-1"
             style={{
               left: pos.left,
               width: pos.width,
@@ -109,24 +144,33 @@ export function Select({
               e.stopPropagation();
             }}
           >
-            {options.map((opt) => (
-              <button
-                key={opt.value}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                className={`w-full text-left px-2.5 py-1.5 text-xs font-mono transition-colors cursor-pointer truncate ${
-                  value === opt.value
-                    ? "bg-accent text-white"
-                    : "text-muted hover:bg-elevated hover:text-ink"
-                }`}
-                title={opt.label}
-              >
-                {opt.label}
-              </button>
-            ))}
+            {options.map((opt, i) => {
+              const isActive = i === activeIndexRef.current && open;
+              return (
+                <button
+                  key={opt.value}
+                  data-opt
+                  role="option"
+                  aria-selected={value === opt.value}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  onMouseEnter={() => { activeIndexRef.current = i; }}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs font-mono transition-colors cursor-pointer truncate ${
+                    value === opt.value
+                      ? "bg-accent text-white"
+                      : isActive
+                      ? "bg-elevated text-ink"
+                      : "text-muted hover:bg-elevated hover:text-ink"
+                  }`}
+                  title={opt.label}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>,
           document.body
         )}

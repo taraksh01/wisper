@@ -9,9 +9,10 @@ interface PillGroupProps {
   value: string;
   options: PillGroupOption[];
   onChange: (value: string) => void;
+  title?: string;
 }
 
-export function PillGroup({ value, options, onChange }: PillGroupProps) {
+export function PillGroup({ value, options, onChange, title }: PillGroupProps) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map((opt) => (
@@ -19,10 +20,10 @@ export function PillGroup({ value, options, onChange }: PillGroupProps) {
           key={opt.value}
           onClick={() => !opt.disabled && onChange(opt.value)}
           disabled={opt.disabled}
-          title={opt.title}
-          className={`px-3 py-1.5 text-xs font-mono font-medium rounded-md transition-all duration-150 ${
+          title={title}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 ${
             opt.disabled
-              ? "text-muted/30 cursor-not-allowed line-through decoration-muted/30"
+              ? "text-muted/40 cursor-not-allowed"
               : value === opt.value
               ? "bg-accent/15 text-accent ring-1 ring-accent/30"
               : "text-muted hover:text-ink hover:bg-elevated"

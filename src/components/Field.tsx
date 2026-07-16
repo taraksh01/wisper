@@ -13,10 +13,10 @@ export function Field({
   placeholder?: string;
   secret?: boolean;
 }) {
-  const [show, setShow] = useState(true);
+  const [show, setShow] = useState(false);
   return (
     <div>
-      <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">{label}</label>
+      <label className="label-soft block mb-1">{label}</label>
       <div className="relative">
         <input
           type={secret && !show ? "password" : "text"}
@@ -30,6 +30,7 @@ export function Field({
             type="button"
             onMouseDown={(e) => { e.preventDefault(); setShow(!show); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+            aria-label={show ? "Hide value" : "Show value"}
           >
             {show ? (
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

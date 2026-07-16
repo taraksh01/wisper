@@ -120,7 +120,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
         {currentModelName && settings && (
           <div className="px-1">
             {settings.stt_mode === "local" ? (
-              <div className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-accent/8 border border-accent/15 group">
+              <div className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-accent/10 border border-accent/15 group">
                 <span className="text-[9px] font-mono text-accent truncate flex-1" title={currentModelName}>
                   {currentModelName}
                 </span>
@@ -157,13 +157,18 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium font-mono transition-all duration-150 ${
+                className={`group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${
                   isActive
-                    ? "bg-accent text-white shadow-sm shadow-accent/30"
+                    ? "bg-accent/12 text-ink"
                     : "text-muted hover:text-ink hover:bg-elevated/60"
                 }`}
               >
-                <span className={`shrink-0 ${isActive ? "text-white/80" : "text-muted/50"}`}>
+                <span
+                  className={`absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r-full bg-accent transition-all duration-200 ${
+                    isActive ? "opacity-100 scale-y-100" : "opacity-0 scale-y-0"
+                  }`}
+                />
+                <span className={`shrink-0 transition-colors ${isActive ? "text-accent" : "text-muted/50 group-hover:text-muted"}`}>
                   {tabIcons[tab.id]}
                 </span>
                 {tab.label}

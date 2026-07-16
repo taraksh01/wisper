@@ -224,7 +224,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          <h1 className="text-sm font-bold font-mono text-ink tracking-tight">History</h1>
+          <h1 className="text-sm font-semibold text-ink tracking-tight">History</h1>
         </div>
       </div>
 
@@ -298,7 +298,18 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
         )}
 
         {history.length === 0 ? (
-          <p className="text-xs text-muted">No history yet. Press {settings.hotkey} to dictate.</p>
+          <div className="flex flex-col items-center justify-center text-center py-10 px-4">
+            <div className="w-12 h-12 rounded-2xl bg-elevated/60 ring-1 ring-stroke flex items-center justify-center mb-3">
+              <svg className="w-6 h-6 text-muted/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            <p className="text-xs font-medium text-ink">No dictations yet</p>
+            <p className="text-[11px] text-muted mt-1 leading-relaxed max-w-[240px]">
+              Press <span className="font-mono text-accent">{settings.hotkey}</span> and start speaking — your transcribed text will appear here.
+            </p>
+          </div>
         ) : (
           <div className="space-y-1.5 max-h-96 overflow-y-auto custom-scrollbar">
             {history.map((entry) => (

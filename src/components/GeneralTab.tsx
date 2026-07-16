@@ -83,7 +83,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
   return (
     <div>
-      <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Paste Tool</label>
+      <label className="label-soft block mb-2">Paste Tool</label>
       <PillGroup value={value} options={options} onChange={onChange} />
 
       {env && (
@@ -316,7 +316,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
             <circle cx="12" cy="12" r="3" />
             <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
           </svg>
-          <h1 className="text-sm font-bold font-mono text-ink tracking-tight">General</h1>
+          <h1 className="text-sm font-semibold text-ink tracking-tight">General</h1>
         </div>
         <ResetButton onClick={onReset} />
       </div>
@@ -367,7 +367,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
           </div>
 
           <div>
-            <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Mode</label>
+            <label className="label-soft block mb-2">Mode</label>
             <PillGroup
               value={settings.hotkey_mode}
               options={[
@@ -385,7 +385,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
 
           <div className="flex items-center justify-between gap-4">
             <div>
-              <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Show Overlay</label>
+              <label className="label-soft block mb-1">Show Overlay</label>
               <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
                 Floating recording indicator while you dictate.
               </p>
@@ -403,7 +403,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
           </div>
 
           <div>
-            <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Overlay Position</label>
+            <label className="label-soft block mb-2">Overlay Position</label>
             <PillGroup
               value={settings.overlay_position}
               options={[
@@ -419,7 +419,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       <SectionCard title="Output">
         <div className="space-y-4">
           <div>
-            <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Paste Method</label>
+            <label className="label-soft block mb-2">Paste Method</label>
             <PillGroup
               value={settings.paste_method}
               options={[
@@ -457,7 +457,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       </SectionCard>
 
       <SectionCard title="Language">
-        <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Transcription Language</label>
+        <label className="label-soft block mb-2">Transcription Language</label>
         <Select
           value={settings.language}
           onChange={(v) => onSave("language", v)}
