@@ -181,6 +181,11 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
       <div className="px-4 py-3 border-t border-stroke text-[9px] font-mono text-muted/50 tracking-wider">
         Wisper &bull; {version}
       </div>
+      {settings && (
+        <div className="px-4 pb-4 text-[9px] font-mono text-muted/40 tracking-wider">
+          Hold <kbd className="px-1.5 py-0.5 bg-elevated rounded border border-stroke font-mono text-[8px]">{settings.hotkey}</kbd> to dictate
+        </div>
+      )}
     </aside>
   );
 }

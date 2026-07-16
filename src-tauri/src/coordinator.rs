@@ -160,11 +160,13 @@ impl TranscriptionCoordinator {
                     }
                     Some(path) => {
                         eprintln!("Model file not found at: {:?}", path);
+                        self.set_state(CoordinatorState::Idle);
                         crate::show_overlay_error();
                         return;
                     }
                     None => {
                         eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
+                        self.set_state(CoordinatorState::Idle);
                         crate::show_overlay_error();
                         return;
                     }
