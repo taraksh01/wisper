@@ -18,6 +18,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
   const [variants, setVariants] = useState("");
   const [error, setError] = useState("");
   const [ignored, setIgnored] = useState<string[]>([]);
+  const [showImport, setShowImport] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -118,6 +119,30 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
       console.error(e);
     }
   }
+
+  const handleImport = async (paste: string) => {
+    const lines = paste.trim().split(/\r?\n/).filter(Boolean);
+    let added = 0, skipped = 0;
+    for (const line of lines) {
+      try {
+        const [phrase, variants] = line.split("|").map(s => s.trim());
+        if (!phrase) continue;
+        await invoke("add_vocab_entry", {
+          phrase,
+          variants: variants || "",
+          caseSensitive: false,
+          wholeWord: true,
+          auto: false,
+        });
+        added++;
+      } catch (e) {
+        if (String(e).includes("UNIQUE")) skipped++;
+        else console.error(e);
+      }
+    }
+    await load();
+    return { added, skipped };
+  };
 
   return (
     <div className="space-y-4">
@@ -227,6 +252,19 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
           </div>
         </div>
 
+        <div className="pt-2 border-t border-stroke/30">
+          <button
+            onClick={() => setShowImport(true)}
+            className="w-full bg-elevated/30 text-muted hover:text-ink hover:bg-elevated/50 rounded-md px-3 py-1.5 text-xs font-mono transition-all cursor-pointer"
+          >
+            Import multiple terms…
+          </button>
+        </div>
+
+        {showImport && (
+          <ImportModal onClose={() => setShowImport(false)} onImport={handleImport} />
+        )}
+
         {entries.length > 0 && (
           <div className="space-y-1 pt-1">
             {entries.map((e) => (
@@ -294,6 +332,76 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
           </div>
         )}
       </SectionCard>
+    </div>
+  );
+}
+
+function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (text: string) => Promise<{ added: number; skipped: number } | void> }) {
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ added: number; skipped: number } | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await onImport(text);
+      if (res) setResult(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const count = text.trim().split(/\r?\n/).filter(Boolean).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/60 backdrop-blur-sm p-4">
+      <div className="bg-surface border border-stroke rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4 animate-slide-up">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold font-mono text-ink">Import Vocabulary</h3>
+          <button onClick={onClose} className="text-muted hover:text-ink text-[18px] leading-none">×</button>
+        </div>
+        <p className="text-[11px] text-muted leading-relaxed">
+          Paste one term per line. Format: <span className="text-ink font-mono">correct_spelling</span> or <span className="text-ink font-mono">correct|misheard1,misheard2</span>
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={8}
+            placeholder="Wisper|whisper, wispr&#10;PostgreSQL|postgres, postgre&#10;Kubernetes|k8s, kube"
+            className="w-full bg-elevated/50 rounded-md px-2.5 py-2 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 resize-none transition-all"
+          />
+          <div className="flex items-center justify-between text-[10px] font-mono text-muted">
+            <span>{count} term{count !== 1 ? "s" : ""} ready</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-elevated/50 text-muted hover:text-ink hover:bg-elevated rounded-md py-1.5 text-xs font-mono transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!text.trim() || loading}
+              className="flex-1 bg-accent/15 text-accent rounded-md py-1.5 text-xs font-mono hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              {loading ? "Importing…" : "Import"}
+            </button>
+          </div>
+        </form>
+        {result && (
+          <div className="text-[10px] font-mono text-ready text-center pt-2 border-t border-stroke/30">
+            Imported {result.added} term{result.added !== 1 ? "s" : ""}, skipped {result.skipped}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
