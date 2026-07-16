@@ -113,10 +113,11 @@ fn active_backend() -> String {
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
-    match method {
+    let r = match method {
         "Direct Typing" => type_text_directly(text),
         _ => paste_via_clipboard(text, method),
-    }
+    };
+    r
 }
 
 fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
@@ -149,11 +150,12 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
 
 fn simulate_key_combo(method: &str) -> Result<(), String> {
     let backend = active_backend();
-    match backend.as_str() {
+    let r = match backend.as_str() {
         "wtype" => wtype_paste(method),
         "ydotool" => ydotool_paste(method),
         _ => enigo_paste(method),
-    }
+    };
+    r
 }
 
 fn wtype_paste(method: &str) -> Result<(), String> {

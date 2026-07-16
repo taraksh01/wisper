@@ -382,6 +382,37 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
                 : `Press ${settings.hotkey} to start, press again to stop.`}
             </p>
           </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Show Overlay</label>
+              <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
+                Floating recording indicator while you dictate.
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={settings.overlay_enabled}
+              onClick={() => onSave("overlay_enabled", !settings.overlay_enabled)}
+              className={`relative w-10 h-6 rounded-full transition-colors shrink-0 ${settings.overlay_enabled ? "bg-accent" : "bg-stroke"}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${settings.overlay_enabled ? "translate-x-4" : ""}`}
+              />
+            </button>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-mono text-muted block mb-2 tracking-wider">Overlay Position</label>
+            <PillGroup
+              value={settings.overlay_position}
+              options={[
+                { value: "top", label: "Top Center" },
+                { value: "bottom", label: "Bottom Center" },
+              ]}
+              onChange={(v) => onSave("overlay_position", v)}
+            />
+          </div>
         </div>
       </SectionCard>
 

@@ -3,6 +3,7 @@ use crate::hotkey::HotkeyEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
+use std::thread;
 
 use crate::paste::paste_text;
 use crate::stt::{create_local_provider, CloudSttProvider, SttProvider};
@@ -159,10 +160,12 @@ impl TranscriptionCoordinator {
                     }
                     Some(path) => {
                         eprintln!("Model file not found at: {:?}", path);
+                        crate::show_overlay_error();
                         return;
                     }
                     None => {
                         eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
+                        crate::show_overlay_error();
                         return;
                     }
                 }
@@ -216,6 +219,10 @@ impl TranscriptionCoordinator {
                         final_text = crate::vocab::apply_vocabulary(&final_text);
                     }
                     let paste_method = PASTE_METHOD.lock().unwrap().clone();
+                    // Drop overlay focus so synthetic keystrokes land in the
+                    // target app, not the (invisible) overlay window.
+                    crate::hide_overlay();
+                    thread::sleep(std::time::Duration::from_millis(80));
                     if let Err(e) = paste_text(&final_text, &paste_method) {
                         eprintln!("Paste failed: {}", e);
                     }
@@ -230,7 +237,10 @@ impl TranscriptionCoordinator {
                         eprintln!("Failed to log history: {}", e);
                     }
                 }
-                Err(e) => eprintln!("Transcription error: {}", e),
+                Err(e) => {
+                    eprintln!("Transcription error: {}", e);
+                    crate::show_overlay_error();
+                }
             }
         }
 

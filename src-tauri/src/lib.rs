@@ -41,6 +41,11 @@ static HOTKEY_SENDER: once_cell::sync::Lazy<Mutex<Option<HotkeySender>>> =
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
+static OVERLAY_ENABLED: once_cell::sync::Lazy<Mutex<bool>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(true));
+static OVERLAY_POSITION: once_cell::sync::Lazy<Mutex<String>> =
+    once_cell::sync::Lazy::new(|| Mutex::new("bottom".to_string()));
+
 #[tauri::command]
 fn get_input_level() -> f32 {
     RECORDER
@@ -106,6 +111,173 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
         CoordinatorState::Processing => "processing",
     };
     let _ = app.emit("wisper:state", label);
+    update_overlay(app, state);
+}
+
+/// Detached overlay window: a transparent, decoration-less, non-focusable
+/// Tauri webview showing the recording indicator (public/overlay.html).
+/// Created hidden, shown during recording/processing, destroyed when idle.
+const OVERLAY_LABEL: &str = "wisper-overlay";
+const OVERLAY_WIDTH: f64 = 260.0;
+const OVERLAY_HEIGHT: f64 = 56.0;
+const OVERLAY_TOP_OFFSET: f64 = 4.0;
+const OVERLAY_BOTTOM_OFFSET: f64 = 40.0;
+
+#[cfg(target_os = "linux")]
+use enigo::Mouse;
+
+/// Cursor position on Wayland: Tauri's cursor_position() returns (0,0), so ask
+/// enigo (which talks to the compositor) for the real pointer location.
+#[cfg(target_os = "linux")]
+fn cursor_pos() -> Option<(i32, i32)> {
+    enigo::Enigo::new(&enigo::Settings::default()).ok().and_then(|e| e.location().ok())
+}
+
+#[cfg(target_os = "linux")]
+fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
+    if let Some((mx, my)) = cursor_pos() {
+        if let Ok(monitors) = app.available_monitors() {
+            for m in monitors {
+                let p = m.position();
+                let s = m.size();
+                if mx >= p.x && mx < p.x + s.width as i32 && my >= p.y && my < p.y + s.height as i32 {
+                    return Some(m);
+                }
+            }
+        }
+    }
+    app.primary_monitor().ok().flatten()
+}
+
+/// Create the detached overlay window (hidden until recording).
+fn create_overlay(app: &tauri::AppHandle) {
+    create_overlay_with(app, "overlay.html");
+}
+
+fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
+    if app.get_webview_window(OVERLAY_LABEL).is_some() {
+        return;
+    }
+    if !*OVERLAY_ENABLED.lock().unwrap() {
+        return;
+    }
+    let builder = tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
+        .title("Wisper")
+        .resizable(false)
+        .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .transparent(true)
+        .focusable(false)
+        .focused(false)
+        .visible(false);
+    match builder.build() {
+        Ok(win) => {
+            let _ = win.hide();
+        }
+        Err(e) => {
+            eprintln!("create_overlay: BUILD FAILED: {}", e);
+        }
+    }
+}
+
+/// Show/hide the overlay, mirroring Handy's show_overlay_state positioning.
+fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
+    let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
+        if *OVERLAY_ENABLED.lock().unwrap() {
+            create_overlay(app);
+            return update_overlay(app, state);
+        }
+        return;
+    };
+    if !*OVERLAY_ENABLED.lock().unwrap() {
+        let _ = win.hide();
+        return;
+    }
+    match state {
+        CoordinatorState::Idle => {
+            // Destroy so the next recording reloads fresh overlay.html
+            // (avoids restarting dev server for HTML tweaks).
+            let _ = win.destroy();
+        }
+        CoordinatorState::Recording | CoordinatorState::Processing => {
+            let top = *OVERLAY_POSITION.lock().unwrap() == "top";
+            #[cfg(not(target_os = "linux"))]
+            let _ = top;
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(monitor) = monitor_with_cursor(app) {
+                    let scale = monitor.scale_factor();
+                    let mx = monitor.position().x as f64 / scale;
+                    let my = monitor.position().y as f64 / scale;
+                    let mw = monitor.size().width as f64 / scale;
+                    let mh = monitor.size().height as f64 / scale;
+                    let x = mx + (mw - OVERLAY_WIDTH) / 2.0;
+                    let y = if top { my + OVERLAY_TOP_OFFSET } else { my + mh - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET };
+                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+                }
+            }
+            let shown = win.show();
+            let _ = shown;
+        }
+    }
+}
+
+/// Hide the overlay window (used before pasting so keyboard focus
+/// returns to the target app instead of the overlay).
+pub fn hide_overlay() {
+    if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
+        if let Some(win) = handle.get_webview_window(OVERLAY_LABEL) {
+            let _ = win.hide();
+        }
+    }
+}
+
+/// Briefly flash the overlay error glyph (~1.5s) to signal a failed
+/// transcription. The window is destroyed afterwards so it can never get
+/// stuck in the error state; the next recording builds a fresh normal one.
+pub fn show_overlay_error() {
+    let Some(handle) = APP_HANDLE.lock().unwrap().as_ref().cloned() else { return };
+    if !*OVERLAY_ENABLED.lock().unwrap() {
+        return;
+    }
+    let _ = handle.clone().run_on_main_thread(move || {
+        // Start from a clean, normal window.
+        if let Some(w) = handle.get_webview_window(OVERLAY_LABEL) {
+            let _ = w.destroy();
+        }
+        create_overlay(&handle);
+        let Some(win) = handle.get_webview_window(OVERLAY_LABEL) else { return };
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(monitor) = monitor_with_cursor(&handle) {
+                let scale = monitor.scale_factor();
+                let mx = monitor.position().x as f64 / scale;
+                let my = monitor.position().y as f64 / scale;
+                let mw = monitor.size().width as f64 / scale;
+                let mh = monitor.size().height as f64 / scale;
+                let x = mx + (mw - OVERLAY_WIDTH) / 2.0;
+                let y = if *OVERLAY_POSITION.lock().unwrap() == "top" {
+                    my + OVERLAY_TOP_OFFSET
+                } else {
+                    my + mh - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET
+                };
+                let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+            }
+        }
+        let _ = win.show();
+        let wh = win.clone();
+        // Show the error glyph once the webview has loaded window.__mode.
+        std::thread::spawn(move || {
+            for _ in 0..12 {
+                let _ = wh.eval("window.__mode && window.__mode('error')");
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(900));
+            let _ = wh.destroy();
+        });
+    });
 }
 
 pub fn update_tray_menu_text() {
@@ -298,6 +470,13 @@ pub fn run() {
     }
     settings::update_display_name(&saved_settings);
 
+            {
+                let mut en = OVERLAY_ENABLED.lock().unwrap();
+                *en = saved_settings.overlay_enabled;
+                let mut pos = OVERLAY_POSITION.lock().unwrap();
+                *pos = if saved_settings.overlay_position == "top" { "top".into() } else { "bottom".into() };
+            }
+
             if saved_settings.autostart {
                 let _ = app.autolaunch().enable();
             } else {
@@ -332,6 +511,7 @@ pub fn run() {
             // Register the global hotkey via whisper-keys (raw input hook:
             // works uniformly across X11/Wayland and every focused app).
             whisper_keys::init(&app.handle());
+            create_overlay(&app.handle());
             let saved = &saved_settings.hotkey;
             if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {
                 eprintln!("Hotkey {:?} failed to register; using default {:?}", saved, DEFAULT_HOTKEY);

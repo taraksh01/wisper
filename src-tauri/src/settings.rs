@@ -47,6 +47,8 @@ pub struct AppSettings {
     pub keep_recordings: bool,
     pub launch_to_tray: bool,
     pub autostart: bool,
+    pub overlay_enabled: bool,
+    pub overlay_position: String,
 }
 
 impl Default for AppSettings {
@@ -93,6 +95,8 @@ impl Default for AppSettings {
             keep_recordings: false,
             launch_to_tray: false,
             autostart: false,
+            overlay_enabled: true,
+            overlay_position: "bottom".into(),
         }
     }
 }
@@ -206,6 +210,13 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     }
 
     update_display_name(&settings);
+
+    if let Ok(mut en) = crate::OVERLAY_ENABLED.lock() {
+        *en = settings.overlay_enabled;
+    }
+    if let Ok(mut pos) = crate::OVERLAY_POSITION.lock() {
+        *pos = if settings.overlay_position == "top" { "top".into() } else { "bottom".into() };
+    }
 
     if settings.autostart {
         let _ = app.autolaunch().enable();

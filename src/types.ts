@@ -75,6 +75,8 @@ export interface AppSettings {
   keep_recordings: boolean;
   launch_to_tray: boolean;
   autostart: boolean;
+  overlay_enabled: boolean;
+  overlay_position: string;
 }
 
 export interface ModelInfo {

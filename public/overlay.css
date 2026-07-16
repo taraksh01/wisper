@@ -1,0 +1,33 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+#card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+}
+#wave rect {
+  fill: url(#wisper-wave);
+  transition: y 60ms linear, height 60ms linear;
+}
+#err {
+  fill: #dc2626;
+  font: 700 110px system-ui, sans-serif;
+  text-anchor: middle;
+  dominant-baseline: central;
+  display: none;
+}
+#card.err #err { display: block; }
+#card.err #bars { display: none; }
