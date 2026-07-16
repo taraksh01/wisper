@@ -4,6 +4,8 @@ import { Select } from "./Select";
 import { Field } from "./Field";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface STTTabProps {
   settings: AppSettings;
@@ -19,6 +21,68 @@ interface STTTabProps {
   onDelete: (name: string) => void;
   onLangFilterChange: (v: string) => void;
   onSearchQueryChange: (v: string) => void;
+}
+
+function VadThresholdControl({ threshold, onChange }: { threshold: number; onChange: (v: number) => void }) {
+  const [level, setLevel] = useState(0);
+  const [testing, setTesting] = useState(false);
+  const [rafId, setRafId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!testing) return;
+    let alive = true;
+    async function loop() {
+      try {
+        const l = await invoke<number>("get_input_level");
+        if (alive) setLevel(l);
+      } catch {}
+      if (alive) setRafId(requestAnimationFrame(loop));
+    }
+    loop();
+    return () => { alive = false; if (rafId) cancelAnimationFrame(rafId); };
+  }, [testing, rafId]);
+
+  const startTest = () => { setTesting(true); setTimeout(() => setTesting(false), 4000); };
+
+  const barCount = 10;
+  const filled = Math.max(1, Math.round((level / 0.3) * barCount));
+  const threshIdx = Math.max(0, Math.min(barCount - 1, Math.round(threshold * barCount)));
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <label className="label-soft">VAD threshold</label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={threshold}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1 accent-accent"
+        />
+        <span className="text-xs font-mono text-muted w-10 text-right">{Math.round(threshold * 100)}%</span>
+      </div>
+      <div className="flex items-end gap-1 h-6">
+        {[...Array(barCount)].map((_, i) => (
+          <div
+            key={i}
+            className={`flex-1 rounded transition-colors ${
+              i < filled ? "bg-accent" : i === threshIdx ? "bg-accent/50" : "bg-elevated"
+            }`}
+            style={{ height: `${Math.max(4, (i + 1) * 3)}px` }}
+          />
+        ))}
+      </div>
+      <button
+        onClick={startTest}
+        disabled={testing}
+        className="text-xs font-mono text-muted hover:text-ink transition-colors"
+      >
+        {testing ? "Testing… speak now (4s)" : "Test microphone level"}
+      </button>
+    </div>
+  );
 }
 
 const langOptions = [{ value: "all", label: "All languages" }, ...languages.filter((l) => l.value !== "auto")];
@@ -250,6 +314,9 @@ export function STTTab({
             onChange={(v) => onSave("vad_enabled", v)}
           />
         </div>
+        {settings.vad_enabled && (
+          <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />
+        )}
       </SectionCard>
     </div>
   );
