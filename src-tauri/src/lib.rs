@@ -8,13 +8,15 @@ pub mod paste;
 pub mod settings;
 pub mod stt;
 pub mod vocab;
+pub mod whisper_keys;
 
 use audio::AudioRecorder;
 use coordinator::{CoordinatorCommand, CoordinatorState, TranscriptionCoordinator};
-use hotkey::HotkeyManager;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+const DEFAULT_HOTKEY: &str = "F9";
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -32,16 +34,9 @@ static APP_HANDLE: once_cell::sync::Lazy<std::sync::Mutex<Option<tauri::AppHandl
 static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
 
-static HOTKEY_BINDING: once_cell::sync::Lazy<Arc<Mutex<hotkey::HotkeyBinding>>> =
-    once_cell::sync::Lazy::new(|| {
-        Arc::new(Mutex::new(hotkey::HotkeyBinding {
-            ctrl: false,
-            alt: false,
-            shift: false,
-            meta: false,
-            key: rdev::Key::F12,
-        }))
-    });
+type HotkeySender = Arc<Mutex<mpsc::Sender<hotkey::HotkeyEvent>>>;
+static HOTKEY_SENDER: once_cell::sync::Lazy<Mutex<Option<HotkeySender>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
@@ -73,13 +68,8 @@ fn get_current_state() -> String {
 }
 
 #[tauri::command]
-fn set_hotkey(key: String) -> Result<(), String> {
-    let binding = hotkey::parse_binding(&key)
-        .ok_or_else(|| format!("Invalid key combination: {}", key))?;
-    if let Ok(mut current) = HOTKEY_BINDING.lock() {
-        *current = binding;
-    }
-    Ok(())
+fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
+    whisper_keys::register(&key)
 }
 
 #[tauri::command]
@@ -162,6 +152,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let app_handle = app.handle().clone();
             {
@@ -246,6 +237,10 @@ pub fn run() {
             let (state_tx, state_rx) = mpsc::channel();
 
             let (hk_tx, hk_rx) = mpsc::channel();
+            {
+                let sender: HotkeySender = Arc::new(Mutex::new(hk_tx.clone()));
+                *HOTKEY_SENDER.lock().unwrap() = Some(sender);
+            }
             thread::spawn(move || {
                 while let Ok(event) = hk_rx.recv() {
                     let _ = cmd_tx.send(CoordinatorCommand::Hotkey(event));
@@ -318,19 +313,6 @@ pub fn run() {
                 }
             }
 
-            let initial_binding = hotkey::parse_binding(&saved_settings.hotkey)
-                .unwrap_or(hotkey::HotkeyBinding {
-                    ctrl: false,
-                    alt: false,
-                    shift: false,
-                    meta: false,
-                    key: rdev::Key::ControlRight,
-                });
-            {
-                let mut hk = HOTKEY_BINDING.lock().unwrap();
-                *hk = initial_binding.clone();
-            }
-
             let recorder = AudioRecorder::new();
             {
                 let mut guard = RECORDER.lock().unwrap();
@@ -347,9 +329,16 @@ pub fn run() {
                 })
                 .unwrap();
 
-            // Spawn Hotkey Manager
-            let hotkey_manager = HotkeyManager::new(HOTKEY_BINDING.clone(), hk_tx);
-            hotkey_manager.start_listening();
+            // Register the global hotkey via whisper-keys (raw input hook:
+            // works uniformly across X11/Wayland and every focused app).
+            whisper_keys::init(&app.handle());
+            let saved = &saved_settings.hotkey;
+            if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {
+                eprintln!("Hotkey {:?} failed to register; using default {:?}", saved, DEFAULT_HOTKEY);
+                if let Err(e2) = whisper_keys::register(DEFAULT_HOTKEY) {
+                    eprintln!("Failed to register default hotkey: {}", e2);
+                }
+            }
 
             // Spawn State Listener -> Tray + State Lock + Frontend Events
             let app_handle_clone = app_handle.clone();

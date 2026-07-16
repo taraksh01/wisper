@@ -83,7 +83,7 @@ impl Default for AppSettings {
             llm_agent_name: "Auto-Format".into(),
             llm_agent_prompt: String::new(),
             vocabulary_enabled: true,
-            hotkey: "RightCtrl".into(),
+            hotkey: "F9".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Ctrl+V".into(),
             paste_tool: "auto".into(),
