@@ -45,6 +45,10 @@ static OVERLAY_ENABLED: once_cell::sync::Lazy<Mutex<bool>> =
     once_cell::sync::Lazy::new(|| Mutex::new(true));
 static OVERLAY_POSITION: once_cell::sync::Lazy<Mutex<String>> =
     once_cell::sync::Lazy::new(|| Mutex::new("bottom".to_string()));
+// Set while the error glyph is flashing so the Idle handler doesn't destroy
+// the window before the flash finishes (the error thread clears it).
+static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[tauri::command]
 fn get_input_level() -> f32 {
@@ -197,8 +201,11 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     }
     match state {
         CoordinatorState::Idle => {
-            // Destroy so the next recording reloads fresh overlay.html
-            // (avoids restarting dev server for HTML tweaks).
+            // Don't destroy while the error glyph is flashing — the error
+            // thread owns that window and destroys it after ~1.5s.
+            if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
             let _ = win.destroy();
         }
         CoordinatorState::Recording | CoordinatorState::Processing => {
@@ -242,40 +249,27 @@ pub fn show_overlay_error() {
     if !*OVERLAY_ENABLED.lock().unwrap() {
         return;
     }
-    let _ = handle.clone().run_on_main_thread(move || {
-        // Start from a clean, normal window.
-        if let Some(w) = handle.get_webview_window(OVERLAY_LABEL) {
-            let _ = w.destroy();
+    OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    // The overlay is already shown (we're in the Processing state when this
+    // fires), so flash the live window instead of destroying + recreating —
+    // Tauri's destroy is async and the recreate would early-return against the
+    // still-present label, leaving a tombstone that never loads overlay.html.
+    // Window ops must run on the main thread in Tauri v2, so eval/destroy both
+    // go through run_on_main_thread; a plain OS thread only does the timing.
+    let flash_handle = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(win) = flash_handle.get_webview_window(OVERLAY_LABEL) {
+            let _ = win.eval("window.__mode && window.__mode('error')");
         }
-        create_overlay(&handle);
-        let Some(win) = handle.get_webview_window(OVERLAY_LABEL) else { return };
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(monitor) = monitor_with_cursor(&handle) {
-                let scale = monitor.scale_factor();
-                let mx = monitor.position().x as f64 / scale;
-                let my = monitor.position().y as f64 / scale;
-                let mw = monitor.size().width as f64 / scale;
-                let mh = monitor.size().height as f64 / scale;
-                let x = mx + (mw - OVERLAY_WIDTH) / 2.0;
-                let y = if *OVERLAY_POSITION.lock().unwrap() == "top" {
-                    my + OVERLAY_TOP_OFFSET
-                } else {
-                    my + mh - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET
-                };
-                let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+    });
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        let h = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+            if let Some(win) = h.get_webview_window(OVERLAY_LABEL) {
+                let _ = win.destroy();
             }
-        }
-        let _ = win.show();
-        let wh = win.clone();
-        // Show the error glyph once the webview has loaded window.__mode.
-        std::thread::spawn(move || {
-            for _ in 0..12 {
-                let _ = wh.eval("window.__mode && window.__mode('error')");
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            std::thread::sleep(std::time::Duration::from_millis(900));
-            let _ = wh.destroy();
         });
     });
 }
