@@ -12,6 +12,7 @@ interface STTTabProps {
   localModels: string[];
   downloading: string | null;
   downloadProgress: Record<string, number>;
+  justDownloaded?: string;
   modelsPath: string;
   modelLangFilter: string;
   modelSearchQuery: string;
@@ -102,6 +103,7 @@ export function STTTab({
   localModels,
   downloading,
   downloadProgress,
+  justDownloaded,
   modelsPath,
   modelLangFilter,
   modelSearchQuery,
@@ -196,6 +198,7 @@ export function STTTab({
                       isInstalled
                       isActive={settings.local_model_file === filename}
                       isDownloading={false}
+                      justDownloaded={justDownloaded === filename}
                       onActivate={(f) => onSave("local_model_file", f)}
                       onDownload={() => {}}
                       onDelete={(f) => onDelete(f)}
@@ -220,6 +223,7 @@ export function STTTab({
                       isActive={false}
                       isDownloading={downloading === key}
                       progress={downloadProgress[key]}
+                      justDownloaded={justDownloaded === key}
                       onActivate={() => {}}
                       onDownload={(k) => onDownload(k)}
                       onDelete={() => {}}

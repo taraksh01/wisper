@@ -149,8 +149,28 @@
   to { opacity: 1; }
 }
 
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .panel-enter {
   animation: fade-up 200ms ease-out both;
+}
+
+.toast-enter {
+  animation: slide-up 200ms ease-out both;
+}
+.toast-exit {
+  animation: fade-in 150ms ease-in both;
+  transform: translateX(100%);
+  opacity: 0;
 }
 
 .panel-enter:nth-child(1) { animation-delay: 0ms; }

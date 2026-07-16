@@ -7,6 +7,7 @@ interface ModelCardProps {
   isActive: boolean;
   isDownloading: boolean;
   progress?: number;
+  justDownloaded?: boolean;
   onActivate: (filename: string) => void;
   onDownload: (modelKey: string) => void;
   onDelete: (filename: string) => void;
@@ -23,6 +24,7 @@ function ModelCard({
   isActive,
   isDownloading,
   progress,
+  justDownloaded,
   onActivate,
   onDownload,
   onDelete,
@@ -52,6 +54,7 @@ function ModelCard({
         <span className="text-[10px] font-mono text-muted">{info.size}</span>
         <div className="flex items-center gap-1 ml-auto">
           {isActive && chip("Active", "bg-accent/15 text-accent")}
+          {justDownloaded && chip("Downloaded", "bg-ready/15 text-ready animate-pulse")}
         </div>
         {!isInstalled ? (
           <div className="flex items-center gap-2">
