@@ -376,6 +376,11 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               ]}
               onChange={(v) => onSave("hotkey_mode", v)}
             />
+            <p className="text-[10px] font-mono text-muted/70 leading-relaxed mt-2">
+              {settings.hotkey_mode === "push-to-talk"
+                ? `Hold ${settings.hotkey} to talk — release to stop.`
+                : `Press ${settings.hotkey} to start, press again to stop.`}
+            </p>
           </div>
         </div>
       </SectionCard>
