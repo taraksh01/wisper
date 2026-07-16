@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, VocabSuggestion, tabs } from "./types";
@@ -11,61 +11,8 @@ import { HistoryTab } from "./components/HistoryTab";
 import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { ToastProvider, useToast } from "./components/ToastContext";
 import "./styles.css";
-
-interface Toast {
-  id: number;
-  message: string;
-  type: "info" | "success" | "error";
-}
-
-const ToastContext = createContext<{
-  toasts: Toast[];
-  addToast: (message: string, type: Toast["type"]) => void;
-  removeToast: (id: number) => void;
-} | null>(null);
-
-function ToastProvider({ children }: { children: ReactNode }) {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  let nextId = 1;
-
-  const addToast = useCallback((message: string, type: Toast["type"] = "info") => {
-    const id = nextId++;
-    setToasts((t) => [...t, { id, message, type }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
-  }, []);
-
-  const removeToast = useCallback((id: number) => {
-    setToasts((t) => t.filter((x) => x.id !== id));
-  }, []);
-
-  return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
-      {children}
-      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`pointer-events-auto toast-enter px-3 py-2 rounded-lg text-xs font-mono flex items-center gap-2 min-w-[200px] max-w-md shadow-lg ${
-              t.type === "success" ? "bg-ready/95 text-white" :
-              t.type === "error" ? "bg-recording/95 text-white" :
-              "bg-elevated/95 text-ink"
-            }`}
-          >
-            <span className="flex-1">{t.message}</span>
-            <button onClick={() => removeToast(t.id)} className="opacity-50 hover:opacity-100 text-[12px] leading-none">×</button>
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
-  );
-}
-
-function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be used within ToastProvider");
-  return ctx;
-}
 
 function useSystemTheme() {
   const [dark, setDark] = useState(() =>
@@ -92,7 +39,9 @@ function Onboarding({ env, onDone }: { env: { reliable: boolean; has_wtype: bool
         <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
           </svg>
           <h1 className="text-sm font-bold font-mono text-ink">Welcome to Wisper</h1>
         </div>
@@ -155,12 +104,12 @@ function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    invoke<AppSettings>("load_settings").then(setSettings).catch(console.error);
+    invoke<AppSettings>("load_settings").then(setSettings).catch((e) => { console.error(e); });
     fetchHistory();
     fetchModels();
     fetchAgentProfiles();
-    invoke<string>("get_models_dir_path").then(setModelsPath).catch(console.error);
-    invoke<string>("get_current_state").then(setAppState).catch(console.error);
+    invoke<string>("get_models_dir_path").then(setModelsPath).catch((e) => { console.error(e); });
+    invoke<string>("get_current_state").then(setAppState).catch((e) => { console.error(e); });
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
     invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment")
       .then(setPasteEnv)
@@ -198,7 +147,6 @@ function App() {
     } catch {}
   }, []);
 
-  // Auto-refresh history when transcription completes
   useEffect(() => {
     if (appState === "idle") {
       const h = invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
@@ -278,7 +226,9 @@ function App() {
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     console.log("[saveSetting]", key, value);
-    invoke("save_settings", { settings: updated }).then(() => console.log("[saveSetting] ok")).catch(console.error);
+    invoke("save_settings", { settings: updated })
+      .then(() => { console.log("[saveSetting] ok"); useToast().addToast("Settings saved", "success"); })
+      .catch((e) => { console.error("[saveSetting]", e); useToast().addToast("Failed to save settings", "error"); });
     refreshCurrentModel();
   };
 
@@ -287,13 +237,20 @@ function App() {
     const merged = { ...settings, ...updates };
     setSettings(merged);
     console.log("[saveAllSettings]", updates);
-    invoke("save_settings", { settings: merged }).then(() => console.log("[saveAllSettings] ok")).catch(console.error);
+    invoke("save_settings", { settings: merged })
+      .then(() => { console.log("[saveAllSettings] ok"); useToast().addToast("Settings saved", "success"); })
+      .catch((e) => { console.error("[saveAllSettings]", e); useToast().addToast("Failed to save settings", "error"); });
     refreshCurrentModel();
   };
 
   const unloadModel = async () => {
-    await invoke("unload_model");
-    refreshCurrentModel();
+    try {
+      await invoke("unload_model");
+      refreshCurrentModel();
+    } catch (e) {
+      console.error(e);
+      useToast().addToast("Failed to unload model", "error");
+    }
   };
 
   const openEngineTab = () => {
@@ -319,8 +276,10 @@ function App() {
       }
       setSettings(merged);
       await invoke("save_settings", { settings: merged });
+      useToast().addToast("Tab reset to defaults", "success");
     } catch (e) {
       console.error("Reset failed:", e);
+      useToast().addToast("Failed to reset tab", "error");
     }
   };
 

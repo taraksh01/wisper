@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
+import { useToast } from "./ToastContext";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
@@ -90,6 +91,7 @@ function ConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel
 const audioCache = new Map<string, string>();
 
 export function HistoryTab({ history, stats, settings, onSave, onRefresh }: HistoryTabProps) {
+  const { addToast } = useToast();
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editRaw, setEditRaw] = useState("");
   const [editFormatted, setEditFormatted] = useState("");
@@ -126,19 +128,23 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       });
       setEditingId(null);
       onRefresh();
+      addToast("Entry updated", "success");
     } catch (e) {
       console.error("Failed to update:", e);
+      addToast("Failed to update entry", "error");
     }
-  }, [editRaw, editFormatted, onRefresh]);
+  }, [editRaw, editFormatted, onRefresh, addToast]);
 
   const deleteEntry = useCallback(async (id: number) => {
     try {
       await invoke("delete_history_entry", { id });
       onRefresh();
+      addToast("Entry deleted", "success");
     } catch (e) {
       console.error("Delete failed:", e);
+      addToast("Failed to delete entry", "error");
     }
-  }, [onRefresh]);
+  }, [onRefresh, addToast]);
 
   const deleteSelected = useCallback(async () => {
     const ids = Array.from(selectedIds);
@@ -146,10 +152,12 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       await Promise.all(ids.map((id) => invoke("delete_history_entry", { id })));
       setSelectedIds(new Set());
       onRefresh();
+      addToast(`${ids.length} entries deleted`, "success");
     } catch (e) {
       console.error("Delete selected failed:", e);
+      addToast("Failed to delete entries", "error");
     }
-  }, [selectedIds, onRefresh]);
+  }, [selectedIds, onRefresh, addToast]);
 
   const toggleSelect = useCallback((id: number) => {
     setSelectedIds((prev) => {
@@ -194,8 +202,9 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       setPlayingId(id);
     } catch (e) {
       console.error("Playback failed:", e);
+      addToast("Playback failed", "error");
     }
-  }, [playingId]);
+  }, [playingId, addToast]);
 
   const retranscribe = useCallback(async (entry: HistoryEntry) => {
     if (!entry.recording_path) return;
@@ -210,11 +219,13 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
         formattedText: entry.formatted_text || null,
       });
       onRefresh();
+      addToast("Retranscribed", "success");
     } catch (e) {
       console.error("Retranscribe failed:", e);
+      addToast("Retranscribe failed", "error");
     }
     setRetranscribingId(null);
-  }, [onRefresh]);
+  }, [onRefresh, addToast]);
 
   return (
     <div className="max-w-lg space-y-4 card-enter">
@@ -437,8 +448,10 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             try {
               await invoke("clear_history");
               onRefresh();
+              addToast("History cleared", "success");
             } catch (e) {
               console.error("Failed to clear history:", e);
+              addToast("Failed to clear history", "error");
             }
           }}
           onCancel={() => setShowClearConfirm(false)}

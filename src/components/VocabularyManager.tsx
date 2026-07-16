@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { VocabEntry, VocabSuggestion } from "../types";
 import { SectionCard } from "./SectionCard";
+import { useToast } from "./ToastContext";
 
 interface VocabularyManagerProps {
   suggestions: VocabSuggestion[];
@@ -13,6 +14,7 @@ interface VocabularyManagerProps {
 }
 
 export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setSuggestions }: VocabularyManagerProps) {
+  const { addToast } = useToast();
   const [entries, setEntries] = useState<VocabEntry[]>([]);
   const [phrase, setPhrase] = useState("");
   const [variants, setVariants] = useState("");
@@ -20,19 +22,19 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
   const [ignored, setIgnored] = useState<string[]>([]);
   const [showImport, setShowImport] = useState(false);
 
-  const load = useCallback(async () => {
+  const loadIgnored = useCallback(async () => {
     try {
-      const v = await invoke<VocabEntry[]>("get_vocabulary");
-      setEntries(v);
+      const list = await invoke<string[]>("get_ignored_terms");
+      setIgnored(list);
     } catch (e) {
       console.error(e);
     }
   }, []);
 
-  const loadIgnored = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const list = await invoke<string[]>("get_ignored_terms");
-      setIgnored(list);
+      const v = await invoke<VocabEntry[]>("get_vocabulary");
+      setEntries(v);
     } catch (e) {
       console.error(e);
     }
@@ -57,8 +59,10 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
       setPhrase("");
       setVariants("");
       await load();
+      addToast("Term added", "success");
     } catch (e: any) {
       setError(String(e));
+      addToast("Failed to add term", "error");
     }
   }
 
@@ -66,8 +70,10 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
     try {
       await invoke("delete_vocab_entry", { id });
       await load();
+      addToast("Term deleted", "success");
     } catch (e) {
       console.error(e);
+      addToast("Failed to delete term", "error");
     }
   }
 
@@ -82,8 +88,10 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
       });
       setSuggestions((prev) => prev.filter((x) => x.phrase !== s.phrase));
       await load();
+      addToast("Suggestion accepted", "success");
     } catch (e) {
       console.error(e);
+      addToast("Failed to accept suggestion", "error");
     }
   }
 
@@ -94,8 +102,10 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
   async function dismissSuggestion(s: VocabSuggestion) {
     try {
       await invoke("ignore_vocab_suggestion", { term: s.phrase });
+      addToast("Suggestion dismissed", "info");
     } catch (e) {
       console.error(e);
+      addToast("Failed to dismiss suggestion", "error");
     }
     setSuggestions((prev) => prev.filter((x) => x.phrase !== s.phrase));
     loadIgnored();
@@ -106,8 +116,10 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
       await invoke("add_ignored_to_dictionary", { term });
       await loadIgnored();
       await load();
+      addToast("Added to dictionary", "success");
     } catch (e) {
       console.error(e);
+      addToast("Failed to add to dictionary", "error");
     }
   }
 
@@ -115,8 +127,10 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
     try {
       await invoke("unignore_vocab_term", { term });
       await loadIgnored();
+      addToast("Term restored", "success");
     } catch (e) {
       console.error(e);
+      addToast("Failed to restore term", "error");
     }
   }
 
