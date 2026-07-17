@@ -4,11 +4,12 @@ interface SectionCardProps {
   title?: string;
   children: ReactNode;
   className?: string;
+  cardRef?: React.Ref<HTMLElement>;
 }
 
-export function SectionCard({ title, children, className = "" }: SectionCardProps) {
+export function SectionCard({ title, children, className = "", cardRef }: SectionCardProps) {
   return (
-    <section className={`bg-surface border border-stroke rounded-xl p-4 ${className}`}>
+    <section ref={cardRef} className={`bg-surface border border-stroke rounded-xl p-4 ${className}`}>
       {title && (
         <h2 className="label-soft mb-3">{title}</h2>
       )}

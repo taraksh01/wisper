@@ -87,7 +87,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
       <PillGroup value={value} options={options} onChange={onChange} />
 
       {env && (
-        <div className="mt-2 space-y-1.5">
+        <div className="mt-3 space-y-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5">
           <div className="flex items-center gap-3 text-[10px] font-mono text-muted">
             <span>
               session: <span className="text-ink">{env.session_type}</span>
@@ -98,7 +98,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-[10px] font-mono">
+          <div className="flex items-center gap-3 text-[10px] font-mono">
             <span className={env.has_wtype ? "text-ready" : "text-muted/50"}>
               {env.has_wtype ? "✓" : "✗"} wtype
             </span>
@@ -289,6 +289,7 @@ function VadThresholdControl({ threshold, onChange }: { threshold: number; onCha
           value={threshold}
           onChange={(e) => onChange(Number(e.target.value))}
           className="flex-1 accent-accent"
+          aria-label="VAD threshold"
         />
         <span className="text-xs font-mono text-muted w-10 text-right">{Math.round(threshold * 100)}%</span>
       </div>
@@ -396,7 +397,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   }, [listening, setHotkey]);
 
   return (
-    <div className="max-w-lg mx-auto space-y-5 py-1 card-enter">
+    <div className="max-w-5xl mx-auto space-y-4 py-1 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -415,7 +416,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               ref={btnRef}
               onClick={startListening}
               tabIndex={0}
-              className={`relative px-4 py-2 rounded-lg text-xs font-mono font-medium text-left outline-none ring-1 transition-all cursor-pointer min-w-[150px] ${
+              className={`relative px-4 py-2 rounded-lg text-xs font-mono font-medium text-left outline-none ring-1 transition-all cursor-pointer min-w-[140px] ${
                 listening
                   ? "bg-accent/10 text-accent ring-accent/50 animate-pulse"
                   : "bg-elevated text-ink ring-stroke hover:ring-accent/30"
@@ -424,7 +425,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               {listening ? (
                 <span className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                  Press a key...
+                  Press a key…
                 </span>
               ) : (
                 <HotkeyDisplay hotkey={settings.hotkey} />
@@ -470,35 +471,31 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
             </p>
           </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <label className="label-soft block mb-1">Show Overlay</label>
-              <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-                Floating recording indicator while you dictate.
-              </p>
-            </div>
-            <button
-              role="switch"
-              aria-checked={settings.overlay_enabled}
-              onClick={() => onSave("overlay_enabled", !settings.overlay_enabled)}
-              className={`relative w-10 h-6 rounded-full transition-colors shrink-0 ${settings.overlay_enabled ? "bg-accent" : "bg-stroke"}`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${settings.overlay_enabled ? "translate-x-4" : ""}`}
+          <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke divide-y divide-stroke">
+            <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+              <div>
+                <label className="label-soft block mb-0.5">Show Overlay</label>
+                <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
+                  Floating recording indicator while you dictate.
+                </p>
+              </div>
+              <Switch
+                checked={settings.overlay_enabled}
+                onChange={(v) => onSave("overlay_enabled", v)}
               />
-            </button>
-          </div>
+            </div>
 
-          <div>
-            <label className="label-soft block mb-2">Overlay Position</label>
-            <PillGroup
-              value={settings.overlay_position}
-              options={[
-                { value: "top", label: "Top Center" },
-                { value: "bottom", label: "Bottom Center" },
-              ]}
-              onChange={(v) => onSave("overlay_position", v)}
-            />
+            <div className="px-3 py-2.5">
+              <label className="label-soft block mb-2">Overlay Position</label>
+              <PillGroup
+                value={settings.overlay_position}
+                options={[
+                  { value: "top", label: "Top Center" },
+                  { value: "bottom", label: "Bottom Center" },
+                ]}
+                onChange={(v) => onSave("overlay_position", v)}
+              />
+            </div>
           </div>
         </div>
       </SectionCard>

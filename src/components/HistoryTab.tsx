@@ -1,9 +1,10 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
 import { ConfirmModal } from "./ConfirmModal";
+import { HistoryItem } from "./HistoryItem";
 import { useToast } from "./ToastContext";
 
 interface HistoryTabProps {
@@ -12,54 +13,6 @@ interface HistoryTabProps {
   settings: AppSettings;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onRefresh: () => void;
-}
-
-function CopyIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-    </svg>
-  );
-}
-
-function EditIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-    </svg>
-  );
-}
-
-function DeleteIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function StopIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-      <path d="M6 6h12v12H6z" />
-    </svg>
-  );
-}
-
-function RetryIcon() {
-  return (
-    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-    </svg>
-  );
 }
 
 const audioCache = new Map<string, string>();
@@ -74,14 +27,20 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [query, setQuery] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    if (editingId !== null && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [editingId]);
+  // Time saved is accumulated in settings by the backend on each dictation.
+  const timeSavedSec = settings.time_saved_sec;
+
+  const filteredHistory = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter((e) => {
+      const text = (e.formatted_text || e.raw_text).toLowerCase();
+      return text.includes(q) || (e.agent_name?.toLowerCase().includes(q) ?? false);
+    });
+  }, [history, query]);
 
   const startEdit = useCallback((entry: HistoryEntry) => {
     setEditingId(entry.id);
@@ -183,6 +142,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   const retranscribe = useCallback(async (entry: HistoryEntry) => {
     if (!entry.recording_path) return;
     setRetranscribingId(entry.id);
+    addToast("Re-transcribing…", "info", 1500);
     try {
       const text = await invoke<string>("retranscribe_recording", {
         recordingPath: entry.recording_path,
@@ -202,7 +162,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   }, [onRefresh, addToast]);
 
   return (
-    <div className="max-w-lg space-y-4 card-enter">
+    <div className="h-full max-w-5xl mx-auto flex flex-col space-y-4 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -214,24 +174,48 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       </div>
 
       <SectionCard className="card-enter">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {[
             { label: "Dictations", value: stats[0] },
             { label: "Words", value: stats[1] },
             { label: "Avg Words", value: stats[2].toFixed(1) },
+            {
+              label: "Time Saved @60wpm",
+              value: timeSavedSec >= 3600
+                ? `${Math.floor(timeSavedSec / 3600)}h ${Math.floor((timeSavedSec % 3600) / 60)}m`
+                : timeSavedSec >= 60
+                ? `${Math.floor(timeSavedSec / 60)}m ${timeSavedSec % 60}s`
+                : `${timeSavedSec}s`,
+            },
           ].map((s) => (
-            <div key={s.label} className="bg-elevated/30 rounded-lg px-3 py-2.5 text-center">
-              <div className="text-lg font-bold font-mono text-accent tabular-nums">{s.value}</div>
-              <div className="text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase">{s.label}</div>
+            <div
+              key={s.label}
+              title={s.label === "Time Saved" ? "Estimated at 60 WPM typing speed" : undefined}
+              className="bg-elevated/30 rounded-lg px-2 py-2.5 text-center min-w-0"
+            >
+              <div className="text-lg font-bold font-mono text-accent tabular-nums truncate">{s.value}</div>
+              <div className="text-[9px] sm:text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase truncate">{s.label}</div>
             </div>
           ))}
         </div>
       </SectionCard>
 
-      <SectionCard className="card-enter">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Recent</h2>
-          <div className="flex items-center gap-3">
+      <SectionCard className="card-enter flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase shrink-0">Recent</h2>
+          <div className="relative flex-1 min-w-0">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted/50 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <circle cx="11" cy="11" r="7" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="m20 20-4.35-4.35" />
+            </svg>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search history…"
+              className="w-full bg-elevated/50 rounded-md pl-8 pr-3 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted">
               <span>Keep recordings</span>
               <Switch
@@ -248,7 +232,10 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
               </button>
             )}
             <button
-              onClick={onRefresh}
+              onClick={() => {
+                onRefresh();
+                addToast("History refreshed", "success");
+              }}
               className="text-[11px] font-mono text-accent hover:text-accent-dim transition-colors"
             >
               Refresh
@@ -265,7 +252,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
               Clear selection
             </button>
             <span className="text-[10px] font-mono text-muted tabular-nums">{selectedIds.size} selected</span>
-            {selectedIds.size < history.length && (
+            {selectedIds.size < filteredHistory.length && (
               <button
                 onClick={() => setSelectedIds(new Set(history.map((e) => e.id)))}
                 className="text-[11px] font-mono text-accent/70 hover:text-accent transition-colors"
@@ -282,134 +269,49 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
           </div>
         )}
 
-        {history.length === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center py-10 px-4">
+        {filteredHistory.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
             <div className="w-12 h-12 rounded-2xl bg-elevated/60 ring-1 ring-stroke flex items-center justify-center mb-3">
               <svg className="w-6 h-6 text-muted/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <polyline points="12 6 12 12 16 14" />
               </svg>
             </div>
-            <p className="text-xs font-medium text-ink">No dictations yet</p>
-            <p className="text-[11px] text-muted mt-1 leading-relaxed max-w-[240px]">
-              Press <span className="font-mono text-accent">{settings.hotkey}</span> and start speaking — your transcribed text will appear here.
-            </p>
+            {history.length === 0 ? (
+              <>
+                <p className="text-xs font-medium text-ink">No dictations yet</p>
+                <p className="text-[11px] text-muted mt-1 leading-relaxed max-w-[240px]">
+                  Press <span className="font-mono text-accent">{settings.hotkey}</span> and start speaking — your transcribed text will appear here.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs font-medium text-ink">No matches for “{query}”</p>
+            )}
           </div>
         ) : (
-          <div className="space-y-1.5 max-h-96 overflow-y-auto custom-scrollbar">
-            {history.map((entry) => (
-              <div
+          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto custom-scrollbar pr-0.5 space-y-1.5">
+            {filteredHistory.map((entry) => (
+              <HistoryItem
                 key={entry.id}
-                className={`rounded-md px-2.5 py-2 transition-colors ${
-                  selectedIds.has(entry.id)
-                    ? "bg-accent/8 border-l-2 border-accent"
-                    : "bg-elevated/30 hover:bg-elevated/60"
-                }`}
-              >
-                {editingId === entry.id ? (
-                  <div className="space-y-2">
-                    <textarea
-                      ref={inputRef}
-                      value={editRaw}
-                      onChange={(e) => setEditRaw(e.target.value)}
-                      className="w-full bg-base rounded px-2 py-1 text-xs font-mono text-ink outline-none ring-1 ring-stroke focus:ring-accent/40 resize-none"
-                      rows={2}
-                    />
-                    <textarea
-                      value={editFormatted}
-                      onChange={(e) => setEditFormatted(e.target.value)}
-                      placeholder="Formatted (optional)"
-                      className="w-full bg-base rounded px-2 py-1 text-xs font-mono text-ink outline-none ring-1 ring-stroke focus:ring-accent/40 resize-none"
-                      rows={2}
-                    />
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => saveEdit(entry.id)}
-                        className="text-[11px] font-mono text-ready hover:text-green-400 transition-colors"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="text-[11px] font-mono text-muted hover:text-ink transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(entry.id)}
-                          onChange={() => toggleSelect(entry.id)}
-                          className="w-3 h-3 accent-accent shrink-0"
-                        />
-                        {entry.recording_path && (
-                          <button
-                            onClick={() => togglePlay(entry.id, entry.recording_path!)}
-                            className="shrink-0 p-1 text-muted hover:text-accent rounded transition-colors"
-                            title={playingId === entry.id ? "Stop" : "Play recording"}
-                          >
-                            {playingId === entry.id ? <StopIcon /> : <PlayIcon />}
-                          </button>
-                        )}
-                        <span className="text-[10px] font-mono text-muted truncate">{entry.created_at}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {entry.recording_path && (
-                          <button
-                            onClick={() => retranscribe(entry)}
-                            className="p-1 text-muted hover:text-accent rounded transition-colors"
-                            title="Re-transcribe"
-                            disabled={retranscribingId === entry.id}
-                          >
-                            {retranscribingId === entry.id ? (
-                              <span className="text-[10px] font-mono text-accent">...</span>
-                            ) : (
-                              <RetryIcon />
-                            )}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => copyEntry(entry)}
-                          className="p-1 text-muted hover:text-accent rounded transition-colors"
-                          title="Copy"
-                        >
-                          {copiedId === entry.id ? (
-                            <span className="text-[10px] font-mono text-ready">Copied</span>
-                          ) : (
-                            <CopyIcon />
-                          )}
-                        </button>
-                        <button
-                          onClick={() => startEdit(entry)}
-                          className="p-1 text-muted hover:text-warning rounded transition-colors"
-                          title="Edit"
-                        >
-                          <EditIcon />
-                        </button>
-                        <button
-                          onClick={() => deleteEntry(entry.id)}
-                          className="p-1 text-muted hover:text-recording rounded transition-colors"
-                          title="Delete"
-                        >
-                          <DeleteIcon />
-                        </button>
-                        <span className="ml-1 text-[10px] font-mono text-muted tabular-nums">{entry.word_count}</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-ink leading-relaxed line-clamp-3" title={entry.formatted_text || entry.raw_text}>
-                      {entry.formatted_text || entry.raw_text}
-                    </p>
-                    {entry.agent_name && (
-                      <span className="text-[10px] text-accent/70 mt-0.5 block">{entry.agent_name}</span>
-                    )}
-                  </>
-                )}
-              </div>
+                entry={entry}
+                selected={selectedIds.has(entry.id)}
+                playing={playingId === entry.id}
+                retranscribing={retranscribingId === entry.id}
+                copied={copiedId === entry.id}
+                editing={editingId === entry.id}
+                editRaw={editRaw}
+                editFormatted={editFormatted}
+                onToggleSelect={toggleSelect}
+                onTogglePlay={togglePlay}
+                onRetranscribe={retranscribe}
+                onCopy={copyEntry}
+                onStartEdit={startEdit}
+                onCancelEdit={cancelEdit}
+                onSaveEdit={saveEdit}
+                onDelete={deleteEntry}
+                onEditRawChange={setEditRaw}
+                onEditFormattedChange={setEditFormatted}
+              />
             ))}
           </div>
         )}

@@ -1,14 +1,53 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { SectionCard } from "./SectionCard";
 
 const UPI_ID = "taraksh01@upi";
 const UPI_LINK = `upi://pay?pa=${UPI_ID}&pn=Tarak`;
 const QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=15&data=${encodeURIComponent(UPI_LINK)}`;
 
+const MIN_QR = 140;
+const MAX_QR = 300;
+// Vertical space to leave below the QR for the caption + section padding.
+const QR_VERTICAL_RESERVE = 96;
+
 export function DonateTab() {
   const [copied, setCopied] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [qrSize, setQrSize] = useState(MIN_QR);
+
+  const measure = useCallback(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const root = card.closest(".overflow-y-auto") as HTMLElement | null;
+    const containerBottom = root
+      ? root.getBoundingClientRect().bottom
+      : window.innerHeight;
+    const cardTop = card.getBoundingClientRect().top;
+    const availableHeight = containerBottom - cardTop - QR_VERTICAL_RESERVE;
+    // Card has p-4 (16px) on each side; QR is centered, so width is bounded by inner width.
+    const availableWidth = card.clientWidth - 32;
+    const size = Math.round(
+      Math.min(availableWidth, Math.max(MIN_QR, availableHeight))
+    );
+    setQrSize(Math.max(MIN_QR, Math.min(MAX_QR, size)));
+  }, []);
+
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    const root = cardRef.current?.closest(".overflow-y-auto") as HTMLElement | null;
+    let ro: ResizeObserver | undefined;
+    if (root && "ResizeObserver" in window) {
+      ro = new ResizeObserver(measure);
+      ro.observe(root);
+    }
+    return () => {
+      window.removeEventListener("resize", measure);
+      ro?.disconnect();
+    };
+  }, [measure]);
   return (
-    <div className="max-w-lg space-y-4 card-enter">
+    <div className="max-w-5xl mx-auto space-y-4 card-enter">
       <div className="flex items-center gap-2">
         <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
@@ -66,7 +105,7 @@ export function DonateTab() {
         </div>
       </SectionCard>
 
-      <SectionCard className="card-enter">
+      <SectionCard className="card-enter" cardRef={cardRef}>
         <div className="mb-3">
           <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">UPI</h2>
         </div>
@@ -82,7 +121,8 @@ export function DonateTab() {
             <img
               src={QR_URL}
               alt="UPI QR Code"
-              className="w-44 h-44 rounded-lg ring-1 ring-stroke"
+              style={{ width: qrSize, height: qrSize }}
+              className="rounded-lg ring-1 ring-stroke"
             />
           </button>
           <button

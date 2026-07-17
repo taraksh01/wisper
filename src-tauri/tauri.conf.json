@@ -14,9 +14,10 @@
     "windows": [
       {
         "title": "Wisper",
-        "width": 736,
-        "height": 640,
-        "resizable": false,
+        "width": 780,
+        "height": 680,
+        "minWidth": 780,
+        "minHeight": 680,
         "visible": false
       }
     ],

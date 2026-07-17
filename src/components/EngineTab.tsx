@@ -134,14 +134,19 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   );
 
   return (
-    <div className="max-w-lg space-y-4 card-enter">
+    <div className="max-w-5xl mx-auto space-y-4 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
+            <path d="M12 5a3 3 0 1 0-5.997.142 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+            <path d="M12 5a3 3 0 1 1 5.997.142 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+            <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+            <path d="M17.599 6.5a3 3 0 0 0 .399-1.375" />
+            <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
+            <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
+            <path d="M19.938 10.5a4 4 0 0 1 .585.396" />
+            <path d="M6 18a4 4 0 0 1-1.967-.516" />
+            <path d="M19.967 17.484A4 4 0 0 1 18 18" />
           </svg>
           <h1 className="text-sm font-semibold text-ink tracking-tight">Engine</h1>
         </div>

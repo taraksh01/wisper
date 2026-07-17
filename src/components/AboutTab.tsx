@@ -25,7 +25,7 @@ export function AboutTab() {
   }, []);
 
   return (
-    <div className="max-w-lg space-y-4 card-enter">
+    <div className="max-w-5xl mx-auto space-y-4 card-enter">
       <div className="flex items-center gap-2">
         <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10" />
