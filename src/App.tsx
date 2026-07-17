@@ -135,9 +135,11 @@ function AppShell() {
     if (appState === "idle") {
       const h = invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
       const s = invoke<[number, number, number]>("get_history_stats");
-      Promise.all([h, s]).then(([entries, stats]) => {
+      const settings = invoke<AppSettings>("load_settings");
+      Promise.all([h, s, settings]).then(([entries, stats, st]) => {
         setHistory(entries);
         setStats(stats);
+        setSettings(st);
       }).catch(() => {});
     }
   }, [appState]);
@@ -184,6 +186,13 @@ function AppShell() {
       case "language": return "Display language updated";
       case "paste_method": return `Paste method: ${String(value)}`;
       case "vad_enabled": return `Silence trimming ${on(Boolean(value))}`;
+      case "keep_recordings": return `Keep recordings ${on(Boolean(value))}`;
+      case "overlay_enabled": return `Recording overlay ${on(Boolean(value))}`;
+      case "overlay_position": return `Overlay position: ${String(value)}`;
+      case "hotkey": return `Shortcut: ${String(value)}`;
+      case "hotkey_mode": return `Mode: ${String(value)}`;
+      case "paste_tool": return `Paste tool: ${String(value)}`;
+      case "input_device": return value ? `Microphone: ${String(value)}` : "Microphone: System default";
       case "process_enabled": return `AI processing ${on(Boolean(value))}`;
       case "words_enabled": return `Custom words ${on(Boolean(value))}`;
       case "local_model_file": return "Local model changed";
@@ -207,7 +216,7 @@ function AppShell() {
   };
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
-    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "overlay_enabled", "overlay_position"],
+    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "overlay_enabled", "overlay_position", "input_device"],
     engine: ["engine_mode", "engine_model", "local_model_file"],
     process: ["process_enabled", "process_provider", "process_base_url", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
     words: ["words_enabled"],
