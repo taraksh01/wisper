@@ -51,6 +51,8 @@ pub struct AppSettings {
     pub overlay_position: String,
     /// Selected input device name; empty string = system default.
     pub input_device: String,
+    /// Cumulative seconds saved by speaking instead of typing (estimated).
+    pub time_saved_sec: i32,
 }
 
 impl Default for AppSettings {
@@ -100,6 +102,7 @@ impl Default for AppSettings {
             overlay_enabled: true,
             overlay_position: "bottom".into(),
             input_device: String::new(),
+            time_saved_sec: 0,
         }
     }
 }

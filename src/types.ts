@@ -78,6 +78,7 @@ export interface AppSettings {
   overlay_enabled: boolean;
   overlay_position: string;
   input_device: string;
+  time_saved_sec: number;
 }
 
 export interface ModelInfo {

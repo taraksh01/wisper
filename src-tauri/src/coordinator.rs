@@ -243,15 +243,27 @@ impl TranscriptionCoordinator {
                     if let Err(e) = paste_text(&final_text, &paste_method) {
                         eprintln!("Paste failed: {}", e);
                     }
+                    let duration_ms = samples.len() as i64 / 16;
                     let history = crate::history::HistoryManager::new();
                     if let Err(e) = history.insert(
                         &text,
                         Some(&final_text),
                         agent_name.as_deref(),
-                        samples.len() as i64 / 16,
+                        duration_ms,
                         recording_path.as_deref(),
                     ) {
                         eprintln!("Failed to log history: {}", e);
+                    }
+
+                    // Accumulate estimated time saved (typing time minus speaking time).
+                    let words = text.split_whitespace().count() as f64;
+                    let typing_sec = words / 1.0; // ~60 WPM
+                    let speak_sec = duration_ms as f64 / 1000.0;
+                    let saved = (typing_sec - speak_sec).max(0.0) as i32;
+                    if saved > 0 {
+                        let mut settings = crate::settings::AppSettings::load();
+                        settings.time_saved_sec += saved;
+                        let _ = settings.save();
                     }
                 }
                 Err(e) => {
