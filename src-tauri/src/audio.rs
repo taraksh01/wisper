@@ -4,6 +4,72 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// List available audio input devices as (stable id, display name) pairs.
+/// ALSA exposes the same physical microphone under many PCM nodes (hw/plughw/
+/// sysdefault/front/dsnoop) and even under both its numeric and named card id,
+/// so we dedupe by the human-readable device name and keep one capture-capable
+/// node per physical microphone. Virtual sinks (null/pipewire/default/playback)
+/// are skipped since they are not real microphones.
+/// Returns an empty vector if enumeration fails.
+pub fn list_input_devices() -> Vec<(String, String)> {
+    let host = cpal::default_host();
+    host.input_devices()
+        .map(|devices| {
+            // Best capture node per physical device name: dsnoop > hw > plughw > rest.
+            let rank = |id: &str| {
+                if id.contains("dsnoop") { 0 }
+                else if id.contains("hw:CARD") || id.contains("hw=") { 1 }
+                else if id.contains("plughw") { 2 }
+                else { 3 }
+            };
+            let is_virtual = |name: &str, id: &str| {
+                id.contains(":null")
+                    || id.contains("pipewire")
+                    || id.contains(":default")
+                    || name.contains("Discard all samples")
+                    || name.contains("Default ALSA Output")
+            };
+            let mut best: std::collections::HashMap<String, (String, usize)> = std::collections::HashMap::new();
+            for d in devices {
+                let name = d.to_string();
+                if name.is_empty() {
+                    continue;
+                }
+                let id = match d.id() {
+                    Ok(i) => i.to_string(),
+                    Err(_) => continue,
+                };
+                if is_virtual(&name, &id) {
+                    continue;
+                }
+                let r = rank(&id);
+                match best.get(&name) {
+                    Some(existing) if existing.1 <= r => {}
+                    _ => { best.insert(name.clone(), (id, r)); }
+                }
+            }
+            best.into_iter().map(|(name, (id, _))| (id, name)).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Resolve the requested input device by its stable id, or fall back to the
+/// host default when `device` is None/empty/not found.
+fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
+    let host = cpal::default_host();
+    if let Some(id) = device {
+        if !id.is_empty() {
+            if let Ok(mut devices) = host.input_devices() {
+                if let Some(d) = devices.find(|d| d.id().ok().map(|i| i.to_string()) == Some(id.to_string())) {
+                    return Ok(d);
+                }
+            }
+            return Err(format!("Input device '{}' not found", id));
+        }
+    }
+    host.default_input_device().ok_or("No input device available".into())
+}
+
 #[derive(Clone)]
 pub struct AudioRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -28,11 +94,8 @@ impl AudioRecorder {
         f32::from_bits(self.level.load(Ordering::Relaxed))
     }
 
-    pub fn start_recording(&self) -> Result<(), String> {
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or("No input device available")?;
+    pub fn start_recording(&self, device: Option<String>) -> Result<(), String> {
+        let device = resolve_device(device.as_deref())?;
 
         let config = device
             .default_input_config()
@@ -79,14 +142,11 @@ impl AudioRecorder {
 
     /// Open the input stream to feed the live level meter without recording
     /// or transcribing. Used by the mic-test preview in settings.
-    pub fn start_preview(&self) -> Result<(), String> {
+    pub fn start_preview(&self, device: Option<String>) -> Result<(), String> {
         if self.stream.lock().unwrap().is_some() {
             return Ok(());
         }
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or("No input device available")?;
+        let device = resolve_device(device.as_deref())?;
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;

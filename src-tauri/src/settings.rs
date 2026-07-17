@@ -49,6 +49,8 @@ pub struct AppSettings {
     pub autostart: bool,
     pub overlay_enabled: bool,
     pub overlay_position: String,
+    /// Selected input device name; empty string = system default.
+    pub input_device: String,
 }
 
 impl Default for AppSettings {
@@ -97,6 +99,7 @@ impl Default for AppSettings {
             autostart: false,
             overlay_enabled: true,
             overlay_position: "bottom".into(),
+            input_device: String::new(),
         }
     }
 }
@@ -202,6 +205,9 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_MODEL.lock() {
         *v = settings.engine_model.clone();
+    }
+    if let Ok(mut v) = crate::coordinator::INPUT_DEVICE.lock() {
+        *v = settings.input_device.clone();
     }
 
     // Update current model path

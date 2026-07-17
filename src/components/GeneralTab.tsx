@@ -326,9 +326,14 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   const [listening, setListening] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [inputDevices, setInputDevices] = useState<[string, string][]>([]);
   const btnRef = useRef<HTMLButtonElement>(null);
   const pendingModsRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    invoke<[string, string][]>("list_audio_devices").then(setInputDevices).catch(() => {});
+  }, []);
 
   useEffect(() => {
     return () => clearTimeout(timerRef.current);
@@ -495,6 +500,23 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               onChange={(v) => onSave("overlay_position", v)}
             />
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Microphone">
+        <div className="space-y-2">
+          <label className="label-soft block">Input device</label>
+          <Select
+            value={settings.input_device}
+            options={[
+              { value: "", label: "System default" },
+              ...inputDevices.map(([id, name]) => ({ value: id, label: name })),
+            ]}
+            onChange={(v) => onSave("input_device", v)}
+          />
+          <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
+            Choose which microphone to use. Leave on System default to use the OS-selected input.
+          </p>
         </div>
       </SectionCard>
 

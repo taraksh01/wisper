@@ -15,6 +15,7 @@ pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::Atom
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static ENGINE_MODE: Mutex<String> = Mutex::new(String::new());
+pub static INPUT_DEVICE: Mutex<String> = Mutex::new(String::new()); // empty = system default
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
@@ -75,6 +76,12 @@ impl TranscriptionCoordinator {
         print!("\x07");
     }
 
+    /// Selected input device name (empty = system default), for cpal resolution.
+    fn input_device(&self) -> Option<String> {
+        let d = INPUT_DEVICE.lock().unwrap();
+        if d.is_empty() { None } else { Some(d.clone()) }
+    }
+
     pub fn run(mut self) {
         while let Ok(command) = self.rx.recv() {
             match command {
@@ -82,7 +89,7 @@ impl TranscriptionCoordinator {
                     let is_push_to_talk = HOTKEY_MODE.load(Ordering::Relaxed);
                     if is_push_to_talk {
                         if self.state == CoordinatorState::Idle {
-                            if let Err(e) = self.audio_recorder.start_recording() {
+                            if let Err(e) = self.audio_recorder.start_recording(self.input_device()) {
                                 eprintln!("Failed to start recording: {}", e);
                             } else {
                                 self.play_sound(800.0, 100);
@@ -93,7 +100,7 @@ impl TranscriptionCoordinator {
                         // Toggle mode
                         match self.state {
                             CoordinatorState::Idle => {
-                                if let Err(e) = self.audio_recorder.start_recording() {
+                                if let Err(e) = self.audio_recorder.start_recording(self.input_device()) {
                                     eprintln!("Failed to start recording: {}", e);
                                 } else {
                                     self.play_sound(800.0, 100);

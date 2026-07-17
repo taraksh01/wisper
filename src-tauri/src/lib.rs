@@ -62,12 +62,19 @@ fn get_input_level() -> f32 {
 
 #[tauri::command]
 fn start_mic_preview() -> Result<(), String> {
+    let device = crate::coordinator::INPUT_DEVICE.lock().unwrap().clone();
+    let device = if device.is_empty() { None } else { Some(device) };
     RECORDER
         .lock()
         .unwrap()
         .as_ref()
-        .map(|r| r.start_preview())
+        .map(|r| r.start_preview(device))
         .unwrap_or(Err("Recorder not initialized".into()))
+}
+
+#[tauri::command]
+fn list_audio_devices() -> Vec<(String, String)> {
+    crate::audio::list_input_devices()
 }
 
 #[tauri::command]
@@ -441,6 +448,9 @@ pub fn run() {
     coordinator::VAD_THRESHOLD.store(saved_settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
     coordinator::PROCESS_ENABLED.store(saved_settings.process_enabled, std::sync::atomic::Ordering::Relaxed);
     coordinator::WORDS_ENABLED.store(saved_settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut v) = coordinator::INPUT_DEVICE.lock() {
+        *v = saved_settings.input_device.clone();
+    }
     if let Ok(mut v) = coordinator::PROCESS_BASE_URL.lock() {
         *v = saved_settings.process_base_url.clone();
     }
@@ -599,7 +609,8 @@ pub fn run() {
             settings::save_settings,
             settings::get_default_settings,
             start_mic_preview,
-            stop_mic_preview
+            stop_mic_preview,
+            list_audio_devices
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

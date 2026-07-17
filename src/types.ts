@@ -77,6 +77,7 @@ export interface AppSettings {
   autostart: boolean;
   overlay_enabled: boolean;
   overlay_position: string;
+  input_device: string;
 }
 
 export interface ModelInfo {
