@@ -11,6 +11,7 @@ interface ModelCardProps {
   onActivate: (filename: string) => void;
   onDownload: (modelKey: string) => void;
   onDelete: (filename: string) => void;
+  onCancel: (modelKey: string) => void;
 }
 
 const chip = (label: string, style: string) => (
@@ -28,6 +29,7 @@ function ModelCard({
   onActivate,
   onDownload,
   onDelete,
+  onCancel,
 }: ModelCardProps) {
   const filename = formatModelFilename(modelKey, info.format);
 
@@ -64,6 +66,15 @@ function ModelCard({
                   <div className="h-full rounded-full bg-accent transition-all duration-200" style={{ width: `${progress}%` }} />
                 </div>
                 <span className="text-[10px] font-mono text-accent tabular-nums">{progress}%</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCancel(modelKey); }}
+                  className="shrink-0 p-1.5 text-muted hover:text-recording transition-colors rounded hover:bg-recording/10"
+                  title="Cancel download"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
               </div>
             ) : (
               <button

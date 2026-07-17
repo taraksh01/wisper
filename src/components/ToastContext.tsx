@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, useRef, ReactNode } from "react";
 import "./Toast.css";
 
 interface Toast {
@@ -34,7 +34,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
+    <ToastContext.Provider value={useMemo(() => ({ toasts, addToast, removeToast }), [toasts, addToast, removeToast])}>
       {children}
       <div className="toast-region" aria-live="polite">
         {toasts.map((t) => (

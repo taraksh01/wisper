@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { AppSettings, HistoryEntry, AgentProfile, WordSuggestion, tabs } from "./types";
+import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { GeneralTab } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
@@ -82,17 +82,7 @@ function AppShell() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [stats, setStats] = useState<[number, number, number]>([0, 0, 0]);
-  const [localModels, setLocalModels] = useState<string[]>([]);
-  const [downloading, setDownloading] = useState<string | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
-  const [justDownloaded, setJustDownloaded] = useState<string | null>(null);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
-  const [wordSuggestions, setWordSuggestions] = useState<WordSuggestion[]>([]);
-  const [wordScanning, setWordScanning] = useState(false);
-  const [wordScanMsg, setWordScanMsg] = useState("");
-  const [modelsPath, setModelsPath] = useState("");
-  const [modelLangFilter, setModelLangFilter] = useState("all");
-  const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [currentModelName, setCurrentModelName] = useState("");
   const [onboarded, setOnboarded] = useState(
     () => localStorage.getItem("wisper:onboarded") === "1"
@@ -108,9 +98,7 @@ function AppShell() {
   useEffect(() => {
     invoke<AppSettings>("load_settings").then(setSettings).catch((e) => { console.error(e); });
     fetchHistory();
-    fetchModels();
     fetchAgentProfiles();
-    invoke<string>("get_models_dir_path").then(setModelsPath).catch((e) => { console.error(e); });
     invoke<string>("get_current_state").then(setAppState).catch((e) => { console.error(e); });
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
     invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment")
@@ -118,15 +106,10 @@ function AppShell() {
       .catch(() => {});
 
     let unlisten: UnlistenFn | undefined;
-    let unlistenProgress: UnlistenFn | undefined;
     let unlistenTab: UnlistenFn | undefined;
     (async () => {
       unlisten = await listen<string>("wisper:state", (event) => {
         setAppState(event.payload);
-      });
-      unlistenProgress = await listen<{ model: string; progress: number }>("download-progress", (event) => {
-        const { model, progress } = event.payload;
-        setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
       });
       unlistenTab = await listen<string>("wisper:open-tab", (event) => {
         setActiveTab(event.payload);
@@ -135,7 +118,6 @@ function AppShell() {
 
     return () => {
       if (unlisten) unlisten();
-      if (unlistenProgress) unlistenProgress();
       if (unlistenTab) unlistenTab();
     };
   }, []);
@@ -160,64 +142,12 @@ function AppShell() {
     }
   }, [appState]);
 
-  const fetchModels = useCallback(async () => {
-    try {
-      const m = await invoke<string[]>("list_local_models");
-      setLocalModels(m);
-    } catch {}
-  }, []);
-
   const fetchAgentProfiles = useCallback(async () => {
     try {
       const a = await invoke<AgentProfile[]>("get_agent_profiles");
       setAgentProfiles(a);
     } catch {}
   }, []);
-
-  const scanWords = useCallback(async () => {
-    setWordScanning(true);
-    setWordScanMsg("Reading your recent dictations…");
-    setWordSuggestions([]);
-    try {
-      const s = await invoke<WordSuggestion[]>("suggest_words");
-      setWordSuggestions(s);
-      if (s.length === 0) setWordScanMsg("No new terms found in your recent dictations.");
-      else setWordScanMsg("");
-    } catch (e: any) {
-      setWordScanMsg(String(e));
-    } finally {
-      setWordScanning(false);
-    }
-  }, []);
-
-  const downloadModel = async (name: string) => {
-    setDownloading(name);
-    try {
-      await invoke("download_model", { modelName: name });
-      await fetchModels();
-      setJustDownloaded(name);
-      toast.addToast(`Downloaded ${name}`, "success");
-      setTimeout(() => setJustDownloaded(null), 3000);
-    } catch (e) {
-      console.error("Download failed:", e);
-      toast.addToast(`Failed to download ${name}`, "error");
-    }
-    setDownloading(null);
-    setDownloadProgress((prev) => {
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-  };
-
-  const deleteLocalModel = async (name: string) => {
-    try {
-      await invoke("delete_model", { modelName: name });
-      await fetchModels();
-    } catch (e) {
-      console.error("Delete failed:", e);
-    }
-  };
 
   const refreshCurrentModel = () => {
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
@@ -322,19 +252,8 @@ function AppShell() {
         return (
           <EngineTab
             settings={settings}
-            localModels={localModels}
-            downloading={downloading}
-            downloadProgress={downloadProgress}
-            justDownloaded={justDownloaded ?? undefined}
-            modelsPath={modelsPath}
-            modelLangFilter={modelLangFilter}
-            modelSearchQuery={modelSearchQuery}
             onSave={saveSetting}
             onSaveAll={saveAllSettings}
-            onDownload={downloadModel}
-            onDelete={deleteLocalModel}
-            onLangFilterChange={setModelLangFilter}
-            onSearchQueryChange={setModelSearchQuery}
           />
         );
       case "process":
@@ -345,11 +264,6 @@ function AppShell() {
             settings={settings}
             onSave={saveSetting}
             onReset={() => resetTab("words")}
-            suggestions={wordSuggestions}
-            scanning={wordScanning}
-            scanMsg={wordScanMsg}
-            onScan={scanWords}
-            setSuggestions={setWordSuggestions}
           />
         );
       case "history":

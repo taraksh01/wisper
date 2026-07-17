@@ -1,24 +1,18 @@
+import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AppSettings, modelCatalog, allModelKeys, languages, formatModelFilename } from "../types";
 import ModelCard from "./ModelCard";
 import { Select } from "./Select";
 import { Field } from "./Field";
 import { SectionCard } from "./SectionCard";
+import { ConfirmModal } from "./ConfirmModal";
+import { useToast } from "./ToastContext";
 
 interface EngineTabProps {
   settings: AppSettings;
-  localModels: string[];
-  downloading: string | null;
-  downloadProgress: Record<string, number>;
-  justDownloaded?: string;
-  modelsPath: string;
-  modelLangFilter: string;
-  modelSearchQuery: string;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onSaveAll: (updates: Partial<AppSettings>) => void;
-  onDownload: (name: string) => void;
-  onDelete: (name: string) => void;
-  onLangFilterChange: (v: string) => void;
-  onSearchQueryChange: (v: string) => void;
 }
 
 const langOptions = [{ value: "all", label: "All languages" }, ...languages.filter((l) => l.value !== "auto")];
@@ -33,22 +27,99 @@ function sortKeys(keys: string[]) {
   });
 }
 
-export function EngineTab({
-  settings,
-  localModels,
-  downloading,
-  downloadProgress,
-  justDownloaded,
-  modelsPath,
-  modelLangFilter,
-  modelSearchQuery,
-  onSave,
-  onSaveAll,
-  onDownload,
-  onDelete,
-  onLangFilterChange,
-  onSearchQueryChange,
-}: EngineTabProps) {
+export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
+  const toast = useToast();
+  const [localModels, setLocalModels] = useState<string[]>([]);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const [justDownloaded, setJustDownloaded] = useState<string | null>(null);
+  const [modelLangFilter, setModelLangFilter] = useState("all");
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [showDelete, setShowDelete] = useState<string | null>(null);
+
+  const fetchModels = useCallback(async () => {
+    try {
+      const m = await invoke<string[]>("list_local_models");
+      setLocalModels(m);
+    } catch {}
+  }, []);
+
+  const { addToast } = toast;
+
+  useEffect(() => {
+    fetchModels();
+    let cancelled = false;
+    let unlistenProgress: UnlistenFn | undefined;
+    let unlistenCanceled: UnlistenFn | undefined;
+    (async () => {
+      unlistenProgress = await listen<{ model: string; progress: number }>("download-progress", (event) => {
+        const { model, progress } = event.payload;
+        setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
+      });
+      unlistenCanceled = await listen<{ model: string }>("download-canceled", (event) => {
+        const { model } = event.payload;
+        setDownloading(null);
+        setDownloadProgress((prev) => {
+          const next = { ...prev };
+          delete next[model];
+          return next;
+        });
+        addToast(`Download canceled: ${model}`, "info");
+      });
+      if (cancelled) {
+        if (unlistenProgress) unlistenProgress();
+        if (unlistenCanceled) unlistenCanceled();
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (unlistenProgress) unlistenProgress();
+      if (unlistenCanceled) unlistenCanceled();
+    };
+  }, []);
+
+  const downloadModel = async (name: string) => {
+    setDownloading(name);
+    try {
+      await invoke("download_model", { modelName: name });
+      toast.addToast(`Downloaded ${name}`, "success");
+      setJustDownloaded(name);
+      setTimeout(() => setJustDownloaded(null), 3000);
+      await fetchModels();
+    } catch (e) {
+      const msg = String(e).toLowerCase();
+      if (!msg.includes("cancel")) {
+        console.error("Download failed:", e);
+        toast.addToast(`Failed to download ${name}`, "error");
+      }
+    }
+    setDownloading(null);
+    setDownloadProgress((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
+  const deleteLocalModel = async (name: string) => {
+    try {
+      await invoke("delete_model", { modelName: name });
+      await fetchModels();
+      toast.addToast(`Deleted ${name}`, "success");
+    } catch (e) {
+      console.error("Delete failed:", e);
+      toast.addToast(`Failed to delete ${name}`, "error");
+    }
+  };
+
+  const cancelDownload = async () => {
+    try {
+      await invoke("cancel_download");
+    } catch (e) {
+      console.error("Cancel failed:", e);
+    }
+  };
+
   const isLocal = settings.engine_mode === "local";
 
   const filtered = allModelKeys
@@ -101,73 +172,67 @@ export function EngineTab({
                   <path strokeLinecap="round" strokeLinejoin="round" d="m20 20-4.35-4.35" />
                 </svg>
                 <input
-                  type="text"
                   value={modelSearchQuery}
-                  onChange={(e) => onSearchQueryChange(e.target.value)}
-                  placeholder="Search model..."
-                  className="w-full text-[10px] font-mono bg-elevated/50 rounded-md pl-7 pr-2 py-1.5 text-muted placeholder:text-muted/40 outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all"
+                  onChange={(e) => setModelSearchQuery(e.target.value)}
+                  placeholder="Search models…"
+                  className="w-full bg-elevated/50 rounded-md px-7 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all"
                 />
               </div>
-              <div className="w-36 shrink-0">
-                <Select
-                  value={modelLangFilter}
-                  options={langOptions}
-                  onChange={(v) => onLangFilterChange(v)}
-                />
-              </div>
+              <Select
+                value={modelLangFilter}
+                options={langOptions}
+                onChange={setModelLangFilter}
+                className="w-32 text-[10px]"
+              />
             </div>
-            <p className="text-[10px] text-muted mt-3">Stored at <span className="text-ink">{modelsPath}</span></p>
           </SectionCard>
 
-          {downloadedKeys.length > 0 && (
-            <SectionCard title={`Downloaded (${downloadedKeys.length})`} className="card-enter">
-              <div className="grid grid-cols-1 gap-2">
-                {downloadedKeys.map((key) => {
-                  const info = modelCatalog[key];
-                  const filename = formatModelFilename(key, info.format);
-                  return (
-                    <ModelCard
-                      key={key}
-                      modelKey={key}
-                      info={info}
-                      isInstalled
-                      isActive={settings.local_model_file === filename}
-                      isDownloading={false}
-                      justDownloaded={justDownloaded === filename}
-                      onActivate={(f) => onSave("local_model_file", f)}
-                      onDownload={() => {}}
-                      onDelete={(f) => onDelete(f)}
-                    />
-                  );
-                })}
-              </div>
-            </SectionCard>
-          )}
+          <SectionCard title={`Downloaded (${downloadedKeys.length})`} className="card-enter">
+            <div className="grid grid-cols-1 gap-2">
+              {downloadedKeys.map((key) => {
+                const info = modelCatalog[key];
+                return (
+                  <ModelCard
+                    key={key}
+                    modelKey={key}
+                    info={info}
+                    isInstalled={true}
+                    isActive={settings.local_model_file === formatModelFilename(key, info.format)}
+                    isDownloading={false}
+                    justDownloaded={justDownloaded === key}
+                    onActivate={(f) => onSave("local_model_file", f)}
+                    onDownload={() => {}}
+                    onDelete={(f) => setShowDelete(f)}
+                    onCancel={() => {}}
+                  />
+                );
+              })}
+            </div>
+          </SectionCard>
 
-          {availableKeys.length > 0 && (
-            <SectionCard title={`Available to Download (${availableKeys.length})`} className="card-enter">
-              <div className="grid grid-cols-1 gap-2">
-                {availableKeys.map((key) => {
-                  const info = modelCatalog[key];
-                  return (
-                    <ModelCard
-                      key={key}
-                      modelKey={key}
-                      info={info}
-                      isInstalled={false}
-                      isActive={false}
-                      isDownloading={downloading === key}
-                      progress={downloadProgress[key]}
-                      justDownloaded={justDownloaded === key}
-                      onActivate={() => {}}
-                      onDownload={(k) => onDownload(k)}
-                      onDelete={() => {}}
-                    />
-                  );
-                })}
-              </div>
-            </SectionCard>
-          )}
+          <SectionCard title={`Available to Download (${availableKeys.length})`} className="card-enter">
+            <div className="grid grid-cols-1 gap-2">
+              {availableKeys.map((key) => {
+                const info = modelCatalog[key];
+                return (
+                  <ModelCard
+                    key={key}
+                    modelKey={key}
+                    info={info}
+                    isInstalled={false}
+                    isActive={false}
+                    isDownloading={downloading === key}
+                    progress={downloadProgress[key]}
+                    justDownloaded={justDownloaded === key}
+                    onActivate={() => {}}
+                    onDownload={(k) => downloadModel(k)}
+                    onDelete={() => {}}
+                    onCancel={() => cancelDownload()}
+                  />
+                );
+              })}
+            </div>
+          </SectionCard>
 
           {availableKeys.length === 0 && downloadedKeys.length === 0 && (
             <SectionCard className="card-enter">
@@ -186,65 +251,63 @@ export function EngineTab({
           <SectionCard title="Provider" className="card-enter">
             <div className="relative bg-elevated/40 rounded-xl p-1 flex mb-4">
               <div className={`absolute top-1 bottom-1 w-1/3 rounded-lg bg-accent transition-all duration-300 ease-out ${
-                settings.engine_provider === "openai" ? "left-1" :
-                settings.engine_provider === "groq" ? "left-1/3" :
-                "left-2/3"
+                settings.engine_provider === "openai" ? "left-1" : settings.engine_provider === "groq" ? "left-[calc(33.333%-1px)]" : "left-[calc(66.666%-2px)]"
               }`} />
-              {[
-                { id: "openai", label: "OpenAI" },
-                { id: "groq", label: "Groq" },
-                { id: "custom", label: "Custom" },
-              ].map((p) => (
+              {(["openai", "groq", "custom"] as const).map((p) => (
                 <button
-                  key={p.id}
+                  key={p}
                   onClick={() => {
-                    const keyField = `voice_api_key_${p.id}` as keyof AppSettings;
-                    const updates: Partial<AppSettings> = {
-                      engine_provider: p.id,
-                      voice_api_key: settings[keyField] as string || "",
-                    };
-                    if (p.id === "openai") {
+                    const updates: Partial<AppSettings> = { engine_provider: p };
+                    if (p === "openai") {
                       updates.engine_model = "whisper-1";
                       updates.engine_base_url = "";
-                    } else if (p.id === "groq") {
+                    } else if (p === "groq") {
                       updates.engine_model = "whisper-large-v3";
                       updates.engine_base_url = "https://api.groq.com/openai/v1";
                     }
                     onSaveAll(updates);
                   }}
-                  className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_provider === p.id ? "text-white" : "text-muted hover:text-ink"}`}
+                  className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_provider === p ? "text-white" : "text-muted hover:text-ink"}`}
                 >
-                  {p.label}
+                  {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : "Custom"}
                 </button>
               ))}
             </div>
-            <Field label="Voice API Key" value={settings.voice_api_key} onChange={(v) => {
-              const perProviderKey = `voice_api_key_${settings.engine_provider}` as keyof AppSettings;
-              onSaveAll({ voice_api_key: v, [perProviderKey]: v });
-            }} placeholder="sk-..." secret />
-          </SectionCard>
 
-          <SectionCard title="Model" className="card-enter">
-            {(["openai", "groq", "custom"] as const).map((provider) => (
-              <div key={provider} className={settings.engine_provider === provider ? "space-y-3" : "hidden"}>
-                {provider === "openai" && (
-                  <Select label="Model" value={settings.engine_model} options={[{ value: "whisper-1", label: "whisper-1" }]} onChange={(v) => onSave("engine_model", v)} />
-                )}
-                {provider === "groq" && (
-                  <Select label="Model" value={settings.engine_model} options={["whisper-large-v3", "whisper-large-v3-turbo"].map((m) => ({ value: m, label: m }))} onChange={(v) => onSave("engine_model", v)} />
-                )}
-                {provider === "custom" && (
-                  <>
-                    <Field label="Base URL" value={settings.engine_base_url} onChange={(v) => onSave("engine_base_url", v)} placeholder="https://api.openai.com/v1" />
-                    <Field label="Model" value={settings.engine_model} onChange={(v) => onSave("engine_model", v)} placeholder="whisper-1" />
-                  </>
-                )}
-              </div>
-            ))}
+            {settings.engine_provider === "custom" ? (
+              <>
+                <Field label="Base URL" value={settings.engine_base_url} onChange={(v) => onSave("engine_base_url", v)} placeholder="https://api.openai.com/v1" />
+                <Field label="Model" value={settings.engine_model} onChange={(v) => onSave("engine_model", v)} placeholder="whisper-1" />
+              </>
+            ) : (
+              <Field label="Model" value={settings.engine_model} onChange={(v) => onSave("engine_model", v)} />
+            )}
+
+            <Field
+              label="API Key"
+              value={settings.voice_api_key}
+              onChange={(v) => onSave("voice_api_key", v)}
+              secret
+              placeholder={settings.engine_provider === "openai" ? "sk-..." : settings.engine_provider === "groq" ? "gsk_..." : "API key"}
+            />
+            <p className="text-[10px] text-muted/70 mt-1">Stored locally. Never leaves your device except to call the provider.</p>
           </SectionCard>
         </>
       )}
 
+      {showDelete && (
+        <ConfirmModal
+          title="Delete model?"
+          message={`This will permanently delete ${showDelete} from your device. You can re-download it later.`}
+          confirmLabel="Delete"
+          onConfirm={() => {
+            const name = showDelete;
+            setShowDelete(null);
+            deleteLocalModel(name);
+          }}
+          onCancel={() => setShowDelete(null)}
+        />
+      )}
     </div>
   );
 }

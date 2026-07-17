@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
+import { ConfirmModal } from "./ConfirmModal";
 import { useToast } from "./ToastContext";
 
 interface HistoryTabProps {
@@ -59,32 +59,6 @@ function RetryIcon() {
     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
     </svg>
-  );
-}
-
-function ConfirmModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
-      <div className="bg-surface border border-stroke rounded-xl p-5 max-w-xs w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-sm font-bold font-mono text-ink mb-2">Clear all history?</h3>
-        <p className="text-xs text-muted mb-4 leading-relaxed">This will permanently delete all dictations and recordings.</p>
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-xs font-mono text-muted hover:text-ink rounded-md ring-1 ring-stroke hover:ring-muted transition-all"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-3 py-1.5 text-xs font-mono text-white bg-recording rounded-md hover:bg-red-500 transition-all"
-          >
-            Clear all
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
   );
 }
 
@@ -443,6 +417,9 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
 
       {showClearConfirm && (
         <ConfirmModal
+          title="Clear all history?"
+          message="This will permanently delete all dictations and recordings."
+          confirmLabel="Clear all"
           onConfirm={async () => {
             setShowClearConfirm(false);
             try {

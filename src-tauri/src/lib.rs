@@ -577,7 +577,7 @@ pub fn run() {
             models::list_local_models,
             models::download_model,
             models::delete_model,
-            models::get_models_dir_path,
+            models::cancel_download,
             process::get_agent_profiles,
             words::get_words,
             words::add_word_entry,
