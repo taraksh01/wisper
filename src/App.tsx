@@ -72,7 +72,7 @@ function Onboarding({ env, onDone }: { env: { reliable: boolean; has_wtype: bool
   );
 }
 
-function App() {
+function AppShell() {
   const dark = useSystemTheme();
   const [activeTab, setActiveTab] = useState(() => {
     const saved = localStorage.getItem("wisper:active-tab");
@@ -98,6 +98,8 @@ function App() {
     () => localStorage.getItem("wisper:onboarded") === "1"
   );
   const [pasteEnv, setPasteEnv] = useState<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean } | null>(null);
+
+  const toast = useToast();
 
   useEffect(() => {
     localStorage.setItem("wisper:active-tab", activeTab);
@@ -194,11 +196,11 @@ function App() {
       await invoke("download_model", { modelName: name });
       await fetchModels();
       setJustDownloaded(name);
-      useToast().addToast(`Downloaded ${name}`, "success");
+      toast.addToast(`Downloaded ${name}`, "success");
       setTimeout(() => setJustDownloaded(null), 3000);
     } catch (e) {
       console.error("Download failed:", e);
-      useToast().addToast(`Failed to download ${name}`, "error");
+      toast.addToast(`Failed to download ${name}`, "error");
     }
     setDownloading(null);
     setDownloadProgress((prev) => {
@@ -226,9 +228,10 @@ function App() {
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     console.log("[saveSetting]", key, value);
+    const msg = settingToast(key, value);
     invoke("save_settings", { settings: updated })
-      .then(() => { console.log("[saveSetting] ok"); useToast().addToast("Settings saved", "success"); })
-      .catch((e) => { console.error("[saveSetting]", e); useToast().addToast("Failed to save settings", "error"); });
+      .then(() => { if (msg) toast.addToast(msg, "success"); })
+      .catch((e) => { console.error("[saveSetting]", e); toast.addToast("Failed to save settings", "error"); });
     refreshCurrentModel();
   };
 
@@ -238,9 +241,25 @@ function App() {
     setSettings(merged);
     console.log("[saveAllSettings]", updates);
     invoke("save_settings", { settings: merged })
-      .then(() => { console.log("[saveAllSettings] ok"); useToast().addToast("Settings saved", "success"); })
-      .catch((e) => { console.error("[saveAllSettings]", e); useToast().addToast("Failed to save settings", "error"); });
+      .then(() => { toast.addToast("Settings saved", "success"); })
+      .catch((e) => { console.error("[saveAllSettings]", e); toast.addToast("Failed to save settings", "error"); });
     refreshCurrentModel();
+  };
+
+  const settingToast = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): string | null => {
+    const on = (v: boolean) => (v ? "enabled" : "disabled");
+    switch (key) {
+      case "autostart": return `Launch at login ${on(Boolean(value))}`;
+      case "launch_to_tray": return Boolean(value) ? "Opens to system tray" : "Opens to full window";
+      case "language": return "Display language updated";
+      case "paste_method": return `Paste method: ${String(value)}`;
+      case "vad_enabled": return `Silence trimming ${on(Boolean(value))}`;
+      case "llm_enabled": return `AI processing ${on(Boolean(value))}`;
+      case "vocabulary_enabled": return `Custom vocabulary ${on(Boolean(value))}`;
+      case "local_model_file": return "Local model changed";
+      case "stt_mode": return `Engine: ${String(value)}`;
+      default: return null;
+    }
   };
 
   const unloadModel = async () => {
@@ -249,7 +268,7 @@ function App() {
       refreshCurrentModel();
     } catch (e) {
       console.error(e);
-      useToast().addToast("Failed to unload model", "error");
+      toast.addToast("Failed to unload model", "error");
     }
   };
 
@@ -276,23 +295,21 @@ function App() {
       }
       setSettings(merged);
       await invoke("save_settings", { settings: merged });
-      useToast().addToast("Tab reset to defaults", "success");
+      toast.addToast("Tab reset to defaults", "success");
     } catch (e) {
       console.error("Reset failed:", e);
-      useToast().addToast("Failed to reset tab", "error");
+      toast.addToast("Failed to reset tab", "error");
     }
   };
 
   if (!settings) {
     return (
-      <ToastProvider>
-        <div className="h-screen bg-base flex items-center justify-center">
+      <div className="h-screen bg-base flex items-center justify-center">
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
             <span className="text-sm font-mono text-muted">loading</span>
           </div>
-        </div>
-      </ToastProvider>
+      </div>
     );
   }
 
@@ -346,8 +363,7 @@ function App() {
   };
 
   return (
-    <ToastProvider>
-      <div className={`h-screen ${dark ? "dark" : "light"} bg-base text-ink flex font-sans select-none`}>
+    <div className={`h-screen ${dark ? "dark" : "light"} bg-base text-ink flex font-sans select-none`}>
         {!onboarded && settings && (
           <Onboarding
             env={pasteEnv}
@@ -382,8 +398,15 @@ function App() {
           </div>
         </div>
       </div>
-    </ToastProvider>
   );
 }
 
-export default App;
+// App wraps the shell in a single ToastProvider so useToast() is valid app-wide.
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <AppShell />
+    </ToastProvider>
+  );
+}
