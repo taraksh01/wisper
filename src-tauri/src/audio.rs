@@ -77,6 +77,43 @@ impl AudioRecorder {
         final_buffer
     }
 
+    /// Open the input stream to feed the live level meter without recording
+    /// or transcribing. Used by the mic-test preview in settings.
+    pub fn start_preview(&self) -> Result<(), String> {
+        if self.stream.lock().unwrap().is_some() {
+            return Ok(());
+        }
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .ok_or("No input device available")?;
+        let config = device
+            .default_input_config()
+            .map_err(|e| format!("Failed to get input config: {}", e))?;
+        {
+            let mut sr = self.sample_rate.lock().unwrap();
+            *sr = config.sample_rate();
+        }
+        self.level.store(0, Ordering::Relaxed);
+        // Throwaway buffer; the callback only needs it to update `level`.
+        let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+        let level_clone = self.level.clone();
+        let stream = match config.sample_format() {
+            cpal::SampleFormat::F32 => Self::build_stream::<f32>(&device, &config.into(), buf.clone(), level_clone),
+            cpal::SampleFormat::I16 => Self::build_stream::<i16>(&device, &config.into(), buf.clone(), level_clone),
+            cpal::SampleFormat::U16 => Self::build_stream::<u16>(&device, &config.into(), buf.clone(), level_clone),
+            _ => Err("Unsupported sample format".into()),
+        }?;
+        stream.play().map_err(|e| format!("Failed to play stream: {}", e))?;
+        *self.stream.lock().unwrap() = Some(stream);
+        Ok(())
+    }
+
+    pub fn stop_preview(&self) {
+        *self.stream.lock().unwrap() = None;
+        self.level.store(0, Ordering::Relaxed);
+    }
+
     pub fn sample_rate(&self) -> u32 {
         *self.sample_rate.lock().unwrap()
     }

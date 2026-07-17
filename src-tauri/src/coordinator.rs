@@ -10,6 +10,8 @@ use crate::stt::{create_local_provider, CloudSttProvider, SttProvider};
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
+pub static VAD_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static STT_MODE: Mutex<String> = Mutex::new(String::new());
@@ -136,8 +138,14 @@ impl TranscriptionCoordinator {
             None
         };
 
-        // VAD trimming (100ms window at 16kHz = 1600 samples)
-        let trimmed = trim_silence(&resampled, 1600, 0.01);
+        // VAD trimming: when enabled, the silence energy cutoff is the user's
+        // vad_threshold; when disabled, keep the full captured audio.
+        let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
+            let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
+            trim_silence(&resampled, 1600, thresh)
+        } else {
+            resampled.clone()
+        };
 
         if !trimmed.is_empty() {
             let mode = STT_MODE.lock().unwrap().clone();

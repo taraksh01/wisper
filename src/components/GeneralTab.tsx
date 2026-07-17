@@ -240,6 +240,88 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function VadThresholdControl({ threshold, onChange }: { threshold: number; onChange: (v: number) => void }) {
+  const [level, setLevel] = useState(0);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    if (!testing) return;
+    let alive = true;
+    let raf = 0;
+    invoke("start_mic_preview").catch(() => {});
+    async function loop() {
+      try {
+        const l = await invoke<number>("get_input_level");
+        if (alive) setLevel(l);
+      } catch {}
+      if (alive) raf = requestAnimationFrame(loop);
+    }
+    loop();
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+      invoke("stop_mic_preview").catch(() => {});
+    };
+  }, [testing]);
+
+  const startToggle = () => {
+    if (testing) {
+      setTesting(false);
+    } else {
+      setLevel(0);
+      setTesting(true);
+    }
+  };
+
+  const barCount = 10;
+  const filled = Math.max(0, Math.round((level / 0.3) * barCount));
+  const threshIdx = Math.max(0, Math.min(barCount - 1, Math.round(threshold * barCount)));
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <label className="label-soft">VAD threshold</label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={threshold}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1 accent-accent"
+        />
+        <span className="text-xs font-mono text-muted w-10 text-right">{Math.round(threshold * 100)}%</span>
+      </div>
+      <div className="flex items-end gap-1 h-6">
+        {[...Array(barCount)].map((_, i) => {
+          const aboveThresh = i >= threshIdx;
+          const active = i < filled && aboveThresh;
+          const cls = active
+            ? "bg-accent"
+            : i === threshIdx
+            ? "bg-accent/50"
+            : aboveThresh
+            ? "bg-elevated"
+            : "bg-elevated/40";
+          return (
+            <div
+              key={i}
+              className={`flex-1 rounded transition-colors ${cls}`}
+              style={{ height: `${Math.max(4, (i + 1) * 3)}px` }}
+            />
+          );
+        })}
+      </div>
+      <button
+        onClick={startToggle}
+        className="text-xs font-mono text-muted hover:text-ink transition-colors"
+      >
+        {testing ? "Stop testing" : "Test microphone level"}
+      </button>
+    </div>
+  );
+}
+
 export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   const [listening, setListening] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
@@ -413,6 +495,26 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               onChange={(v) => onSave("overlay_position", v)}
             />
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Voice Activity">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <label className="label-soft block mb-1">Trim silence from recordings</label>
+              <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
+                Drop audio below the threshold before transcribing.
+              </p>
+            </div>
+            <Switch
+              checked={settings.vad_enabled}
+              onChange={(v) => onSave("vad_enabled", v)}
+            />
+          </div>
+          {settings.vad_enabled && (
+            <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />
+          )}
         </div>
       </SectionCard>
 

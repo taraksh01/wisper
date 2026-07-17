@@ -61,6 +61,23 @@ fn get_input_level() -> f32 {
 }
 
 #[tauri::command]
+fn start_mic_preview() -> Result<(), String> {
+    RECORDER
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|r| r.start_preview())
+        .unwrap_or(Err("Recorder not initialized".into()))
+}
+
+#[tauri::command]
+fn stop_mic_preview() {
+    if let Some(r) = RECORDER.lock().unwrap().as_ref() {
+        r.stop_preview();
+    }
+}
+
+#[tauri::command]
 fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
@@ -420,6 +437,8 @@ pub fn run() {
         std::sync::atomic::Ordering::Relaxed,
     );
     coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
+    coordinator::VAD_ENABLED.store(saved_settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
+    coordinator::VAD_THRESHOLD.store(saved_settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
     coordinator::LLM_ENABLED.store(saved_settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
     coordinator::VOCAB_ENABLED.store(saved_settings.vocabulary_enabled, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut v) = coordinator::LLM_BASE_URL.lock() {
@@ -578,7 +597,9 @@ pub fn run() {
             history::clear_history,
             settings::load_settings,
             settings::save_settings,
-            settings::get_default_settings
+            settings::get_default_settings,
+            start_mic_preview,
+            stop_mic_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

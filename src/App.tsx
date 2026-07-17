@@ -258,7 +258,7 @@ function App() {
   };
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
-    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool"],
+    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "overlay_enabled", "overlay_position"],
     llm: ["llm_enabled", "llm_provider", "llm_base_url", "llm_api_key", "llm_api_key_openai", "llm_api_key_anthropic", "llm_api_key_google", "llm_api_key_groq", "llm_api_key_together", "llm_api_key_deepseek", "llm_api_key_kimi", "llm_api_key_qwen", "llm_api_key_glm", "llm_api_key_openrouter", "llm_api_key_ollama", "llm_api_key_custom", "llm_model", "llm_max_tokens", "llm_agent_profile", "llm_agent_name", "llm_agent_prompt"],
     vocab: ["vocabulary_enabled"],
   };

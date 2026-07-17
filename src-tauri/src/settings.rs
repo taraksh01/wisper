@@ -170,6 +170,8 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::LLM_ENABLED.store(settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::VOCAB_ENABLED.store(settings.vocabulary_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::VAD_ENABLED.store(settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::VAD_THRESHOLD.store(settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut v) = crate::coordinator::LLM_BASE_URL.lock() {
         *v = settings.llm_base_url.clone();
     }
