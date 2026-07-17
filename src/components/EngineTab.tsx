@@ -4,7 +4,7 @@ import { Select } from "./Select";
 import { Field } from "./Field";
 import { SectionCard } from "./SectionCard";
 
-interface STTTabProps {
+interface EngineTabProps {
   settings: AppSettings;
   localModels: string[];
   downloading: string | null;
@@ -33,7 +33,7 @@ function sortKeys(keys: string[]) {
   });
 }
 
-export function STTTab({
+export function EngineTab({
   settings,
   localModels,
   downloading,
@@ -48,8 +48,8 @@ export function STTTab({
   onDelete,
   onLangFilterChange,
   onSearchQueryChange,
-}: STTTabProps) {
-  const isLocal = settings.stt_mode === "local";
+}: EngineTabProps) {
+  const isLocal = settings.engine_mode === "local";
 
   const filtered = allModelKeys
     .filter((key) => modelLangFilter === "all" || modelCatalog[key].languages.includes(modelLangFilter))
@@ -82,8 +82,8 @@ export function STTTab({
           {(["local", "cloud"] as const).map((mode) => (
             <button
               key={mode}
-              onClick={() => onSave("stt_mode", mode)}
-              className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.stt_mode === mode ? "text-white" : "text-muted hover:text-ink"}`}
+              onClick={() => onSave("engine_mode", mode)}
+              className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_mode === mode ? "text-white" : "text-muted hover:text-ink"}`}
             >
               {mode === "local" ? "Local Engine" : "Cloud API"}
             </button>
@@ -186,8 +186,8 @@ export function STTTab({
           <SectionCard title="Provider" className="card-enter">
             <div className="relative bg-elevated/40 rounded-xl p-1 flex mb-4">
               <div className={`absolute top-1 bottom-1 w-1/3 rounded-lg bg-accent transition-all duration-300 ease-out ${
-                settings.stt_provider === "openai" ? "left-1" :
-                settings.stt_provider === "groq" ? "left-1/3" :
+                settings.engine_provider === "openai" ? "left-1" :
+                settings.engine_provider === "groq" ? "left-1/3" :
                 "left-2/3"
               }`} />
               {[
@@ -200,43 +200,43 @@ export function STTTab({
                   onClick={() => {
                     const keyField = `voice_api_key_${p.id}` as keyof AppSettings;
                     const updates: Partial<AppSettings> = {
-                      stt_provider: p.id,
+                      engine_provider: p.id,
                       voice_api_key: settings[keyField] as string || "",
                     };
                     if (p.id === "openai") {
-                      updates.stt_model = "whisper-1";
-                      updates.stt_base_url = "";
+                      updates.engine_model = "whisper-1";
+                      updates.engine_base_url = "";
                     } else if (p.id === "groq") {
-                      updates.stt_model = "whisper-large-v3";
-                      updates.stt_base_url = "https://api.groq.com/openai/v1";
+                      updates.engine_model = "whisper-large-v3";
+                      updates.engine_base_url = "https://api.groq.com/openai/v1";
                     }
                     onSaveAll(updates);
                   }}
-                  className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.stt_provider === p.id ? "text-white" : "text-muted hover:text-ink"}`}
+                  className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_provider === p.id ? "text-white" : "text-muted hover:text-ink"}`}
                 >
                   {p.label}
                 </button>
               ))}
             </div>
             <Field label="Voice API Key" value={settings.voice_api_key} onChange={(v) => {
-              const perProviderKey = `voice_api_key_${settings.stt_provider}` as keyof AppSettings;
+              const perProviderKey = `voice_api_key_${settings.engine_provider}` as keyof AppSettings;
               onSaveAll({ voice_api_key: v, [perProviderKey]: v });
             }} placeholder="sk-..." secret />
           </SectionCard>
 
           <SectionCard title="Model" className="card-enter">
             {(["openai", "groq", "custom"] as const).map((provider) => (
-              <div key={provider} className={settings.stt_provider === provider ? "space-y-3" : "hidden"}>
+              <div key={provider} className={settings.engine_provider === provider ? "space-y-3" : "hidden"}>
                 {provider === "openai" && (
-                  <Select label="Model" value={settings.stt_model} options={[{ value: "whisper-1", label: "whisper-1" }]} onChange={(v) => onSave("stt_model", v)} />
+                  <Select label="Model" value={settings.engine_model} options={[{ value: "whisper-1", label: "whisper-1" }]} onChange={(v) => onSave("engine_model", v)} />
                 )}
                 {provider === "groq" && (
-                  <Select label="Model" value={settings.stt_model} options={["whisper-large-v3", "whisper-large-v3-turbo"].map((m) => ({ value: m, label: m }))} onChange={(v) => onSave("stt_model", v)} />
+                  <Select label="Model" value={settings.engine_model} options={["whisper-large-v3", "whisper-large-v3-turbo"].map((m) => ({ value: m, label: m }))} onChange={(v) => onSave("engine_model", v)} />
                 )}
                 {provider === "custom" && (
                   <>
-                    <Field label="Base URL" value={settings.stt_base_url} onChange={(v) => onSave("stt_base_url", v)} placeholder="https://api.openai.com/v1" />
-                    <Field label="Model" value={settings.stt_model} onChange={(v) => onSave("stt_model", v)} placeholder="whisper-1" />
+                    <Field label="Base URL" value={settings.engine_base_url} onChange={(v) => onSave("engine_base_url", v)} placeholder="https://api.openai.com/v1" />
+                    <Field label="Model" value={settings.engine_model} onChange={(v) => onSave("engine_model", v)} placeholder="whisper-1" />
                   </>
                 )}
               </div>

@@ -2,21 +2,21 @@ import { useState, useEffect, useCallback } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { VocabEntry, VocabSuggestion } from "../types";
+import { WordEntry, WordSuggestion } from "../types";
 import { SectionCard } from "./SectionCard";
 import { useToast } from "./ToastContext";
 
-interface VocabularyManagerProps {
-  suggestions: VocabSuggestion[];
+interface WordsManagerProps {
+  suggestions: WordSuggestion[];
   scanning: boolean;
   scanMsg: string;
   onScan: () => void;
-  setSuggestions: Dispatch<SetStateAction<VocabSuggestion[]>>;
+  setSuggestions: Dispatch<SetStateAction<WordSuggestion[]>>;
 }
 
-export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setSuggestions }: VocabularyManagerProps) {
+export function WordsManager({ suggestions, scanning, scanMsg, onScan, setSuggestions }: WordsManagerProps) {
   const { addToast } = useToast();
-  const [entries, setEntries] = useState<VocabEntry[]>([]);
+  const [entries, setEntries] = useState<WordEntry[]>([]);
   const [phrase, setPhrase] = useState("");
   const [variants, setVariants] = useState("");
   const [error, setError] = useState("");
@@ -34,7 +34,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
 
   const load = useCallback(async () => {
     try {
-      const v = await invoke<VocabEntry[]>("get_vocabulary");
+      const v = await invoke<WordEntry[]>("get_words");
       setEntries(v);
     } catch (e) {
       console.error(e);
@@ -50,7 +50,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
     if (!phrase.trim()) return;
     setError("");
     try {
-      await invoke("add_vocab_entry", {
+      await invoke("add_word_entry", {
         phrase: phrase.trim(),
         variants: variants.trim(),
         caseSensitive: false,
@@ -69,7 +69,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
 
   async function removeEntry(id: number) {
     try {
-      await invoke("delete_vocab_entry", { id });
+      await invoke("delete_word_entry", { id });
       await load();
       addToast("Term deleted", "success");
     } catch (e) {
@@ -78,9 +78,9 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
     }
   }
 
-  async function acceptSuggestion(s: VocabSuggestion) {
+  async function acceptSuggestion(s: WordSuggestion) {
     try {
-      await invoke("add_vocab_entry", {
+      await invoke("add_word_entry", {
         phrase: s.phrase,
         variants: s.variants.join(", "),
         caseSensitive: false,
@@ -96,13 +96,13 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
     }
   }
 
-  function updateSuggestion(index: number, patch: Partial<VocabSuggestion>) {
+  function updateSuggestion(index: number, patch: Partial<WordSuggestion>) {
     setSuggestions((prev) => prev.map((x, i) => (i === index ? { ...x, ...patch } : x)));
   }
 
-  async function dismissSuggestion(s: VocabSuggestion) {
+  async function dismissSuggestion(s: WordSuggestion) {
     try {
-      await invoke("ignore_vocab_suggestion", { term: s.phrase });
+      await invoke("ignore_word_suggestion", { term: s.phrase });
       addToast("Suggestion dismissed", "info");
     } catch (e) {
       console.error(e);
@@ -126,7 +126,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
 
   async function unignore(term: string) {
     try {
-      await invoke("unignore_vocab_term", { term });
+      await invoke("unignore_word_term", { term });
       await loadIgnored();
       addToast("Term restored", "success");
     } catch (e) {
@@ -142,7 +142,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
       try {
         const [phrase, variants] = line.split("|").map(s => s.trim());
         if (!phrase) continue;
-        await invoke("add_vocab_entry", {
+        await invoke("add_word_entry", {
           phrase,
           variants: variants || "",
           caseSensitive: false,
@@ -377,7 +377,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-base/60 backdrop-blur-sm p-4">
       <div className="bg-surface border border-stroke rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4 animate-slide-up">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold font-mono text-ink">Import Vocabulary</h3>
+          <h3 className="text-sm font-bold font-mono text-ink">Import Words</h3>
           <button onClick={onClose} className="text-muted hover:text-ink text-[18px] leading-none">×</button>
         </div>
         <p className="text-[11px] text-muted leading-relaxed">

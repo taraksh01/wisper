@@ -16,7 +16,7 @@ export interface AgentProfile {
   system_prompt: string;
 }
 
-export interface VocabEntry {
+export interface WordEntry {
   id: number;
   phrase: string;
   variants: string;
@@ -27,44 +27,44 @@ export interface VocabEntry {
   created_at: string;
 }
 
-export interface VocabSuggestion {
+export interface WordSuggestion {
   phrase: string;
   variants: string[];
   count: number;
 }
 
 export interface AppSettings {
-  stt_mode: string;
-  stt_provider: string;
-  stt_base_url: string;
+  engine_mode: string;
+  engine_provider: string;
+  engine_base_url: string;
   voice_api_key: string;
   voice_api_key_openai: string;
   voice_api_key_groq: string;
   voice_api_key_custom: string;
-  stt_model: string;
+  engine_model: string;
   local_model_file: string;
-  llm_enabled: boolean;
-  llm_provider: string;
-  llm_base_url: string;
-  llm_api_key: string;
-  llm_api_key_openai: string;
-  llm_api_key_anthropic: string;
-  llm_api_key_google: string;
-  llm_api_key_groq: string;
-  llm_api_key_together: string;
-  llm_api_key_deepseek: string;
-  llm_api_key_kimi: string;
-  llm_api_key_qwen: string;
-  llm_api_key_glm: string;
-  llm_api_key_openrouter: string;
-  llm_api_key_ollama: string;
-  llm_api_key_custom: string;
-  llm_model: string;
-  llm_max_tokens: number;
-  llm_agent_profile: string;
-  llm_agent_name: string;
-  llm_agent_prompt: string;
-  vocabulary_enabled: boolean;
+  process_enabled: boolean;
+  process_provider: string;
+  process_base_url: string;
+  process_api_key: string;
+  process_api_key_openai: string;
+  process_api_key_anthropic: string;
+  process_api_key_google: string;
+  process_api_key_groq: string;
+  process_api_key_together: string;
+  process_api_key_deepseek: string;
+  process_api_key_kimi: string;
+  process_api_key_qwen: string;
+  process_api_key_glm: string;
+  process_api_key_openrouter: string;
+  process_api_key_ollama: string;
+  process_api_key_custom: string;
+  process_model: string;
+  process_max_tokens: number;
+  process_agent_profile: string;
+  process_agent_name: string;
+  process_agent_prompt: string;
+  words_enabled: boolean;
   hotkey: string;
   hotkey_mode: string;
   paste_method: string;
@@ -152,9 +152,9 @@ export const languages = [
 
 export const tabs = [
   { id: "general", label: "General" },
-  { id: "stt", label: "Engine" },
-  { id: "llm", label: "Process" },
-  { id: "vocab", label: "Words" },
+  { id: "engine", label: "Engine" },
+  { id: "process", label: "Process" },
+  { id: "words", label: "Words" },
   { id: "history", label: "History" },
   { id: "about", label: "About" },
   { id: "donate", label: "Donate" },
@@ -168,14 +168,14 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
   return map[key] || key;
 }
 
-export interface LlmProvider {
+export interface ProcessProvider {
   name: string;
   label: string;
   base_url: string;
   models: string[];
 }
 
-export const LLM_PROVIDERS: LlmProvider[] = [
+export const PROCESS_PROVIDERS: ProcessProvider[] = [
   {
     name: "openai",
     label: "OpenAI",

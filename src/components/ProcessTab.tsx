@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { AppSettings, AgentProfile, LLM_PROVIDERS } from "../types";
+import { AppSettings, AgentProfile, PROCESS_PROVIDERS } from "../types";
 import { Select } from "./Select";
 import { Field } from "./Field";
 import { ResetButton } from "./ResetButton";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
 
-interface LLMTabProps {
+interface ProcessTabProps {
   settings: AppSettings;
   profiles: AgentProfile[];
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
@@ -14,19 +14,19 @@ interface LLMTabProps {
   onReset: () => void;
 }
 
-export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTabProps) {
-  const selectedProvider = LLM_PROVIDERS.find((p) => p.name === settings.llm_provider) ?? LLM_PROVIDERS[0];
-  const activeProfileId = settings.llm_agent_profile || "auto";
+export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: ProcessTabProps) {
+  const selectedProvider = PROCESS_PROVIDERS.find((p) => p.name === settings.process_provider) ?? PROCESS_PROVIDERS[0];
+  const activeProfileId = settings.process_agent_profile || "auto";
   const selectedProfile = profiles.find((p) => p.id === activeProfileId);
   const isCustomProfile = activeProfileId === "custom";
   const [freeModels, setFreeModels] = useState<string[] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState("");
 
-  const isOpenRouter = settings.llm_provider === "openrouter";  const modelOptionsBase = isOpenRouter && freeModels
+  const isOpenRouter = settings.process_provider === "openrouter";  const modelOptionsBase = isOpenRouter && freeModels
     ? freeModels
     : selectedProvider.models;
-  const modelInList = settings.llm_model ? modelOptionsBase.includes(settings.llm_model) : false;
+  const modelInList = settings.process_model ? modelOptionsBase.includes(settings.process_model) : false;
 
   const modelOptions = [
     ...modelOptionsBase.map((m) => ({ value: m, label: m })),
@@ -34,22 +34,22 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
   ];
 
   function handleProviderChange(name: string) {
-    const provider = LLM_PROVIDERS.find((p) => p.name === name);
+    const provider = PROCESS_PROVIDERS.find((p) => p.name === name);
     if (!provider) return;
     setFreeModels(null);
     setFetchError("");
-    const perProviderKey = `llm_api_key_${settings.llm_provider}` as keyof AppSettings;
+    const perProviderKey = `process_api_key_${settings.process_provider}` as keyof AppSettings;
     const updates: Partial<AppSettings> = {
-      llm_provider: name,
-      [perProviderKey]: settings.llm_api_key,
+      process_provider: name,
+      [perProviderKey]: settings.process_api_key,
     };
-    const newPerProviderKey = `llm_api_key_${name}` as keyof AppSettings;
+    const newPerProviderKey = `process_api_key_${name}` as keyof AppSettings;
     const newSavedKey = (settings[newPerProviderKey] as string) || "";
-    updates.llm_api_key = newSavedKey;
+    updates.process_api_key = newSavedKey;
     if (name !== "custom") {
-      updates.llm_base_url = provider.base_url;
+      updates.process_base_url = provider.base_url;
       if (provider.models.length > 0) {
-        updates.llm_model = provider.models[0];
+        updates.process_model = provider.models[0];
       }
     }
     onSaveAll(updates);
@@ -73,8 +73,8 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
         .sort();
       if (free.length === 0) throw new Error("No free models found");
       setFreeModels(free);
-      if (!free.includes(settings.llm_model)) {
-        onSave("llm_model", free[0]);
+      if (!free.includes(settings.process_model)) {
+        onSave("process_model", free[0]);
       }
     } catch (err: any) {
       setFetchError(err.message ?? "Failed to fetch");
@@ -85,14 +85,14 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
 
   function handleModelChange(value: string) {
     if (value !== "__custom__") {
-      onSave("llm_model", value);
+      onSave("process_model", value);
     } else {
-      onSave("llm_model", "");
+      onSave("process_model", "");
     }
   }
 
   function handleModelInput(value: string) {
-    onSave("llm_model", value);
+    onSave("process_model", value);
   }
 
   return (
@@ -109,28 +109,28 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
 
       <SectionCard className="card-enter">
         <div className="flex items-center justify-between">
-          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">LLM Post-Processing</h2>
+          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">AI Post-Processing</h2>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted font-mono">Enabled</span>
             <Switch
-              checked={settings.llm_enabled}
-              onChange={(v) => onSave("llm_enabled", v)}
+              checked={settings.process_enabled}
+              onChange={(v) => onSave("process_enabled", v)}
             />
           </div>
         </div>
       </SectionCard>
 
-      {settings.llm_enabled && (
+      {settings.process_enabled && (
         <>
           <SectionCard title="Provider" className="card-enter space-y-3">
             <Select
               label="Provider"
-              value={settings.llm_provider}
-              options={LLM_PROVIDERS.map((p) => ({ value: p.name, label: p.label }))}
+              value={settings.process_provider}
+              options={PROCESS_PROVIDERS.map((p) => ({ value: p.name, label: p.label }))}
               onChange={handleProviderChange}
             />
 
-            {settings.llm_provider !== "custom" && (
+            {settings.process_provider !== "custom" && (
               <div>
                 <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Model</label>
                 <div className="space-y-1.5">
@@ -151,14 +151,14 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
                   {(!isOpenRouter || freeModels !== null) && (
                     <>
                       <Select
-                        value={modelInList ? settings.llm_model : "__custom__"}
+                        value={modelInList ? settings.process_model : "__custom__"}
                         options={modelOptions}
                         onChange={handleModelChange}
                       />
-                      {(!modelInList || settings.llm_model === "") && (
+                      {(!modelInList || settings.process_model === "") && (
                         <input
                           type="text"
-                          value={settings.llm_model}
+                          value={settings.process_model}
                           onChange={(e) => handleModelInput(e.target.value)}
                           placeholder="Type a model name..."
                           className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
@@ -170,23 +170,23 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
               </div>
             )}
 
-            {settings.llm_provider === "custom" && (
-              <Field label="Model" value={settings.llm_model} onChange={(v) => onSave("llm_model", v)} placeholder="llama3.2" />
+            {settings.process_provider === "custom" && (
+              <Field label="Model" value={settings.process_model} onChange={(v) => onSave("process_model", v)} placeholder="llama3.2" />
             )}
 
-            <Field label="Base URL" value={settings.llm_base_url} onChange={(v) => onSave("llm_base_url", v)} placeholder="http://localhost:11434/v1" />
+            <Field label="Base URL" value={settings.process_base_url} onChange={(v) => onSave("process_base_url", v)} placeholder="http://localhost:11434/v1" />
 
-            <Field label="LLM API Key" value={settings.llm_api_key} onChange={(v) => onSave("llm_api_key", v)} placeholder="sk-..." secret />
+          <Field label="AI API Key" value={settings.process_api_key} onChange={(v) => onSave("process_api_key", v)} placeholder="sk-..." secret />
 
             <div>
               <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Max Tokens</label>
               <input
                 type="number"
                 min={0}
-                value={settings.llm_max_tokens === 0 ? "" : settings.llm_max_tokens}
+                value={settings.process_max_tokens === 0 ? "" : settings.process_max_tokens}
                 onChange={(e) => {
                   const n = parseInt(e.target.value, 10);
-                  onSave("llm_max_tokens", Number.isFinite(n) && n > 0 ? n : 0);
+                  onSave("process_max_tokens", Number.isFinite(n) && n > 0 ? n : 0);
                 }}
                 placeholder="Auto (model default)"
                 className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
@@ -204,9 +204,9 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
 
             <Select
               label="Profile"
-              value={settings.llm_agent_profile || "auto"}
+              value={settings.process_agent_profile || "auto"}
               options={profiles.map((p) => ({ value: p.id, label: p.name }))}
-              onChange={(v) => onSave("llm_agent_profile", v)}
+              onChange={(v) => onSave("process_agent_profile", v)}
             />
 
             {selectedProfile && (
@@ -219,9 +219,9 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <label className="text-[11px] font-mono text-muted tracking-wider">Custom instructions</label>
-                  {settings.llm_agent_prompt && (
+                  {settings.process_agent_prompt && (
                     <button
-                      onClick={() => onSave("llm_agent_prompt", "")}
+                      onClick={() => onSave("process_agent_prompt", "")}
                       className="ml-auto text-[10px] font-mono text-muted hover:text-accent transition-colors"
                     >
                       Clear
@@ -229,8 +229,8 @@ export function LLMTab({ settings, profiles, onSave, onSaveAll, onReset }: LLMTa
                   )}
                 </div>
                 <AutoTextarea
-                  value={settings.llm_agent_prompt}
-                  onChange={(v) => onSave("llm_agent_prompt", v)}
+                  value={settings.process_agent_prompt}
+                  onChange={(v) => onSave("process_agent_prompt", v)}
                   placeholder="Describe how Wisper should rewrite your speech..."
                 />
               </div>

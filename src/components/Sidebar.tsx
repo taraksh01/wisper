@@ -21,7 +21,7 @@ const tabIcons: Record<string, JSX.Element> = {
       <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
     </svg>
   ),
-  stt: (
+  engine: (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 5a3 3 0 1 0-5.997.142 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
       <path d="M12 5a3 3 0 1 1 5.997.142 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
@@ -34,13 +34,13 @@ const tabIcons: Record<string, JSX.Element> = {
       <path d="M19.967 17.484A4 4 0 0 1 18 18" />
     </svg>
   ),
-  llm: (
+  process: (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 2 13.7 8.3 20 10 13.7 11.7 12 18 10.3 11.7 4 10 10.3 8.3Z" />
       <path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z" />
     </svg>
   ),
-  vocab: (
+  words: (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
@@ -119,7 +119,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
 
         {currentModelName && settings && (
           <div className="px-1">
-            {settings.stt_mode === "local" ? (
+            {settings.engine_mode === "local" ? (
               <div className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-accent/10 border border-accent/15 group">
                 <span className="text-[9px] font-mono text-accent truncate flex-1" title={currentModelName}>
                   {currentModelName}

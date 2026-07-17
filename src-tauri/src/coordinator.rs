@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::thread;
 
 use crate::paste::paste_text;
-use crate::stt::{create_local_provider, CloudSttProvider, SttProvider};
+use crate::engine::{create_local_engine, CloudEngineProvider, EngineProvider};
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
@@ -14,16 +14,16 @@ pub static VAD_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
-pub static STT_MODE: Mutex<String> = Mutex::new(String::new());
+pub static ENGINE_MODE: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
-pub static LLM_ENABLED: AtomicBool = AtomicBool::new(true);
-pub static VOCAB_ENABLED: AtomicBool = AtomicBool::new(true);
-pub static LLM_BASE_URL: Mutex<String> = Mutex::new(String::new());
-pub static LLM_API_KEY: Mutex<String> = Mutex::new(String::new());
-pub static LLM_MODEL: Mutex<String> = Mutex::new(String::new());
-pub static LLM_MAX_TOKENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static PROCESS_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static WORDS_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static PROCESS_BASE_URL: Mutex<String> = Mutex::new(String::new());
+pub static PROCESS_API_KEY: Mutex<String> = Mutex::new(String::new());
+pub static PROCESS_MODEL: Mutex<String> = Mutex::new(String::new());
+pub static PROCESS_MAX_TOKENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -126,7 +126,7 @@ impl TranscriptionCoordinator {
 
         // Resample to 16kHz once, then work with 16kHz audio everywhere
         let resampled = if device_sr != 16000 {
-            crate::stt::resample(&samples, device_sr, 16000)
+            crate::engine::resample(&samples, device_sr, 16000)
         } else {
             samples.clone()
         };
@@ -148,14 +148,14 @@ impl TranscriptionCoordinator {
         };
 
         if !trimmed.is_empty() {
-            let mode = STT_MODE.lock().unwrap().clone();
+            let mode = ENGINE_MODE.lock().unwrap().clone();
             let result = if mode == "cloud" {
                 let _provider = CLOUD_PROVIDER.lock().unwrap().clone();
                 let base_url = CLOUD_BASE_URL.lock().unwrap().clone();
                 let api_key = CLOUD_API_KEY.lock().unwrap().clone();
                 let model = CLOUD_MODEL.lock().unwrap().clone();
-                let stt = CloudSttProvider::new(base_url, api_key, model);
-                stt.transcribe(&trimmed, 16000)
+                let engine = CloudEngineProvider::new(base_url, api_key, model);
+                engine.transcribe(&trimmed, 16000)
             } else {
                 let model_path = {
                     let guard = CURRENT_MODEL.lock().unwrap();
@@ -163,8 +163,8 @@ impl TranscriptionCoordinator {
                 };
                 match model_path {
                     Some(path) if path.exists() => {
-                        let stt = create_local_provider(path);
-                        stt.transcribe(&trimmed, 16000)
+                        let engine = create_local_engine(path);
+                        engine.transcribe(&trimmed, 16000)
                     }
                     Some(path) => {
                         eprintln!("Model file not found at: {:?}", path);
@@ -186,47 +186,47 @@ impl TranscriptionCoordinator {
                     println!("Transcription: {}", text);
                     let mut final_text = text.clone();
                     let mut agent_name = None;
-                    let vocab_enabled = VOCAB_ENABLED.load(Ordering::Relaxed);
-                    if LLM_ENABLED.load(Ordering::Relaxed) {
-                        let llm_base_url = LLM_BASE_URL.lock().unwrap().clone();
-                        let llm_api_key = LLM_API_KEY.lock().unwrap().clone();
-                        let llm_model = LLM_MODEL.lock().unwrap().clone();
-                        let llm_max_tokens = LLM_MAX_TOKENS.load(Ordering::Relaxed);
+                    let words_enabled = WORDS_ENABLED.load(Ordering::Relaxed);
+                    if PROCESS_ENABLED.load(Ordering::Relaxed) {
+                        let process_base_url = PROCESS_BASE_URL.lock().unwrap().clone();
+                        let process_api_key = PROCESS_API_KEY.lock().unwrap().clone();
+                        let process_model = PROCESS_MODEL.lock().unwrap().clone();
+                        let process_max_tokens = PROCESS_MAX_TOKENS.load(Ordering::Relaxed);
                         let mut agent = {
                             let settings = crate::settings::AppSettings::load();
-                            crate::llm::SmartAgent::resolve(
-                                &settings.llm_agent_profile,
-                                &settings.llm_agent_prompt,
+                            crate::process::SmartAgent::resolve(
+                                &settings.process_agent_profile,
+                                &settings.process_agent_prompt,
                                 &text,
                             )
                         };
-                        // Bias the LLM toward the user's canonical spellings.
-                        if vocab_enabled {
-                            let hint = crate::vocab::vocabulary_prompt_hint();
+                        // Bias the AI toward the user's canonical spellings.
+                        if words_enabled {
+                            let hint = crate::words::words_prompt_hint();
                             if !hint.is_empty() {
                                 agent.system_prompt.push_str(&hint);
                             }
                         }
-                        let llm = crate::llm::LlmClient::new(
-                            llm_base_url,
-                            llm_api_key,
-                            llm_model,
-                            llm_max_tokens,
+                        let client = crate::process::ProcessClient::new(
+                            process_base_url,
+                            process_api_key,
+                            process_model,
+                            process_max_tokens,
                         );
-                        match llm.process(&text, &agent) {
+                        match client.process(&text, &agent) {
                             Ok(formatted) => {
                                 final_text = formatted;
                                 agent_name = Some(agent.name);
                             }
                             Err(e) => {
-                                eprintln!("LLM skipped ({}), using raw text", e);
+                                eprintln!("AI processing skipped ({}), using raw text", e);
                             }
                         }
                     }
-                    // Deterministic vocabulary correction as a final guarantee,
-                    // whether or not the LLM ran.
-                    if vocab_enabled {
-                        final_text = crate::vocab::apply_vocabulary(&final_text);
+                    // Deterministic words correction as a final guarantee,
+                    // whether or not the AI processing ran.
+                    if words_enabled {
+                        final_text = crate::words::apply_words(&final_text);
                     }
                     let paste_method = PASTE_METHOD.lock().unwrap().clone();
                     // Drop overlay focus so synthetic keystrokes land in the

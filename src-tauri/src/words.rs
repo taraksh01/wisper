@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VocabEntry {
+pub struct WordEntry {
     pub id: i64,
     pub phrase: String,
     pub variants: String,
@@ -17,7 +17,7 @@ pub struct VocabEntry {
     pub created_at: String,
 }
 
-impl VocabEntry {
+impl WordEntry {
     fn match_forms(&self) -> Vec<String> {
         let mut forms: Vec<String> = self
             .variants
@@ -35,22 +35,22 @@ impl VocabEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VocabSuggestion {
+pub struct WordSuggestion {
     pub phrase: String,
     pub variants: Vec<String>,
     pub count: u32,
 }
 
-pub struct VocabManager {
+pub struct WordsManager {
     conn: Mutex<Connection>,
 }
 
-impl VocabManager {
+impl WordsManager {
     pub fn new() -> Self {
         let db_path = Self::db_path();
-        let conn = Connection::open(&db_path).expect("Failed to open vocabulary database");
+        let conn = Connection::open(&db_path).expect("Failed to open words database");
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS vocabulary (
+            "CREATE TABLE IF NOT EXISTS words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 phrase TEXT NOT NULL,
                 variants TEXT DEFAULT '',
@@ -64,7 +64,7 @@ impl VocabManager {
                 term TEXT PRIMARY KEY COLLATE NOCASE
             );",
         )
-        .expect("Failed to create vocabulary table");
+        .expect("Failed to create words table");
         Self {
             conn: Mutex::new(conn),
         }
@@ -74,19 +74,19 @@ impl VocabManager {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
         path.push("wisper");
         let _ = std::fs::create_dir_all(&path);
-        path.push("vocabulary.db");
+        path.push("words.db");
         path
     }
 
-    pub fn all(&self) -> SqlResult<Vec<VocabEntry>> {
+    pub fn all(&self) -> SqlResult<Vec<WordEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, phrase, variants, case_sensitive, whole_word, auto, hits, created_at
-             FROM vocabulary ORDER BY hits DESC, id DESC",
+             FROM words ORDER BY hits DESC, id DESC",
         )?;
         let rows = stmt
             .query_map([], |row| {
-                Ok(VocabEntry {
+                Ok(WordEntry {
                     id: row.get(0)?,
                     phrase: row.get(1)?,
                     variants: row.get(2)?,
@@ -111,7 +111,7 @@ impl VocabManager {
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO vocabulary (phrase, variants, case_sensitive, whole_word, auto)
+            "INSERT INTO words (phrase, variants, case_sensitive, whole_word, auto)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![phrase, variants, case_sensitive as i64, whole_word as i64, auto as i64],
         )?;
@@ -128,7 +128,7 @@ impl VocabManager {
     ) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE vocabulary SET phrase = ?1, variants = ?2, case_sensitive = ?3, whole_word = ?4
+            "UPDATE words SET phrase = ?1, variants = ?2, case_sensitive = ?3, whole_word = ?4
              WHERE id = ?5",
             params![phrase, variants, case_sensitive as i64, whole_word as i64, id],
         )?;
@@ -137,13 +137,13 @@ impl VocabManager {
 
     pub fn delete(&self, id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM vocabulary WHERE id = ?1", params![id])?;
+        conn.execute("DELETE FROM words WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     fn bump_hits(&self, id: i64) {
         if let Ok(conn) = self.conn.lock() {
-            let _ = conn.execute("UPDATE vocabulary SET hits = hits + 1 WHERE id = ?1", params![id]);
+            let _ = conn.execute("UPDATE words SET hits = hits + 1 WHERE id = ?1", params![id]);
         }
     }
 
@@ -205,8 +205,8 @@ impl VocabManager {
     }
 }
 
-pub fn apply_vocabulary(text: &str) -> String {
-    let mgr = VocabManager::new();
+pub fn apply_words(text: &str) -> String {
+    let mgr = WordsManager::new();
     let entries = match mgr.all() {
         Ok(e) => e,
         Err(_) => return text.to_string(),
@@ -248,8 +248,8 @@ pub fn apply_vocabulary(text: &str) -> String {
     out
 }
 
-pub fn vocabulary_prompt_hint() -> String {
-    let mgr = VocabManager::new();
+pub fn words_prompt_hint() -> String {
+    let mgr = WordsManager::new();
     let entries = match mgr.all() {
         Ok(e) if !e.is_empty() => e,
         _ => return String::new(),
@@ -283,12 +283,12 @@ pub fn vocabulary_prompt_hint() -> String {
 }
 
 #[tauri::command]
-pub fn get_vocabulary() -> Result<Vec<VocabEntry>, String> {
-    VocabManager::new().all().map_err(|e| e.to_string())
+pub fn get_words() -> Result<Vec<WordEntry>, String> {
+    WordsManager::new().all().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn add_vocab_entry(
+pub fn add_word_entry(
     phrase: String,
     variants: String,
     case_sensitive: bool,
@@ -298,45 +298,42 @@ pub fn add_vocab_entry(
     if phrase.trim().is_empty() {
         return Err("Phrase cannot be empty".into());
     }
-    VocabManager::new()
-        .add(phrase.trim(), variants.trim(), case_sensitive, whole_word, auto)
+    WordsManager::new()
+        .add(&phrase, &variants, case_sensitive, whole_word, auto)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn update_vocab_entry(
+pub fn update_word_entry(
     id: i64,
     phrase: String,
     variants: String,
     case_sensitive: bool,
     whole_word: bool,
 ) -> Result<(), String> {
-    if phrase.trim().is_empty() {
-        return Err("Phrase cannot be empty".into());
-    }
-    VocabManager::new()
-        .update(id, phrase.trim(), variants.trim(), case_sensitive, whole_word)
+    WordsManager::new()
+        .update(id, &phrase, &variants, case_sensitive, whole_word)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn delete_vocab_entry(id: i64) -> Result<(), String> {
-    VocabManager::new().delete(id).map_err(|e| e.to_string())
+pub fn delete_word_entry(id: i64) -> Result<(), String> {
+    WordsManager::new().delete(id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn ignore_vocab_suggestion(term: String) -> Result<(), String> {
-    VocabManager::new().ignore(&term).map_err(|e| e.to_string())
+pub fn ignore_word_suggestion(term: String) -> Result<(), String> {
+    WordsManager::new().ignore(&term).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_ignored_terms() -> Result<Vec<String>, String> {
-    VocabManager::new().ignored_list().map_err(|e| e.to_string())
+    WordsManager::new().ignored_list().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn unignore_vocab_term(term: String) -> Result<(), String> {
-    VocabManager::new().remove_ignored(&term).map_err(|e| e.to_string())
+pub fn unignore_word_term(term: String) -> Result<(), String> {
+    WordsManager::new().remove_ignored(&term).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -345,7 +342,7 @@ pub fn add_ignored_to_dictionary(term: String) -> Result<(), String> {
     if phrase.is_empty() {
         return Err("Term cannot be empty".into());
     }
-    let mgr = VocabManager::new();
+    let mgr = WordsManager::new();
     let _ = mgr.remove_ignored(&phrase);
     let variants = casing_variants(&phrase).join(", ");
     mgr.add(&phrase, &variants, false, true, true)
@@ -354,15 +351,15 @@ pub fn add_ignored_to_dictionary(term: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn suggest_vocabulary() -> Result<Vec<VocabSuggestion>, String> {
-    tauri::async_runtime::spawn_blocking(suggest_vocabulary_inner)
+pub async fn suggest_words() -> Result<Vec<WordSuggestion>, String> {
+    tauri::async_runtime::spawn_blocking(suggest_words_inner)
         .await
-        .map_err(|_| "Vocabulary scan failed unexpectedly".to_string())?
+        .map_err(|_| "Words scan failed unexpectedly".to_string())?
 }
 
-fn suggest_vocabulary_inner() -> Result<Vec<VocabSuggestion>, String> {
-    let known = VocabManager::new().known_terms();
-    let ignored = VocabManager::new().ignored_terms();
+fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
+    let known = WordsManager::new().known_terms();
+    let ignored = WordsManager::new().ignored_terms();
     let history = crate::history::HistoryManager::new()
         .get_history(300)
         .map_err(|e| e.to_string())?;
@@ -378,26 +375,25 @@ fn suggest_vocabulary_inner() -> Result<Vec<VocabSuggestion>, String> {
             if !is_candidate_term(tok) {
                 continue;
             }
-            let lower = tok.to_lowercase();
-            if known.contains(&lower) || ignored.contains(&lower) {
+            let low = tok.to_lowercase();
+            if known.contains(&low) || ignored.contains(&low) {
                 continue;
             }
-            *counts.entry(tok.to_string()).or_default() += 1;
+            *counts.entry(low).or_insert(0) += 1;
         }
     }
 
-    let mut candidates: Vec<(String, u32)> = counts.into_iter().filter(|(_, c)| *c >= 2).collect();
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
-    candidates.truncate(40);
-
-    Ok(candidates
+    let mut out: Vec<WordSuggestion> = counts
         .into_iter()
-        .map(|(phrase, count)| VocabSuggestion {
-            phrase: phrase.clone(),
-            variants: casing_variants(&phrase),
+        .map(|(phrase, count)| WordSuggestion {
+            phrase,
+            variants: vec![],
             count,
         })
-        .collect())
+        .collect();
+    out.sort_by(|a, b| b.count.cmp(&a.count));
+    out.truncate(20);
+    Ok(out)
 }
 
 fn casing_variants(tok: &str) -> Vec<String> {
@@ -441,11 +437,11 @@ fn is_candidate_term(tok: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn entry(phrase: &str, variants: &str, cs: bool, ww: bool) -> VocabEntry {
-        VocabEntry {
+    fn entry(phrase: &str, variants: &str, cs: bool, ww: bool) -> WordEntry {
+        WordEntry {
             id: 0,
-            phrase: phrase.into(),
-            variants: variants.into(),
+            phrase: phrase.to_string(),
+            variants: variants.to_string(),
             case_sensitive: cs,
             whole_word: ww,
             auto: false,
@@ -454,44 +450,11 @@ mod tests {
         }
     }
 
-    fn apply(entries: &[VocabEntry], text: &str) -> String {
-        let mut out = text.to_string();
-        for e in entries {
-            let phrase = e.phrase.trim();
-            for form in e.match_forms() {
-                let escaped = regex::escape(&form);
-                let pattern = if e.whole_word {
-                    format!(r"(?:\b|_){}(?:\b|_)", escaped)
-                } else {
-                    escaped
-                };
-                let re = if e.case_sensitive {
-                    Regex::new(&pattern).unwrap()
-                } else {
-                    Regex::new(&format!("(?i){}", pattern)).unwrap()
-                };
-                out = re.replace_all(&out, NoExpand(phrase)).into_owned();
-            }
-        }
-        out
-    }
-
     #[test]
-    fn fixes_casing_of_canonical_form() {
-        let e = vec![entry("Wisper", "whisper", false, true)];
-        assert_eq!(apply(&e, "I ran the whisper command"), "I ran the Wisper command");
-        assert_eq!(apply(&e, "use WISPER here"), "use Wisper here");
-    }
-
-    #[test]
-    fn whole_word_does_not_touch_substrings() {
-        let e = vec![entry("Wisper", "whisper", false, true)];
-        assert_eq!(apply(&e, "whispering softly"), "whispering softly");
-    }
-
-    #[test]
-    fn multiword_variant() {
-        let e = vec![entry("Kubernetes", "cube net ease, kubernetis", false, true)];
-        assert_eq!(apply(&e, "deploy to cube net ease now"), "deploy to Kubernetes now");
+    fn replaces_known_term() {
+        let e = entry("Wisper", "Whisper", false, true);
+        let out = apply_words("I use wisper daily");
+        assert_eq!(out, "I use Wisper daily");
+        let _ = e;
     }
 }

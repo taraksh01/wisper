@@ -6,37 +6,37 @@ use tauri_plugin_autostart::ManagerExt;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
-    pub stt_mode: String,
-    pub stt_provider: String,
-    pub stt_base_url: String,
+    pub engine_mode: String,
+    pub engine_provider: String,
+    pub engine_base_url: String,
     pub voice_api_key: String,
     pub voice_api_key_openai: String,
     pub voice_api_key_groq: String,
     pub voice_api_key_custom: String,
-    pub stt_model: String,
+    pub engine_model: String,
     pub local_model_file: String,
-    pub llm_enabled: bool,
-    pub llm_provider: String,
-    pub llm_base_url: String,
-    pub llm_api_key: String,
-    pub llm_api_key_openai: String,
-    pub llm_api_key_anthropic: String,
-    pub llm_api_key_google: String,
-    pub llm_api_key_groq: String,
-    pub llm_api_key_together: String,
-    pub llm_api_key_deepseek: String,
-    pub llm_api_key_kimi: String,
-    pub llm_api_key_qwen: String,
-    pub llm_api_key_glm: String,
-    pub llm_api_key_openrouter: String,
-    pub llm_api_key_ollama: String,
-    pub llm_api_key_custom: String,
-    pub llm_model: String,
-    pub llm_max_tokens: u32,
-    pub llm_agent_profile: String,
-    pub llm_agent_name: String,
-    pub llm_agent_prompt: String,
-    pub vocabulary_enabled: bool,
+    pub process_enabled: bool,
+    pub process_provider: String,
+    pub process_base_url: String,
+    pub process_api_key: String,
+    pub process_api_key_openai: String,
+    pub process_api_key_anthropic: String,
+    pub process_api_key_google: String,
+    pub process_api_key_groq: String,
+    pub process_api_key_together: String,
+    pub process_api_key_deepseek: String,
+    pub process_api_key_kimi: String,
+    pub process_api_key_qwen: String,
+    pub process_api_key_glm: String,
+    pub process_api_key_openrouter: String,
+    pub process_api_key_ollama: String,
+    pub process_api_key_custom: String,
+    pub process_model: String,
+    pub process_max_tokens: u32,
+    pub process_agent_profile: String,
+    pub process_agent_name: String,
+    pub process_agent_prompt: String,
+    pub words_enabled: bool,
     pub hotkey: String,
     pub hotkey_mode: String,
     pub paste_method: String,
@@ -54,37 +54,37 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            stt_mode: "local".into(),
-            stt_provider: String::new(),
-            stt_base_url: String::new(),
+            engine_mode: "local".into(),
+            engine_provider: String::new(),
+            engine_base_url: String::new(),
             voice_api_key: String::new(),
             voice_api_key_openai: String::new(),
             voice_api_key_groq: String::new(),
             voice_api_key_custom: String::new(),
-            stt_model: String::new(),
+            engine_model: String::new(),
             local_model_file: String::new(),
-            llm_enabled: false,
-            llm_provider: String::new(),
-            llm_base_url: String::new(),
-            llm_api_key: String::new(),
-            llm_api_key_openai: String::new(),
-            llm_api_key_anthropic: String::new(),
-            llm_api_key_google: String::new(),
-            llm_api_key_groq: String::new(),
-            llm_api_key_together: String::new(),
-            llm_api_key_deepseek: String::new(),
-            llm_api_key_kimi: String::new(),
-            llm_api_key_qwen: String::new(),
-            llm_api_key_glm: String::new(),
-            llm_api_key_openrouter: String::new(),
-            llm_api_key_ollama: String::new(),
-            llm_api_key_custom: String::new(),
-            llm_model: String::new(),
-            llm_max_tokens: 0,
-            llm_agent_profile: "auto".into(),
-            llm_agent_name: "Auto-Format".into(),
-            llm_agent_prompt: String::new(),
-            vocabulary_enabled: true,
+            process_enabled: false,
+            process_provider: String::new(),
+            process_base_url: String::new(),
+            process_api_key: String::new(),
+            process_api_key_openai: String::new(),
+            process_api_key_anthropic: String::new(),
+            process_api_key_google: String::new(),
+            process_api_key_groq: String::new(),
+            process_api_key_together: String::new(),
+            process_api_key_deepseek: String::new(),
+            process_api_key_kimi: String::new(),
+            process_api_key_qwen: String::new(),
+            process_api_key_glm: String::new(),
+            process_api_key_openrouter: String::new(),
+            process_api_key_ollama: String::new(),
+            process_api_key_custom: String::new(),
+            process_model: String::new(),
+            process_max_tokens: 0,
+            process_agent_profile: "auto".into(),
+            process_agent_name: "Auto-Format".into(),
+            process_agent_prompt: String::new(),
+            words_enabled: true,
             hotkey: "F9".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Ctrl+V".into(),
@@ -135,17 +135,17 @@ pub fn load_settings() -> AppSettings {
 }
 
 pub fn update_display_name(settings: &AppSettings) {
-    if let Ok(mut mode) = crate::coordinator::STT_MODE.lock() {
-        *mode = settings.stt_mode.clone();
+    if let Ok(mut mode) = crate::coordinator::ENGINE_MODE.lock() {
+        *mode = settings.engine_mode.clone();
     }
     if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
-        if settings.stt_mode == "cloud" {
-            let provider_label = match settings.stt_provider.as_str() {
+        if settings.engine_mode == "cloud" {
+            let provider_label = match settings.engine_provider.as_str() {
                 "openai" => "OpenAI",
                 "groq" => "Groq",
                 _ => "Custom",
             };
-            *name = format!("{} · {}", provider_label, settings.stt_model);
+            *name = format!("{} · {}", provider_label, settings.engine_model);
         } else {
             let model_dir = crate::models::get_models_dir();
             let model_path = model_dir.join(&settings.local_model_file);
@@ -168,20 +168,20 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
         std::sync::atomic::Ordering::Relaxed,
     );
     crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
-    crate::coordinator::LLM_ENABLED.store(settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
-    crate::coordinator::VOCAB_ENABLED.store(settings.vocabulary_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::PROCESS_ENABLED.store(settings.process_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::WORDS_ENABLED.store(settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::VAD_ENABLED.store(settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::VAD_THRESHOLD.store(settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut v) = crate::coordinator::LLM_BASE_URL.lock() {
-        *v = settings.llm_base_url.clone();
+    if let Ok(mut v) = crate::coordinator::PROCESS_BASE_URL.lock() {
+        *v = settings.process_base_url.clone();
     }
-    if let Ok(mut v) = crate::coordinator::LLM_API_KEY.lock() {
-        *v = settings.llm_api_key.clone();
+    if let Ok(mut v) = crate::coordinator::PROCESS_API_KEY.lock() {
+        *v = settings.process_api_key.clone();
     }
-    if let Ok(mut v) = crate::coordinator::LLM_MODEL.lock() {
-        *v = settings.llm_model.clone();
+    if let Ok(mut v) = crate::coordinator::PROCESS_MODEL.lock() {
+        *v = settings.process_model.clone();
     }
-    crate::coordinator::LLM_MAX_TOKENS.store(settings.llm_max_tokens, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::PROCESS_MAX_TOKENS.store(settings.process_max_tokens, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
     }
@@ -192,16 +192,16 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
         *tool = settings.paste_tool.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_PROVIDER.lock() {
-        *v = settings.stt_provider.clone();
+        *v = settings.engine_provider.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_BASE_URL.lock() {
-        *v = settings.stt_base_url.clone();
+        *v = settings.engine_base_url.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_API_KEY.lock() {
         *v = settings.voice_api_key.clone();
     }
     if let Ok(mut v) = crate::coordinator::CLOUD_MODEL.lock() {
-        *v = settings.stt_model.clone();
+        *v = settings.engine_model.clone();
     }
 
     // Update current model path

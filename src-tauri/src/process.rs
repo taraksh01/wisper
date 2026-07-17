@@ -85,7 +85,7 @@ fn formal_prompt() -> String {
 {SHARED_RULES}
 
 Additional rules:
-- Use formal grammar, complete sentences, and precise vocabulary.
+- Use formal grammar, complete sentences, and precise wording.
 - Avoid contractions and slang.
 - Remove filler words and tighten wording."#
     )
@@ -223,14 +223,14 @@ impl SmartAgent {
     }
 }
 
-pub struct LlmClient {
+pub struct ProcessClient {
     base_url: String,
     api_key: String,
     model: String,
     max_tokens: u32,
 }
 
-impl LlmClient {
+impl ProcessClient {
     pub fn new(base_url: String, api_key: String, model: String, max_tokens: u32) -> Self {
         Self {
             base_url,
@@ -265,19 +265,19 @@ impl LlmClient {
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&body)
             .send()
-            .map_err(|e| format!("LLM request failed: {}", e))?;
+            .map_err(|e| format!("AI request failed: {}", e))?;
 
         if !resp.status().is_success() {
-            return Err(format!("LLM API error: {}", resp.text().unwrap_or_default()));
+            return Err(format!("AI API error: {}", resp.text().unwrap_or_default()));
         }
 
         let json: Value = resp
             .json()
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
+            .map_err(|e| format!("Failed to parse AI response: {}", e))?;
 
         let content = json["choices"][0]["message"]["content"]
             .as_str()
-            .ok_or("No content in LLM response")?
+            .ok_or("No content in AI response")?
             .trim()
             .to_string();
 
@@ -286,7 +286,7 @@ impl LlmClient {
         if content.is_empty() {
             let finish = json["choices"][0]["finish_reason"].as_str().unwrap_or("");
             return Err(format!(
-                "LLM returned empty content (finish_reason: {}). Try increasing max tokens.",
+                "AI returned empty content (finish_reason: {}). Try increasing max tokens.",
                 finish
             ));
         }

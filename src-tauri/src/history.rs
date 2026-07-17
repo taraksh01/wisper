@@ -236,7 +236,7 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
         return Err(format!("Model file not found: {:?}", model_path));
     }
 
-    let provider = crate::stt::create_local_provider(model_path);
+    let provider = crate::engine::create_local_engine(model_path);
     let trimmed = crate::audio::trim_silence(&samples, 1600, 0.01);
     if trimmed.is_empty() {
         return Err("No speech detected in recording".to_string());

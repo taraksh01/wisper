@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { AppSettings, HistoryEntry, AgentProfile, VocabSuggestion, tabs } from "./types";
+import { AppSettings, HistoryEntry, AgentProfile, WordSuggestion, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { GeneralTab } from "./components/GeneralTab";
-import { STTTab } from "./components/STTTab";
-import { LLMTab } from "./components/LLMTab";
-import { VocabTab } from "./components/VocabTab";
+import { EngineTab } from "./components/EngineTab";
+import { ProcessTab } from "./components/ProcessTab";
+import { WordsTab } from "./components/WordsTab";
 import { HistoryTab } from "./components/HistoryTab";
 import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
@@ -87,9 +87,9 @@ function AppShell() {
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [justDownloaded, setJustDownloaded] = useState<string | null>(null);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
-  const [vocabSuggestions, setVocabSuggestions] = useState<VocabSuggestion[]>([]);
-  const [vocabScanning, setVocabScanning] = useState(false);
-  const [vocabScanMsg, setVocabScanMsg] = useState("");
+  const [wordSuggestions, setWordSuggestions] = useState<WordSuggestion[]>([]);
+  const [wordScanning, setWordScanning] = useState(false);
+  const [wordScanMsg, setWordScanMsg] = useState("");
   const [modelsPath, setModelsPath] = useState("");
   const [modelLangFilter, setModelLangFilter] = useState("all");
   const [modelSearchQuery, setModelSearchQuery] = useState("");
@@ -174,19 +174,19 @@ function AppShell() {
     } catch {}
   }, []);
 
-  const scanVocabulary = useCallback(async () => {
-    setVocabScanning(true);
-    setVocabScanMsg("Reading your recent dictations…");
-    setVocabSuggestions([]);
+  const scanWords = useCallback(async () => {
+    setWordScanning(true);
+    setWordScanMsg("Reading your recent dictations…");
+    setWordSuggestions([]);
     try {
-      const s = await invoke<VocabSuggestion[]>("suggest_vocabulary");
-      setVocabSuggestions(s);
-      if (s.length === 0) setVocabScanMsg("No new terms found in your recent dictations.");
-      else setVocabScanMsg("");
+      const s = await invoke<WordSuggestion[]>("suggest_words");
+      setWordSuggestions(s);
+      if (s.length === 0) setWordScanMsg("No new terms found in your recent dictations.");
+      else setWordScanMsg("");
     } catch (e: any) {
-      setVocabScanMsg(String(e));
+      setWordScanMsg(String(e));
     } finally {
-      setVocabScanning(false);
+      setWordScanning(false);
     }
   }, []);
 
@@ -254,10 +254,10 @@ function AppShell() {
       case "language": return "Display language updated";
       case "paste_method": return `Paste method: ${String(value)}`;
       case "vad_enabled": return `Silence trimming ${on(Boolean(value))}`;
-      case "llm_enabled": return `AI processing ${on(Boolean(value))}`;
-      case "vocabulary_enabled": return `Custom vocabulary ${on(Boolean(value))}`;
+      case "process_enabled": return `AI processing ${on(Boolean(value))}`;
+      case "words_enabled": return `Custom words ${on(Boolean(value))}`;
       case "local_model_file": return "Local model changed";
-      case "stt_mode": return `Engine: ${String(value)}`;
+      case "engine_mode": return `Engine: ${String(value)}`;
       default: return null;
     }
   };
@@ -273,13 +273,14 @@ function AppShell() {
   };
 
   const openEngineTab = () => {
-    setActiveTab("stt");
+    setActiveTab("engine");
   };
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
     general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "overlay_enabled", "overlay_position"],
-    llm: ["llm_enabled", "llm_provider", "llm_base_url", "llm_api_key", "llm_api_key_openai", "llm_api_key_anthropic", "llm_api_key_google", "llm_api_key_groq", "llm_api_key_together", "llm_api_key_deepseek", "llm_api_key_kimi", "llm_api_key_qwen", "llm_api_key_glm", "llm_api_key_openrouter", "llm_api_key_ollama", "llm_api_key_custom", "llm_model", "llm_max_tokens", "llm_agent_profile", "llm_agent_name", "llm_agent_prompt"],
-    vocab: ["vocabulary_enabled"],
+    engine: ["engine_mode", "engine_model", "local_model_file"],
+    process: ["process_enabled", "process_provider", "process_base_url", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
+    words: ["words_enabled"],
   };
 
   const resetTab = async (tab: string) => {
@@ -317,9 +318,9 @@ function AppShell() {
     switch (activeTab) {
       case "general":
         return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
-      case "stt":
+      case "engine":
         return (
-          <STTTab
+          <EngineTab
             settings={settings}
             localModels={localModels}
             downloading={downloading}
@@ -336,19 +337,19 @@ function AppShell() {
             onSearchQueryChange={setModelSearchQuery}
           />
         );
-      case "llm":
-        return <LLMTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("llm")} />;
-      case "vocab":
+      case "process":
+        return <ProcessTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("process")} />;
+      case "words":
         return (
-          <VocabTab
+          <WordsTab
             settings={settings}
             onSave={saveSetting}
-            onReset={() => resetTab("vocab")}
-            suggestions={vocabSuggestions}
-            scanning={vocabScanning}
-            scanMsg={vocabScanMsg}
-            onScan={scanVocabulary}
-            setSuggestions={setVocabSuggestions}
+            onReset={() => resetTab("words")}
+            suggestions={wordSuggestions}
+            scanning={wordScanning}
+            scanMsg={wordScanMsg}
+            onScan={scanWords}
+            setSuggestions={setWordSuggestions}
           />
         );
       case "history":
@@ -394,7 +395,7 @@ function AppShell() {
           <div className="flex items-center gap-3 px-6 py-2 border-t border-stroke text-[10px] font-mono text-muted">
             <span>{stats[0]} dictations</span>
             <span className="w-1 h-1 rounded-full bg-stroke" />
-            <span className="capitalize">{settings.stt_mode} mode</span>
+            <span className="capitalize">{settings.engine_mode} mode</span>
           </div>
         </div>
       </div>

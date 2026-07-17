@@ -1,13 +1,13 @@
 pub mod audio;
 pub mod coordinator;
+pub mod engine;
 pub mod history;
 pub mod hotkey;
-pub mod llm;
 pub mod models;
 pub mod paste;
+pub mod process;
 pub mod settings;
-pub mod stt;
-pub mod vocab;
+pub mod words;
 pub mod whisper_keys;
 
 use audio::AudioRecorder;
@@ -105,13 +105,13 @@ fn get_current_model() -> String {
 
 #[tauri::command]
 fn unload_model(_app: tauri::AppHandle) {
-    let mode = coordinator::STT_MODE.lock().unwrap().clone();
+    let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
     if mode == "cloud" {
         if let Some(win) = _app.get_webview_window("main") {
             let _ = win.show();
             let _ = win.set_focus();
         }
-        let _ = _app.emit("wisper:open-tab", "stt");
+        let _ = _app.emit("wisper:open-tab", "engine");
     } else {
         {
             let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
@@ -294,7 +294,7 @@ pub fn show_overlay_error() {
 pub fn update_tray_menu_text() {
     if let Some(item) = UNLOAD_ITEM.lock().unwrap().as_ref() {
         let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
-        let mode = coordinator::STT_MODE.lock().unwrap().clone();
+        let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
         let text = if name.is_empty() {
             "No model loaded".into()
         } else if mode == "cloud" {
@@ -377,13 +377,13 @@ pub fn run() {
                         }
                     }
                     "unload" => {
-                        let mode = coordinator::STT_MODE.lock().unwrap().clone();
+                        let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
                         if mode == "cloud" {
                             if let Some(win) = app.get_webview_window("main") {
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
-                            let _ = app.emit("wisper:open-tab", "stt");
+                            let _ = app.emit("wisper:open-tab", "engine");
                         } else {
                             {
                                 let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
@@ -439,18 +439,18 @@ pub fn run() {
     coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
     coordinator::VAD_ENABLED.store(saved_settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
     coordinator::VAD_THRESHOLD.store(saved_settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    coordinator::LLM_ENABLED.store(saved_settings.llm_enabled, std::sync::atomic::Ordering::Relaxed);
-    coordinator::VOCAB_ENABLED.store(saved_settings.vocabulary_enabled, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut v) = coordinator::LLM_BASE_URL.lock() {
-        *v = saved_settings.llm_base_url.clone();
+    coordinator::PROCESS_ENABLED.store(saved_settings.process_enabled, std::sync::atomic::Ordering::Relaxed);
+    coordinator::WORDS_ENABLED.store(saved_settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut v) = coordinator::PROCESS_BASE_URL.lock() {
+        *v = saved_settings.process_base_url.clone();
     }
-    if let Ok(mut v) = coordinator::LLM_API_KEY.lock() {
-        *v = saved_settings.llm_api_key.clone();
+    if let Ok(mut v) = coordinator::PROCESS_API_KEY.lock() {
+        *v = saved_settings.process_api_key.clone();
     }
-    if let Ok(mut v) = coordinator::LLM_MODEL.lock() {
-        *v = saved_settings.llm_model.clone();
+    if let Ok(mut v) = coordinator::PROCESS_MODEL.lock() {
+        *v = saved_settings.process_model.clone();
     }
-    coordinator::LLM_MAX_TOKENS.store(saved_settings.llm_max_tokens, std::sync::atomic::Ordering::Relaxed);
+    coordinator::PROCESS_MAX_TOKENS.store(saved_settings.process_max_tokens, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut method) = coordinator::PASTE_METHOD.lock() {
         *method = saved_settings.paste_method.clone();
     }
@@ -461,16 +461,16 @@ pub fn run() {
         *tool = saved_settings.paste_tool.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_PROVIDER.lock() {
-        *v = saved_settings.stt_provider.clone();
+        *v = saved_settings.engine_provider.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_BASE_URL.lock() {
-        *v = saved_settings.stt_base_url.clone();
+        *v = saved_settings.engine_base_url.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_API_KEY.lock() {
         *v = saved_settings.voice_api_key.clone();
     }
     if let Ok(mut v) = coordinator::CLOUD_MODEL.lock() {
-        *v = saved_settings.stt_model.clone();
+        *v = saved_settings.engine_model.clone();
     }
 
     // Load current model path and update display name
@@ -578,16 +578,16 @@ pub fn run() {
             models::download_model,
             models::delete_model,
             models::get_models_dir_path,
-            llm::get_agent_profiles,
-            vocab::get_vocabulary,
-            vocab::add_vocab_entry,
-            vocab::update_vocab_entry,
-            vocab::delete_vocab_entry,
-            vocab::suggest_vocabulary,
-            vocab::ignore_vocab_suggestion,
-            vocab::get_ignored_terms,
-            vocab::unignore_vocab_term,
-            vocab::add_ignored_to_dictionary,
+            process::get_agent_profiles,
+            words::get_words,
+            words::add_word_entry,
+            words::update_word_entry,
+            words::delete_word_entry,
+            words::suggest_words,
+            words::ignore_word_suggestion,
+            words::get_ignored_terms,
+            words::unignore_word_term,
+            words::add_ignored_to_dictionary,
             history::get_history_entries,
             history::get_history_stats,
             history::delete_history_entry,

@@ -1,7 +1,7 @@
 use reqwest::blocking::Client;
 use std::path::PathBuf;
 
-pub trait SttProvider: Send + Sync {
+pub trait EngineProvider: Send + Sync {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String>;
 }
 
@@ -15,7 +15,7 @@ impl ParakeetOnnxProvider {
     }
 }
 
-impl SttProvider for ParakeetOnnxProvider {
+impl EngineProvider for ParakeetOnnxProvider {
     fn transcribe(&self, audio: &[f32], _sample_rate: u32) -> Result<String, String> {
         use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
         use transcribe_rs::onnx::Quantization;
@@ -52,13 +52,13 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
     output
 }
 
-pub struct CloudSttProvider {
+pub struct CloudEngineProvider {
     base_url: String,
     api_key: String,
     model: String,
 }
 
-impl CloudSttProvider {
+impl CloudEngineProvider {
     pub fn new(base_url: String, api_key: String, model: String) -> Self {
         Self {
             base_url,
@@ -68,7 +68,7 @@ impl CloudSttProvider {
     }
 }
 
-impl SttProvider for CloudSttProvider {
+impl EngineProvider for CloudEngineProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
         let temp_dir = std::env::temp_dir();
         let wav_path = temp_dir.join("wisper_dictate_temp.wav");
@@ -116,6 +116,6 @@ impl SttProvider for CloudSttProvider {
     }
 }
 
-pub fn create_local_provider(model_path: PathBuf) -> Box<dyn SttProvider> {
+pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
     Box::new(ParakeetOnnxProvider::new(model_path))
 }

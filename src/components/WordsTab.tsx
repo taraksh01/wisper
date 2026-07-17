@@ -1,21 +1,21 @@
-import { AppSettings, VocabSuggestion } from "../types";
+import { AppSettings, WordSuggestion } from "../types";
 import { ResetButton } from "./ResetButton";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
-import { VocabularyManager } from "./VocabularyManager";
+import { WordsManager } from "./WordsManager";
 
-interface VocabTabProps {
+interface WordsTabProps {
   settings: AppSettings;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onReset: () => void;
-  suggestions: VocabSuggestion[];
+  suggestions: WordSuggestion[];
   scanning: boolean;
   scanMsg: string;
   onScan: () => void;
-  setSuggestions: React.Dispatch<React.SetStateAction<VocabSuggestion[]>>;
+  setSuggestions: React.Dispatch<React.SetStateAction<WordSuggestion[]>>;
 }
 
-export function VocabTab({ settings, onSave, onReset, suggestions, scanning, scanMsg, onScan, setSuggestions }: VocabTabProps) {
+export function WordsTab({ settings, onSave, onReset, suggestions, scanning, scanMsg, onScan, setSuggestions }: WordsTabProps) {
   return (
     <div className="max-w-lg space-y-4 card-enter">
       <div className="flex items-center justify-between">
@@ -32,18 +32,18 @@ export function VocabTab({ settings, onSave, onReset, suggestions, scanning, sca
       <SectionCard className="card-enter">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Custom Vocabulary</h2>
+            <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Custom Words</h2>
             <p className="text-[11px] text-muted mt-1 leading-relaxed">Correct names and terms in every dictation.</p>
           </div>
           <Switch
-            checked={settings.vocabulary_enabled}
-            onChange={(v) => onSave("vocabulary_enabled", v)}
+            checked={settings.words_enabled}
+            onChange={(v) => onSave("words_enabled", v)}
           />
         </div>
       </SectionCard>
 
-      {settings.vocabulary_enabled && (
-        <VocabularyManager
+      {settings.words_enabled && (
+        <WordsManager
           suggestions={suggestions}
           scanning={scanning}
           scanMsg={scanMsg}
