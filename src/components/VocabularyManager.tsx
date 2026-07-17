@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { VocabEntry, VocabSuggestion } from "../types";
 import { SectionCard } from "./SectionCard";
@@ -160,7 +161,7 @@ export function VocabularyManager({ suggestions, scanning, scanMsg, onScan, setS
 
   return (
     <div className="space-y-4">
-      <SectionCard className="sticky top-0 z-10 card-enter">
+      <SectionCard className="sticky top-0 card-enter">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Scan history</h2>
@@ -372,8 +373,8 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
 
   const count = text.trim().split(/\r?\n/).filter(Boolean).length;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/60 backdrop-blur-sm p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-base/60 backdrop-blur-sm p-4">
       <div className="bg-surface border border-stroke rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4 animate-slide-up">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold font-mono text-ink">Import Vocabulary</h3>
@@ -416,6 +417,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
