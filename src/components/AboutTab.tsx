@@ -149,6 +149,24 @@ export function AboutTab() {
           </p>
         </div>
       </SectionCard>
+
+      <SectionCard className="card-enter">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-medium text-ink">Setup guide</h3>
+            <p className="text-[10px] font-mono text-muted mt-0.5">Replay the first-run welcome & paste setup tips.</p>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.removeItem("wisper:onboarded");
+              location.reload();
+            }}
+            className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-accent ring-1 ring-stroke hover:bg-elevated/50 rounded-md transition-colors"
+          >
+            Show again
+          </button>
+        </div>
+      </SectionCard>
     </div>
   );
 }

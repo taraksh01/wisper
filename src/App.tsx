@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
+import { Onboarding } from "./components/Onboarding";
 import { GeneralTab } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
 import { ProcessTab } from "./components/ProcessTab";
@@ -25,51 +26,6 @@ function useSystemTheme() {
     return () => mq.removeEventListener("change", handler);
   }, []);
   return dark;
-}
-
-function Onboarding({ env, onDone }: { env: { reliable: boolean; has_wtype: boolean; has_ydotool: boolean } | null; onDone: () => void }) {
-  const steps = [
-    ["Speak", "Hold your hotkey and talk — release to stop."],
-    ["Transcribe", "Your voice is converted to text on-device by default."],
-    ["Insert", "Text is typed or pasted wherever your cursor is."],
-  ];
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/80 backdrop-blur-sm p-4">
-      <div className="bg-surface border border-stroke rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5">
-        <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-          <h1 className="text-sm font-bold font-mono text-ink">Welcome to Wisper</h1>
-        </div>
-
-        <ul className="space-y-2.5">
-          {steps.map(([t, d]) => (
-            <li key={t} className="flex items-start gap-3">
-              <span className="shrink-0 mt-0.5 px-2 py-0.5 text-[10px] font-mono text-accent bg-accent/10 rounded-md">{t}</span>
-              <span className="text-[11px] font-mono text-muted leading-relaxed">{d}</span>
-            </li>
-          ))}
-        </ul>
-
-        {env && !env.reliable && (
-          <p className="text-[10px] font-mono text-recording leading-relaxed">
-            On Wayland, pasting into other apps needs <span className="text-ink">wtype</span> or <span className="text-ink">ydotool</span>. Install one for reliable pasting.
-          </p>
-        )}
-
-        <button
-          onClick={onDone}
-          className="w-full px-4 py-2.5 text-xs font-mono font-medium text-white bg-accent rounded-lg hover:bg-accent-dim transition-all"
-        >
-          Get started
-        </button>
-      </div>
-    </div>
-  );
 }
 
 function AppShell() {
