@@ -42,7 +42,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcyOEMxRjYyMThBRkIwNkIKUldScnNLOFlZaCtNY3RsZU54NDdMZlpoNHhtcU9EUW5qVXF4UUh4RlVTc1BGM0Z0ZzU1RXhBUW4K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFBRkZGMTE3OUVDNkI5NDIKUldSQ3VjYWVGL0gvR2hnUUhSVitNZHRGZFloUE1FeXRIdWpyZlNOcms4a3U0ZmJNcndUMFhwK20K",
       "endpoints": [
         "https://github.com/taraksh01/wisper/releases/latest/download/updater.json"
       ]
