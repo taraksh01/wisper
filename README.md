@@ -25,23 +25,42 @@ You speak, Wisper records locally, transcribes your voice to text, optionally re
 
 ## Requirements
 
-Wisper inserts text by simulating a paste/keystroke into whatever app is focused. How well this works depends on your display server:
+Wisper inserts text by simulating a paste/keystroke into whatever app is focused. How well this works depends on your display server and which paste helper is installed:
 
-- **X11:** works out of the box with the built-in method — no extra tools needed.
-- **Wayland:** the built-in method **cannot reliably paste into other applications** (Wayland blocks apps from injecting input for security). On Wayland it also falls back to the desktop's **RemoteDesktop portal**, so the system will pop up a **"remote control / remote desktop" permission prompt** each time it needs to type. Install one of the following helper tools for dependable pasting *without* that prompt:
+- **ydotool (recommended on Wayland)** — injects keystrokes through a kernel `uinput` virtual device, so it works on **both X11 and Wayland with no permission prompt**. It needs the `ydotoold` daemon running and your user in the `input` group.
+- **wtype** — a zero-config Wayland tool, but it only works on compositors that implement the Wayland `virtual-keyboard` protocol. On compositors that don't (you'll see `Compositor does not support the virtual keyboard protocol`), wtype fails entirely.
+- **enigo** — types fast, but on native Wayland it goes through the desktop **RemoteDesktop portal**, so the system pops a **"remote desktop / input capture" permission prompt** (usually one-time if you let the compositor remember it).
 
-  ```bash
-  # Debian / Ubuntu
-  sudo apt install wtype        # or: sudo apt install ydotool
+### Setting up ydotool (no prompts)
 
-  # Fedora
-  sudo dnf install wtype        # or: sudo dnf install ydotool
+```bash
+# 1. Install
+# Debian / Ubuntu
+sudo apt install ydotool
+# Fedora
+sudo dnf install ydotool
+# Arch
+sudo pacman -S ydotool
 
-  # Arch
-  sudo pacman -S wtype          # or: sudo pacman -S ydotool
-  ```
+# 2. Start the daemon (and enable it to run at login)
+sudo systemctl enable --now ydotoold.service
+#   ...or, if your distro ships it as a user service:
+# systemctl --user enable --now ydotoold.service
 
-  `wtype` is recommended for most Wayland desktops. `ydotool` works everywhere (X11 and Wayland) but requires a running `ydotoold` daemon and input-group permissions.
+# 3. Let your user inject input (uinput needs the input group)
+sudo usermod -aG input $USER
+# then log out and back in for the group to apply
+```
+
+After that, set **General → Output → Paste Tool** to `ydotool` (or leave it on `auto` — Wisper prefers ydotool when both helpers are present, since it pastes without prompting). Verify with:
+
+```bash
+ydotool type "hello world"   # should print "hello world" into the focused window, exit 0
+```
+
+### About the RemoteDesktop portal prompt (enigo / wtype)
+
+On Wayland, `enigo` and `wtype` ask the compositor for permission to inject input, which surfaces as a **"remote desktop" / "remote control"** dialog. This is expected — grant it and tick **remember** so it isn't re-asked. `ydotool` avoids this entirely because it uses `uinput` below the compositor.
 
 By default Wisper auto-detects the best available tool, but you can pick a specific one under **General → Output → Paste Tool**. The app also shows a warning there if you're on Wayland without a suitable tool installed.
 

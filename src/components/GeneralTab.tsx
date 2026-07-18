@@ -63,6 +63,7 @@ interface PasteEnvironment {
 
 function PasteToolControl({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [env, setEnv] = useState<PasteEnvironment | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -83,8 +84,34 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
   return (
     <div>
-      <label className="label-soft block mb-2">Paste Tool</label>
+      <div className="flex items-center gap-1.5 mb-2">
+        <label className="label-soft">Paste Tool</label>
+        <button
+          type="button"
+          onClick={() => setShowHelp((v) => !v)}
+          aria-label="How to set up ydotool"
+          title="How to set up ydotool"
+          className="shrink-0 w-4 h-4 rounded-full border border-stroke text-[10px] leading-none text-muted hover:text-accent hover:border-accent/50 flex items-center justify-center transition-colors"
+        >
+          ?
+        </button>
+      </div>
       <PillGroup value={value} options={options} onChange={onChange} />
+
+      {showHelp && (
+        <div className="mt-3 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5 space-y-2 text-[10px] font-mono text-muted leading-relaxed">
+          <p className="text-ink">ydotool pastes without any permission prompt (uses a kernel uinput device).</p>
+          <p>wtype &amp; built-in (enigo) type via Wayland and trigger a one-time <span className="text-ink">RemoteDesktop</span> permission prompt on native Wayland.</p>
+          <a
+            href="https://github.com/taraksh01/wisper#setting-up-ydotool-no-prompts"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-accent hover:text-accent-dim transition-colors"
+          >
+            Full setup guide →
+          </a>
+        </div>
+      )}
 
       {env && (
         <div className="mt-3 space-y-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5">

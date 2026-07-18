@@ -34,11 +34,16 @@ pub fn detect_session_type() -> String {
 }
 
 /// Auto-detects the best available paste backend, preferring native tools.
+/// ydotool is preferred over wtype because it injects via a kernel uinput device
+/// (works on any compositor, no portal prompt), whereas wtype requires the
+/// compositor to implement the Wayland virtual-keyboard protocol and fails
+/// outright on compositors that don't (e.g. "Compositor does not support the
+/// virtual keyboard protocol").
 pub fn detect_paste_backend() -> String {
-    if command_exists("wtype") {
-        "wtype".into()
-    } else if command_exists("ydotool") {
+    if command_exists("ydotool") {
         "ydotool".into()
+    } else if command_exists("wtype") {
+        "wtype".into()
     } else {
         "enigo".into()
     }
@@ -105,11 +110,13 @@ pub fn get_paste_environment(preference: &str) -> PasteEnvironment {
 /// every call so a newly installed wtype/ydotool is picked up without a restart.
 fn active_backend() -> String {
     let preference = crate::coordinator::PASTE_TOOL.lock().unwrap().clone();
-    if preference.is_empty() {
+    let backend = if preference.is_empty() {
         // Fall back to the cached backend if no preference has been set yet.
-        return crate::coordinator::PASTE_BACKEND.lock().unwrap().clone();
-    }
-    resolve_paste_backend(&preference)
+        crate::coordinator::PASTE_BACKEND.lock().unwrap().clone()
+    } else {
+        resolve_paste_backend(&preference)
+    };
+    backend
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
