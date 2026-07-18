@@ -1,11 +1,20 @@
-import { WisperLogo } from "./WisperLogo";
-
 interface OnboardingProps {
   env: { reliable: boolean; has_wtype: boolean; has_ydotool: boolean } | null;
   onDone: () => void;
 }
 
 const steps = [
+  {
+    icon: (
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <path d="M7 10l5 5 5-5" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+    ),
+    title: "Setup",
+    desc: "Download a model from the Engine tab first.",
+  },
   {
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -20,9 +29,7 @@ const steps = [
   {
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="4" width="16" height="16" rx="2" />
-        <path d="M8 12h8" />
-        <path d="M12 8v8" />
+        <path d="M3 12h2l2-7 4 14 3-9 2 4h3" />
       </svg>
     ),
     title: "Transcribe",
@@ -31,10 +38,9 @@ const steps = [
   {
     icon: (
       <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M16 3h5v5" />
-        <path d="M8 3H3v5" />
-        <path d="M21 3l-7 7" />
-        <path d="M3 3l7 7" />
+        <path d="M9 4h6" />
+        <path d="M12 4v16" />
+        <path d="M9 20h6" />
       </svg>
     ),
     title: "Insert",
@@ -48,7 +54,7 @@ export function Onboarding({ env, onDone }: OnboardingProps) {
       <div className="bg-surface border border-stroke rounded-2xl p-8 max-w-sm w-full shadow-2xl">
         {/* Hero: Brand logo + tagline */}
         <div className="flex flex-col items-center text-center space-y-4 mb-6">
-          <WisperLogo className="w-16 h-16" state="recording" level={0.12} background />
+          <img src="/wisper.svg" alt="Wisper" className="w-16 h-16 rounded-2xl" />
           <div>
             <h1 className="text-base font-bold font-mono text-ink tracking-tight">Welcome to Wisper</h1>
             <p className="text-[11px] font-mono text-muted mt-1 leading-relaxed max-w-[260px] mx-auto">
