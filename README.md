@@ -6,14 +6,14 @@ Wisper is a lightweight, privacy-first desktop dictation app for Linux. Press a 
 
 ## Features
 
-- **Push-to-talk dictation** — hold a global hotkey, speak, release.
-- **Local-first speech-to-text** — runs on-device with ONNX models; nothing leaves your machine unless you opt in.
-- **Optional cloud providers** — use OpenAI, Groq, or a custom endpoint for transcription when you want.
-- **Optional AI refinement** — post-process transcriptions with an LLM (OpenAI, Anthropic, Google, Groq, OpenRouter, and more) using a configurable Smart Agent.
-- **Flexible paste** — insert text at the cursor via direct typing or the clipboard.
-- **History** — browse, replay, re-transcribe, and manage past dictations.
-- **Auto-update** — checks GitHub releases and installs new versions in-app.
-- **Lives in the tray** — quick access, unobtrusive, always ready.
+- **Speak instead of type** — press a global hotkey (hold for push-to-talk or tap for toggle mode), say what you want, and the text lands wherever your cursor is.
+- **Stays on your device** — transcription runs locally with ONNX models; nothing leaves your computer unless you choose a cloud provider.
+- **Pick your microphone** — choose a specific input device, or let the system default handle it.
+- **Cleans up as it goes** — optional AI step reformats and polishes the transcript (multiple saved agent profiles, e.g. Email / Code / Formal), plus silence trimming so filler pauses don't get transcribed.
+- **Your words, your way** — custom vocabulary turns shortcuts into proper terms (say "gpt", get "GPT").
+- **Look back** — searchable history lets you replay the recording, re-transcribe, or edit any past dictation, and shows how much typing time you've saved.
+- **Out of the way** — lives in the system tray; close the window and it keeps running, ready for the next hotkey.
+- **Updates itself** — checks GitHub releases and installs new versions in-app.
 
 ## How it works
 
