@@ -30,6 +30,8 @@ IDEAS.md
 # Tauri
 /src-tauri/WixTools/
 .tauri/update.key
+src-tauri/tauri.key
+src-tauri/tauri.key.pub
 
 # Updater artifacts (generated during build)
 src-tauri/signature.json
