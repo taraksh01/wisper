@@ -181,7 +181,7 @@ a { color: inherit; text-decoration: none; }
 .ov-wave { flex: 0 0 auto; overflow: visible; }
 .ov-bars rect { fill: url(#ov-wave-grad); transition: y 60ms linear, height 60ms linear; }
 .ov-text { font-family: var(--mono); font-size: 0.84rem; color: #f5efe6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ov-caption { font-size: 0.76rem; color: #cabea9; letter-spacing: 0.02em; }
+.ov-caption { font-size: 0.76rem; color: var(--sand); letter-spacing: 0.02em; }
 
 /* ---------- Pipeline ---------- */
 .pipeline { list-style: none; display: flex; align-items: stretch; justify-content: center; gap: 14px; flex-wrap: wrap; }
