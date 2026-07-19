@@ -28,9 +28,8 @@ if (!reduceMotion) tick();
 
 // Hero waveform: JS-driven bars mirroring the real app overlay (organic motion,
 // fast-attack/slow-decay). No mic in the browser, so a soft speech-like envelope
-// keeps it lively. Skipped under reduced-motion (bars render at rest height).
+// keeps it lively. Under reduced-motion it renders a static bar set (no loop).
 (function () {
-  if (reduceMotion) return;
   const g = document.getElementById("ov-bars");
   if (!g) return;
   const N = 7, CY = 80, MAXH = 120, FLOOR = 18, W = 14, GAP = 20;
@@ -47,6 +46,11 @@ if (!reduceMotion) tick();
     r.setAttribute("rx", W / 2);
     g.appendChild(r);
     bars.push(r);
+  }
+  // Reduced-motion: render a static rest-height bar set, no animation loop.
+  if (reduceMotion) {
+    bars.forEach((b) => { b.setAttribute("height", FLOOR); b.setAttribute("y", CY - FLOOR / 2); });
+    return;
   }
   function render(level, t) {
     const energy = Math.min(1, level / 0.22);
