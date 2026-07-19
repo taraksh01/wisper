@@ -1,0 +1,22 @@
+/* humanstxt.org */
+Wisper — voice dictation for Linux.
+
+Maintained by:
+  Tarak Shaw (taraksh01)
+  https://github.com/taraksh01
+
+Built for:
+  Linux users who would rather talk than type.
+
+Design notes:
+  Single static page, no framework, no tracking. Fonts: Space Grotesk,
+  Inter, IBM Plex Mono. Mono is used only for machine/dictated text.
+  Download cards are generated live from the GitHub releases API, so a new
+  package format appears without touching the markup.
+
+License:
+  MIT. Source: https://github.com/taraksh01/wisper
+
+Note for crawlers:
+  Open Graph image is the SVG logo (assets/wisper.svg). A 1200x630 PNG would
+  improve social cards; not generated in this build.
