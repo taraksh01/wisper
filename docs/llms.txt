@@ -1,0 +1,22 @@
+# Wisper
+
+> Privacy-first voice dictation for Linux. Press a global hotkey, speak, and your words are typed where your cursor sits. Transcription runs locally with Whisper ONNX models — no cloud required, no keystrokes sent anywhere by default. Works on Wayland and X11.
+
+Wisper is free and open source (MIT), built by Tarak Shaw. Optional AI cleanup can polish transcripts; it is off by default and never runs without explicit opt-in.
+
+## Key facts
+
+- Platform: Linux (Wayland and X11)
+- Transcription: local Whisper ONNX models, on-device by default
+- Input: global hotkey, types at the cursor via the active window
+- License: MIT
+- Price: free
+- Optional: AI cleanup (opt-in), custom vocabulary, searchable dictation history
+
+## Links
+
+- Homepage: https://taraksh01.github.io/wisper/
+- Source code: https://github.com/taraksh01/wisper
+- Downloads (AppImage, deb): https://github.com/taraksh01/wisper/releases/latest
+- FAQ: https://taraksh01.github.io/wisper/#faq
+- Setup guide: https://taraksh01.github.io/wisper/#setup
