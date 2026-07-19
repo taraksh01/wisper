@@ -18,5 +18,8 @@ License:
   MIT. Source: https://github.com/taraksh01/wisper
 
 Note for crawlers:
-  Open Graph image is the SVG logo (assets/wisper.svg). A 1200x630 PNG would
-  improve social cards; not generated in this build.
+  Open Graph image is assets/wisper-og.png (1200x630). Machine-readable
+  summary: llms.txt (at site root).
+
+Last update:
+  2026-07-19
