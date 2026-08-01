@@ -47,6 +47,23 @@ sudo systemctl enable --now ydotoold.service
 #   ...or, if your distro ships it as a user service:
 # systemctl --user enable --now ydotoold.service
 
+# The Debian/Ubuntu package doesn't ship a systemd unit — if the command
+# above fails with "Unit file ydotoold.service does not exist", create it:
+sudo tee /etc/systemd/system/ydotoold.service > /dev/null <<'EOF'
+[Unit]
+Description=ydotool daemon
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ydotoold
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now ydotoold.service
+
 # 3. Let your user inject input (uinput needs the input group)
 sudo usermod -aG input $USER
 # then log out and back in for the group to apply
