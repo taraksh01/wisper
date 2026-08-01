@@ -1,6 +1,6 @@
 [package]
 name = "wisper"
-version = "3.0.0"
+version = "3.1.0"
 description = "Turn your voice into text right on your device, with your privacy always in your hands."
 authors = ["Tarak Shaw <taraksh01@gmail.com>"]
 edition = "2021"
@@ -44,4 +44,6 @@ tar = "0.4"
 flate2 = "1"
 regex = "1"
 handy-keys = "0.3.0"
+ashpd = { version = "0.13.13", features = ["global_shortcuts"] }
+pollster = "1.0.1"
 

@@ -16,9 +16,6 @@ use std::sync::{Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use tauri::AppHandle;
 
-use crate::hotkey::HotkeyEvent;
-use crate::HOTKEY_SENDER;
-
 /// Command sent from the main thread to the manager thread.
 enum ManagerCommand {
     Register {
@@ -85,10 +82,22 @@ pub fn unregister_all() -> Result<(), String> {
 
 fn manager_thread(cmd_rx: Receiver<ManagerCommand>) {
     let manager = match HotkeyManager::new_with_blocking() {
-        Ok(m) => m,
+        Ok(m) => {
+            eprintln!("whisper-keys: blocking hotkey manager active");
+            m
+        }
         Err(e) => {
-            eprintln!("whisper-keys: failed to create HotkeyManager: {e}");
-            return;
+            // Blocking needs write access to /dev/uinput (input group / udev
+            // rule). Fall back to a plain listener so the hotkey still works
+            // on stock Ubuntu; the hotkey just isn't consumed from other apps.
+            eprintln!("whisper-keys: blocking unavailable ({e}); falling back to non-blocking listener");
+            match HotkeyManager::new() {
+                Ok(m) => m,
+                Err(e2) => {
+                    eprintln!("whisper-keys: failed to create HotkeyManager: {e2}");
+                    return;
+                }
+            }
         }
     };
 
@@ -97,8 +106,7 @@ fn manager_thread(cmd_rx: Receiver<ManagerCommand>) {
     loop {
         while let Some(event) = manager.try_recv() {
             if hotkey_to_id.contains_key(&event.id) {
-                let pressed = event.state == HotkeyState::Pressed;
-                forward(pressed);
+                crate::hotkey::forward(event.state == HotkeyState::Pressed);
             }
         }
 
@@ -148,19 +156,4 @@ fn do_unregister_all(
     }
     hotkey_to_id.clear();
     Ok(())
-}
-
-/// Forward a press/release into the coordinator's hotkey channel.
-fn forward(pressed: bool) {
-    if let Ok(guard) = HOTKEY_SENDER.lock() {
-        if let Some(tx) = guard.as_ref() {
-            if let Ok(s) = tx.lock() {
-                let _ = s.send(if pressed {
-                    HotkeyEvent::Pressed
-                } else {
-                    HotkeyEvent::Released
-                });
-            }
-        }
-    }
 }

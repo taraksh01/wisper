@@ -46,3 +46,7 @@ bun.lockb
 *.rpm
 *.dmg
 *.exe
+dist-linux/
+
+# pnpm store (accidentally created by container builds)
+.pnpm-store/

@@ -5,6 +5,7 @@ pub mod history;
 pub mod hotkey;
 pub mod models;
 pub mod paste;
+pub mod portal;
 pub mod process;
 pub mod settings;
 pub mod words;
@@ -102,7 +103,17 @@ fn get_current_state() -> String {
 
 #[tauri::command]
 fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
-    whisper_keys::register(&key)
+    register_hotkey(&key)
+}
+
+/// Active hotkey backend: 0 = GlobalShortcuts portal, 1 = whisper-keys evdev.
+static HOTKEY_BACKEND: std::sync::atomic::AtomicI8 = std::sync::atomic::AtomicI8::new(-1);
+
+fn register_hotkey(key: &str) -> Result<(), String> {
+    match HOTKEY_BACKEND.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => portal::register(key),
+        _ => whisper_keys::register(key),
+    }
 }
 
 #[tauri::command]
@@ -531,17 +542,27 @@ pub fn run() {
                 })
                 .unwrap();
 
-            // Register the global hotkey via whisper-keys (raw input hook:
-            // works uniformly across X11/Wayland and every focused app).
-            whisper_keys::init(&app.handle());
-            create_overlay(&app.handle());
-            let saved = &saved_settings.hotkey;
-            if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {
-                eprintln!("Hotkey {:?} failed to register; using default {:?}", saved, DEFAULT_HOTKEY);
-                if let Err(e2) = whisper_keys::register(DEFAULT_HOTKEY) {
-                    eprintln!("Failed to register default hotkey: {}", e2);
-                }
+            // Pick the best hotkey backend for this system: the GlobalShortcuts
+            // portal (GNOME 42+ / KDE Plasma 6+, zero permissions, key
+            // consumption, hold-to-talk) first, then the whisper-keys evdev
+            // raw-input hook as the fallback.
+            let backend = if portal::init(&app.handle()) { 0 } else { 1 };
+            HOTKEY_BACKEND.store(backend, std::sync::atomic::Ordering::Relaxed);
+            if backend != 0 {
+                whisper_keys::init(&app.handle());
             }
+            create_overlay(&app.handle());
+            // Register the saved hotkey asynchronously so a first-run portal
+            // confirmation dialog never blocks app startup.
+            let saved = saved_settings.hotkey.clone();
+            thread::spawn(move || {
+                if register_hotkey(&saved).is_err() && saved != DEFAULT_HOTKEY {
+                    eprintln!("Hotkey {:?} failed to register; using default {:?}", saved, DEFAULT_HOTKEY);
+                    if let Err(e2) = register_hotkey(DEFAULT_HOTKEY) {
+                        eprintln!("Failed to register default hotkey: {}", e2);
+                    }
+                }
+            });
 
             // Spawn State Listener -> Tray + State Lock + Frontend Events
             let app_handle_clone = app_handle.clone();
