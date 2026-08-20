@@ -2,6 +2,7 @@ import { type JSX, useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, tabs } from "../types";
+import { APP_NAME } from "../appConfig";
 import { WisperLogo } from "./WisperLogo";
 
 interface SidebarProps {
@@ -112,7 +113,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
         <div className="flex items-center gap-2.5 px-1">
           <WisperLogo className="w-8 h-8 shrink-0" state={appState as "idle" | "recording" | "processing"} level={level} />
           <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-            <h1 className="text-sm font-bold tracking-tight text-ink font-mono leading-tight">Wisper</h1>
+            <h1 className="text-sm font-bold tracking-tight text-ink font-mono leading-tight">{APP_NAME}</h1>
             <p className="text-[9px] font-mono text-muted tracking-[0.15em] uppercase leading-tight">{stateLabel(appState)}</p>
           </div>
         </div>
@@ -179,7 +180,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
       </div>
 
       <div className="px-4 py-3 border-t border-stroke text-[9px] font-mono text-muted/50 tracking-wider">
-        Wisper &bull; {version}
+        {APP_NAME} &bull; {version}
       </div>
       {settings && (
         <div className="px-4 pb-4 text-[9px] font-mono text-muted/40 tracking-wider">

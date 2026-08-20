@@ -8,6 +8,8 @@ const CY = 256; // vertical center of the 512 viewBox
 // How strongly each bar reacts to the live level (center bars react most).
 const REACT = [0.6, 0.85, 1, 0.85, 0.6];
 
+import { isDev } from "../appConfig";
+
 export function WisperLogo({
   className = "w-5 h-5",
   state = "idle",
@@ -38,8 +40,8 @@ export function WisperLogo({
     >
       <defs>
         <linearGradient id={wave} x1="256" y1="96" x2="256" y2="416" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#fb923c" />
-          <stop offset="1" stopColor="#ea580c" />
+          <stop stopColor={isDev ? "#a78bfa" : "#fb923c"} />
+          <stop offset="1" stopColor={isDev ? "#7c3aed" : "#ea580c"} />
         </linearGradient>
         {background && (
           <linearGradient id={bg} x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">

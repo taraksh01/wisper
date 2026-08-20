@@ -1,3 +1,4 @@
+pub mod app_info;
 pub mod audio;
 pub mod coordinator;
 pub mod engine;
@@ -17,6 +18,41 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 const DEFAULT_HOTKEY: &str = "F9";
+
+/// Temporarily silence C-level stderr (fd 2) around a closure.
+///
+/// Some native libraries (libayatana-appindicator, handy-keys) print harmless
+/// deprecation/info warnings straight to the C stderr stream, which can't be
+/// captured by Rust's `eprintln!` redirection. This dup2's fd 2 to /dev/null
+/// for the duration of `f`, then restores the original fd. Linux only.
+#[cfg(target_os = "linux")]
+pub fn silence_stderr<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    use std::os::unix::io::AsRawFd;
+    // Save the current stderr fd.
+    let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
+    let null = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/null")
+        .ok();
+    if saved != -1 {
+        if let Some(ref n) = null {
+            unsafe {
+                libc::dup2(n.as_raw_fd(), libc::STDERR_FILENO);
+            }
+        }
+    }
+    let result = f();
+    if saved != -1 {
+        unsafe {
+            libc::dup2(saved, libc::STDERR_FILENO);
+            libc::close(saved);
+        }
+    }
+    result
+}
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -179,7 +215,7 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
 
 /// Create the detached overlay window (hidden until recording).
 fn create_overlay(app: &tauri::AppHandle) {
-    create_overlay_with(app, "overlay.html");
+    create_overlay_with(app, crate::app_info::overlay_url());
 }
 
 fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
@@ -190,7 +226,7 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
         return;
     }
     let builder = tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
-        .title("Wisper")
+        .title(crate::app_info::display_name())
         .resizable(false)
         .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
         .decorations(false)
@@ -315,16 +351,17 @@ pub fn update_tray_menu_text() {
         if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
             if let Some(tray) = handle.tray_by_id("main") {
                 let state = STATE_LOCK.lock().unwrap();
+                let dn = crate::app_info::display_name();
                 let label = match *state {
                     CoordinatorState::Idle => {
                         if name.is_empty() {
-                            "Wisper - Idle".into()
+                            format!("{} - Idle", dn)
                         } else {
-                            format!("Wisper - Idle [{}]", name)
+                            format!("{} - Idle [{}]", dn, name)
                         }
                     }
-                    CoordinatorState::Recording => "Wisper - Recording...".into(),
-                    CoordinatorState::Processing => "Wisper - Processing...".into(),
+                    CoordinatorState::Recording => format!("{} - Recording...", dn),
+                    CoordinatorState::Processing => format!("{} - Processing...", dn),
                 };
                 let _ = tray.set_tooltip(Some(&label));
             }
@@ -334,6 +371,10 @@ pub fn update_tray_menu_text() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Dev desktop file is written in setup (needs app resource path), but we also
+    // set GTK app_id via tauri's enableGTKAppId (identifier from merged config).
+    // For `pnpm tauri dev` we merge tauri.dev.json via --config flag so identifier
+    // becomes com.taraksh01.wisper-dev, which tao uses as Wayland app_id / X11 WM_CLASS.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -350,7 +391,7 @@ pub fn run() {
                 *guard = Some(app_handle.clone());
             }
 
-            let quit_i = MenuItem::with_id(app, "quit", "Quit Wisper", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", &format!("Quit {}", crate::app_info::display_name()), true, None::<&str>)?;
             let settings_i =
                 MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let unload_i =
@@ -368,11 +409,32 @@ pub fn run() {
             }
             let menu = Menu::with_items(app, &[&settings_i, &unload_i, &quit_i])?;
 
-            let tray = TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
+            let dev_icon: Option<tauri::image::Image<'static>> = if crate::app_info::is_dev() {
+                let bytes = include_bytes!("../icons/dev/icon.png");
+                match tauri::image::Image::from_bytes(bytes) {
+                    Ok(icon) => Some(icon),
+                    Err(e) => {
+                        eprintln!("[dev] Image::from_bytes failed: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            // Dev: set window icon so GNOME taskbar/dock shows violet, not orange.
+            // Must set on the WebviewWindow — default_window_icon is baked into the binary
+            // from tauri.conf.json's icon list, so dev needs an explicit override.
+            if let Some(dev_icon) = dev_icon.clone() {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.set_icon(dev_icon.clone());
+                }
+            }
+            let tray_icon = dev_icon.unwrap_or_else(|| app.default_window_icon().unwrap().clone());
+            let tray_builder = TrayIconBuilder::with_id("main")
+                .icon(tray_icon)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .tooltip("Wisper - Idle")
+                .tooltip(&format!("{} - Idle", crate::app_info::display_name()))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => {
                         app.exit(0);
@@ -402,7 +464,7 @@ pub fn run() {
                             }
                             update_tray_menu_text();
                             if let Some(tray) = app.tray_by_id("main") {
-                                let _ = tray.set_tooltip(Some("Wisper - No model loaded"));
+                                let _ = tray.set_tooltip(Some(format!("{} - No model loaded", crate::app_info::display_name())));
                             }
                         }
                     }
@@ -420,8 +482,10 @@ pub fn run() {
                             let _ = win.set_focus();
                         }
                     }
-                })
-                .build(app)?;
+                });
+            // libayatana-appindicator prints a deprecation warning to C stderr
+            // during tray construction. Silence it for the build() call only.
+            let tray = silence_stderr(|| tray_builder.build(app))?;
 
             let (cmd_tx, cmd_rx) = mpsc::channel();
             let (state_tx, state_rx) = mpsc::channel();
@@ -548,16 +612,17 @@ pub fn run() {
             thread::spawn(move || {
                 while let Ok(state) = state_rx.recv() {
                     let model_name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
+                    let dn = crate::app_info::display_name();
                     let tooltip = match state {
                         CoordinatorState::Idle => {
                             if model_name.is_empty() {
-                                "Wisper - Idle".into()
+                                format!("{} - Idle", dn)
                             } else {
-                                format!("Wisper - Idle [{}]", model_name)
+                                format!("{} - Idle [{}]", dn, model_name)
                             }
                         }
-                        CoordinatorState::Recording => "Wisper - Recording...".into(),
-                        CoordinatorState::Processing => "Wisper - Processing...".into(),
+                        CoordinatorState::Recording => format!("{} - Recording...", dn),
+                        CoordinatorState::Processing => format!("{} - Processing...", dn),
                     };
                     let _ = tray.set_tooltip(Some(&tooltip));
                     {

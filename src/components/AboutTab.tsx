@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { SectionCard } from "./SectionCard";
+import { APP_NAME, storageKey } from "../appConfig";
 import { WisperLogo } from "./WisperLogo";
 
 const GITHUB_REPO = "taraksh01/wisper";
@@ -38,7 +39,7 @@ export function AboutTab() {
       <SectionCard className="card-enter">
         <div className="text-center py-2">
           <WisperLogo className="w-14 h-14 mx-auto rounded-2xl" background />
-          <h2 className="text-lg font-bold font-mono text-ink mt-3">Wisper</h2>
+          <h2 className="text-lg font-bold font-mono text-ink mt-3">{APP_NAME}</h2>
           <p className="text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase">Version {version}</p>
         </div>
         <p className="text-xs text-muted leading-relaxed mt-3 text-center">
@@ -158,7 +159,7 @@ export function AboutTab() {
           </div>
           <button
             onClick={() => {
-              localStorage.removeItem("wisper:onboarded");
+              localStorage.removeItem(storageKey("onboarded"));
               location.reload();
             }}
             className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-accent ring-1 ring-stroke hover:bg-elevated/50 rounded-md transition-colors"

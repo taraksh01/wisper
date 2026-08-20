@@ -13,6 +13,7 @@ import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ToastProvider, useToast } from "./components/ToastContext";
+import { storageKey } from "./appConfig";
 import "./styles.css";
 
 function useSystemTheme() {
@@ -31,7 +32,7 @@ function useSystemTheme() {
 function AppShell() {
   const dark = useSystemTheme();
   const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem("wisper:active-tab");
+    const saved = localStorage.getItem(storageKey("active-tab"));
     return saved && tabs.some((t) => t.id === saved) ? saved : "general";
   });
   const [appState, setAppState] = useState("idle");
@@ -41,14 +42,14 @@ function AppShell() {
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const [currentModelName, setCurrentModelName] = useState("");
   const [onboarded, setOnboarded] = useState(
-    () => localStorage.getItem("wisper:onboarded") === "1"
+    () => localStorage.getItem(storageKey("onboarded")) === "1"
   );
   const [pasteEnv, setPasteEnv] = useState<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean } | null>(null);
 
   const toast = useToast();
 
   useEffect(() => {
-    localStorage.setItem("wisper:active-tab", activeTab);
+    localStorage.setItem(storageKey("active-tab"), activeTab);
   }, [activeTab]);
 
   useEffect(() => {
@@ -248,7 +249,7 @@ function AppShell() {
           <Onboarding
             env={pasteEnv}
             onDone={() => {
-              localStorage.setItem("wisper:onboarded", "1");
+              localStorage.setItem(storageKey("onboarded"), "1");
               setOnboarded(true);
             }}
           />

@@ -84,6 +84,17 @@ pub fn unregister_all() -> Result<(), String> {
 }
 
 fn manager_thread(cmd_rx: Receiver<ManagerCommand>) {
+    // handy-keys prints device-enumeration info lines to C stderr during
+    // manager creation; silence them for just the constructor call.
+    #[cfg(target_os = "linux")]
+    let manager = match crate::silence_stderr(|| HotkeyManager::new_with_blocking()) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("whisper-keys: failed to create HotkeyManager: {e}");
+            return;
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
     let manager = match HotkeyManager::new_with_blocking() {
         Ok(m) => m,
         Err(e) => {

@@ -48,15 +48,17 @@ const steps = [
   },
 ];
 
+import { APP_NAME, iconSrc } from "../appConfig";
+
 export function Onboarding({ env, onDone }: OnboardingProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/80 backdrop-blur-sm p-4">
       <div className="bg-surface border border-stroke rounded-2xl p-8 max-w-sm w-full shadow-2xl">
         {/* Hero: Brand logo + tagline */}
         <div className="flex flex-col items-center text-center space-y-4 mb-6">
-          <img src="/wisper.svg" alt="Wisper" className="w-16 h-16 rounded-2xl" />
+          <img src={iconSrc} alt={APP_NAME} className="w-16 h-16 rounded-2xl" />
           <div>
-            <h1 className="text-base font-bold font-mono text-ink tracking-tight">Welcome to Wisper</h1>
+            <h1 className="text-base font-bold font-mono text-ink tracking-tight">Welcome to {APP_NAME}</h1>
             <p className="text-[11px] font-mono text-muted mt-1 leading-relaxed max-w-[260px] mx-auto">
               Turn your voice into text, privately on your device.
             </p>
