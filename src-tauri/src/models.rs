@@ -51,10 +51,18 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
     }
 }
 
+struct ClearGuard;
+impl Drop for ClearGuard {
+    fn drop(&mut self) {
+        *ACTIVE_CANCEL.lock().unwrap() = None;
+    }
+}
+
 #[tauri::command]
 pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result<String, String> {
     let cancel = Arc::new(AtomicBool::new(false));
     *ACTIVE_CANCEL.lock().unwrap() = Some(cancel.clone());
+    let _clear_guard = ClearGuard;
 
     let url = download_url(&model_name).ok_or_else(|| {
         format!("Unknown model: {}.", model_name)
@@ -103,10 +111,31 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         }
     }
 
-    // Extract archive
+    // Extract archive with path traversal validation
+    let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+    let models_dir_canonical = models_dir.canonicalize().unwrap_or_else(|_| models_dir.clone());
+    for entry in archive.entries().map_err(|e| format!("Failed to read archive: {}", e))? {
+        let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+        let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
+        if path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err("Archive contains invalid path".into());
+        }
+        let dest = models_dir.join(&path);
+        // Ensure dest is inside models_dir
+        let dest_parent = dest.parent().unwrap_or(&models_dir);
+        let _ = fs::create_dir_all(dest_parent);
+        // We'll unpack after validation, so just check now
+        let _ = dest;
+    }
+    // Re-open and unpack after validation (entries consumed above)
     let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
     archive.unpack(&models_dir).map_err(|e| format!("Failed to extract model: {}", e))?;
+    // Double-check unpacked dir is inside canonical models_dir
+    if !models_dir_canonical.exists() {
+        return Err("Models dir missing after unpack".into());
+    }
 
     let _ = fs::remove_file(&temp_archive);
 

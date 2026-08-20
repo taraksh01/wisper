@@ -15,16 +15,11 @@ pub struct HistoryEntry {
     pub recording_path: Option<String>,
 }
 
-pub struct HistoryManager {
-    conn: Mutex<Connection>,
-}
-
-impl HistoryManager {
-    pub fn new() -> Self {
-        let db_path = Self::get_db_path();
-        let conn = Connection::open(&db_path).expect("Failed to open history database");
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS history (
+static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::Lazy::new(|| {
+    let db_path = HistoryManager::get_db_path();
+    let conn = Connection::open(&db_path).expect("Failed to open history database");
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 raw_text TEXT NOT NULL,
                 formatted_text TEXT,
@@ -34,15 +29,23 @@ impl HistoryManager {
                 created_at TEXT DEFAULT (datetime('now')),
                 recording_path TEXT
             );",
-        )
-        .expect("Failed to create history table");
+    )
+    .expect("Failed to create history table");
+    let _ = conn.execute("ALTER TABLE history ADD COLUMN recording_path TEXT", []);
+    Mutex::new(conn)
+});
 
-        // Migration: add recording_path column if missing on existing databases
-        let _ = conn.execute("ALTER TABLE history ADD COLUMN recording_path TEXT", []);
+pub struct HistoryManager;
 
-        Self {
-            conn: Mutex::new(conn),
-        }
+impl HistoryManager {
+    pub fn new() -> Self {
+        // Ensure DB is initialized (lazy)
+        let _ = &*HISTORY_CONN;
+        Self
+    }
+
+    fn conn() -> std::sync::MutexGuard<'static, Connection> {
+        HISTORY_CONN.lock().unwrap()
     }
 
     fn get_db_path() -> PathBuf {
@@ -62,7 +65,7 @@ impl HistoryManager {
         recording_path: Option<&str>,
     ) -> SqlResult<()> {
         let word_count = raw_text.split_whitespace().count() as i64;
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute(
             "INSERT INTO history (raw_text, formatted_text, agent_name, duration_ms, word_count, recording_path)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -72,7 +75,7 @@ impl HistoryManager {
     }
 
     pub fn update(&self, id: i64, raw_text: &str, formatted_text: Option<&str>) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute(
             "UPDATE history SET raw_text = ?1, formatted_text = ?2 WHERE id = ?3",
             params![raw_text, formatted_text, id],
@@ -81,13 +84,13 @@ impl HistoryManager {
     }
 
     pub fn delete(&self, id: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute("DELETE FROM history WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     pub fn get_history(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         let mut stmt = conn.prepare(
             "SELECT id, raw_text, formatted_text, agent_name, duration_ms, word_count, created_at, recording_path
              FROM history ORDER BY id DESC LIMIT ?1",
@@ -112,7 +115,7 @@ impl HistoryManager {
     }
 
     pub fn get_stats(&self) -> SqlResult<(i64, i64, f64)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         let total: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))?;
         let total_words: i64 = conn.query_row(
             "SELECT COALESCE(SUM(word_count), 0) FROM history",
@@ -128,7 +131,7 @@ impl HistoryManager {
     }
 
     pub fn clear_all(&self) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute("DELETE FROM history", [])?;
         Ok(())
     }
@@ -142,13 +145,36 @@ impl HistoryManager {
     }
 }
 
+fn validate_recording_path(path: &str) -> Result<std::path::PathBuf, String> {
+    let p = std::path::PathBuf::from(path);
+    let canonical = p
+        .canonicalize()
+        .map_err(|_| "Invalid recording path".to_string())?;
+    let dir = HistoryManager::get_recording_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| HistoryManager::get_recording_dir());
+    if !canonical.starts_with(&dir) {
+        return Err("Recording path outside allowed directory".into());
+    }
+    Ok(canonical)
+}
+
+fn rand_suffix() -> u16 {
+    static CTR: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let c = CTR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let pid = std::process::id() as u32;
+    ((c ^ pid) & 0xFFFF) as u16
+}
+
 pub fn save_recording_to_disk(samples: &[f32], sample_rate: u32) -> Option<String> {
     let dir = HistoryManager::get_recording_dir();
-    let timestamp = std::time::SystemTime::now()
+    let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs();
-    let filename = format!("wisper_{}.wav", timestamp);
+        .as_millis();
+    // Add process id + random suffix to avoid same-millisecond collisions
+    let suffix = format!("{:04x}", rand_suffix());
+    let filename = format!("wisper_{}_{}.wav", ts, suffix);
     let path = dir.join(&filename);
 
     match wav_from_samples(samples, sample_rate, &path) {
@@ -243,7 +269,9 @@ pub fn update_history_entry(
 
 #[tauri::command]
 pub fn retranscribe_recording(recording_path: String) -> Result<String, String> {
-    let (samples, sample_rate) = crate::audio::load_wav(&recording_path)?;
+    let validated = validate_recording_path(&recording_path)?;
+    let (samples, sample_rate) =
+        crate::audio::load_wav(validated.to_str().unwrap_or(&recording_path))?;
 
     // Load the current model from settings
     let settings = crate::settings::AppSettings::load();
@@ -272,10 +300,12 @@ pub fn clear_history() -> Result<(), String> {
         .get_history(i64::MAX)
         .map_err(|e| format!("Failed to get history: {}", e))?;
 
-    // Delete recording files
+    // Delete recording files (only inside recordings dir)
     for entry in &entries {
         if let Some(ref path) = entry.recording_path {
-            let _ = std::fs::remove_file(path);
+            if let Ok(p) = validate_recording_path(path) {
+                let _ = std::fs::remove_file(p);
+            }
         }
     }
 
@@ -289,5 +319,6 @@ pub fn clear_history() -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&recording_path).map_err(|e| format!("Failed to read recording: {}", e))
+    let validated = validate_recording_path(&recording_path)?;
+    std::fs::read(&validated).map_err(|e| format!("Failed to read recording: {}", e))
 }

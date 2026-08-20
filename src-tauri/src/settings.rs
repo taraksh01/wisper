@@ -131,7 +131,20 @@ impl AppSettings {
     pub fn save(&self) -> Result<(), String> {
         let p = Self::path();
         let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(&p, content).map_err(|e| e.to_string())
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(true).mode(0o600);
+            let mut f = opts.open(&p).map_err(|e| e.to_string())?;
+            use std::io::Write;
+            f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        #[cfg(not(unix))]
+        {
+            return fs::write(&p, content).map_err(|e| e.to_string());
+        }
     }
 }
 
@@ -166,12 +179,7 @@ pub fn update_display_name(settings: &AppSettings) {
 
 #[tauri::command]
 pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
-    eprintln!(
-        "[save_settings] called with {} fields",
-        serde_json::to_string(&settings).unwrap_or_default().len()
-    );
-    let path = AppSettings::path();
-    eprintln!("[save_settings] path: {:?}", path);
+    // Debug logging removed to avoid spamming stderr on every toggle
     crate::coordinator::HOTKEY_MODE.store(
         settings.hotkey_mode != "toggle",
         std::sync::atomic::Ordering::Relaxed,
@@ -262,9 +270,7 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
 
     crate::update_tray_menu_text();
 
-    let result = settings.save();
-    eprintln!("[save_settings] result: {:?}", result);
-    result
+    settings.save()
 }
 
 #[tauri::command]
