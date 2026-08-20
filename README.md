@@ -83,12 +83,30 @@ Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https:
 # install JS dependencies
 pnpm install
 
-# run the app in development
+# dev: Wisper Dev (violet) — isolated config, runs alongside installed Wisper
 pnpm tauri:dev
 
-# build a production bundle (AppImage)
+# prod bundle (orange) — AppImage / deb / rpm
 pnpm tauri build
+# alias:
+pnpm tauri:build
 ```
+
+### Dev vs Prod flavours
+
+Wisper ships as two logical apps from the same branch so you can develop without clobbering your daily driver:
+
+|  | Prod (`pnpm tauri build`) | Dev (`pnpm tauri:dev`) |
+|---|---|---|
+| **Name / ID** | `Wisper` / `com.taraksh01.wisper` | `Wisper Dev` / `com.taraksh01.wisper-dev` |
+| **Accent** | orange `#ea580c` / `#c2410c` | violet `#7c3aed` / `#6d28d9` |
+| **Icons** | `icons/*` + `public/wisper.svg` | `icons/dev/*` + `public/dev/wisper-dev.svg` + `public/overlay-dev.html` |
+| **Config** | `~/.config/wisper/settings.json` | `~/.config/wisper-dev/settings.json` |
+| **Data** | `~/.local/share/wisper/{history.db,words.db,models,recordings}` | `~/.local/share/wisper-dev/{…}` |
+| **Storage** | `localStorage wisper:*` | `localStorage wisper-dev:*` |
+| **Wayland** | `enableGTKAppId` → `app_id = com.taraksh01.wisper` | `enableGTKAppId` → `app_id = com.taraksh01.wisper-dev` (separate dock grouping) |
+
+Both tray and window icons are embedded per-flavour (`tauri image-png` + `win.set_icon` in debug) so you can tell them apart in the system tray/dock while running side-by-side. Dev starts fresh — no auto-copy from prod config.
 
 ## Releases & Auto-update
 
