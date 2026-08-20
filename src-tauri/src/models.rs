@@ -11,7 +11,7 @@ static ACTIVE_CANCEL: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
 pub fn get_models_dir() -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("wisper");
+    path.push(crate::app_info::data_dir_name());
     path.push("models");
     let _ = fs::create_dir_all(&path);
     path

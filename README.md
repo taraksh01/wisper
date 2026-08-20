@@ -84,7 +84,7 @@ Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https:
 pnpm install
 
 # run the app in development
-pnpm tauri dev
+pnpm tauri:dev
 
 # build a production bundle (AppImage)
 pnpm tauri build

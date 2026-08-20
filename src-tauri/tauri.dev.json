@@ -1,0 +1,27 @@
+{
+  "productName": "Wisper Dev",
+  "identifier": "com.taraksh01.wisper-dev",
+  "app": {
+    "enableGTKAppId": true,
+    "windows": [
+      {
+        "title": "Wisper Dev",
+        "width": 780,
+        "height": 680,
+        "minWidth": 780,
+        "minHeight": 680,
+        "visible": false
+      }
+    ]
+  },
+  "bundle": {
+    "icon": [
+      "icons/dev/32x32.png",
+      "icons/dev/128x128.png",
+      "icons/dev/128x128@2x.png",
+      "icons/dev/icon.png",
+      "icons/dev/icon.ico",
+      "icons/dev/icon.icns"
+    ]
+  }
+}

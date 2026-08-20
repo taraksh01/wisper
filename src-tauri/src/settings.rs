@@ -110,7 +110,7 @@ impl Default for AppSettings {
 impl AppSettings {
     fn path() -> PathBuf {
         let mut p = dirs::config_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        p.push("wisper");
+        p.push(crate::app_info::data_dir_name());
         let _ = fs::create_dir_all(&p);
         p.push("settings.json");
         p
@@ -166,18 +166,32 @@ pub fn update_display_name(settings: &AppSettings) {
 
 #[tauri::command]
 pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
-    eprintln!("[save_settings] called with {} fields", serde_json::to_string(&settings).unwrap_or_default().len());
+    eprintln!(
+        "[save_settings] called with {} fields",
+        serde_json::to_string(&settings).unwrap_or_default().len()
+    );
     let path = AppSettings::path();
     eprintln!("[save_settings] path: {:?}", path);
     crate::coordinator::HOTKEY_MODE.store(
         settings.hotkey_mode != "toggle",
         std::sync::atomic::Ordering::Relaxed,
     );
-    crate::coordinator::KEEP_RECORDINGS.store(settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
-    crate::coordinator::PROCESS_ENABLED.store(settings.process_enabled, std::sync::atomic::Ordering::Relaxed);
-    crate::coordinator::WORDS_ENABLED.store(settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
-    crate::coordinator::VAD_ENABLED.store(settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
-    crate::coordinator::VAD_THRESHOLD.store(settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::KEEP_RECORDINGS.store(
+        settings.keep_recordings,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::coordinator::PROCESS_ENABLED.store(
+        settings.process_enabled,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::coordinator::WORDS_ENABLED
+        .store(settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::VAD_ENABLED
+        .store(settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::VAD_THRESHOLD.store(
+        settings.vad_threshold.to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     if let Ok(mut v) = crate::coordinator::PROCESS_BASE_URL.lock() {
         *v = settings.process_base_url.clone();
     }
@@ -187,7 +201,10 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     if let Ok(mut v) = crate::coordinator::PROCESS_MODEL.lock() {
         *v = settings.process_model.clone();
     }
-    crate::coordinator::PROCESS_MAX_TOKENS.store(settings.process_max_tokens, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::PROCESS_MAX_TOKENS.store(
+        settings.process_max_tokens,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
     }
@@ -217,7 +234,11 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
     if let Ok(mut current) = crate::coordinator::CURRENT_MODEL.lock() {
-        *current = if model_path.exists() { Some(model_path.clone()) } else { None };
+        *current = if model_path.exists() {
+            Some(model_path.clone())
+        } else {
+            None
+        };
     }
 
     update_display_name(&settings);
@@ -226,7 +247,11 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
         *en = settings.overlay_enabled;
     }
     if let Ok(mut pos) = crate::OVERLAY_POSITION.lock() {
-        *pos = if settings.overlay_position == "top" { "top".into() } else { "bottom".into() };
+        *pos = if settings.overlay_position == "top" {
+            "top".into()
+        } else {
+            "bottom".into()
+        };
     }
 
     if settings.autostart {

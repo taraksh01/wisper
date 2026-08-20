@@ -72,7 +72,7 @@ impl WordsManager {
 
     fn db_path() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push("wisper");
+        path.push(crate::app_info::data_dir_name());
         let _ = std::fs::create_dir_all(&path);
         path.push("words.db");
         path

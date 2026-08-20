@@ -47,7 +47,7 @@ impl HistoryManager {
 
     fn get_db_path() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push("wisper");
+        path.push(crate::app_info::data_dir_name());
         let _ = std::fs::create_dir_all(&path);
         path.push("history.db");
         path
@@ -114,10 +114,11 @@ impl HistoryManager {
     pub fn get_stats(&self) -> SqlResult<(i64, i64, f64)> {
         let conn = self.conn.lock().unwrap();
         let total: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))?;
-        let total_words: i64 =
-            conn.query_row("SELECT COALESCE(SUM(word_count), 0) FROM history", [], |row| {
-                row.get(0)
-            })?;
+        let total_words: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(word_count), 0) FROM history",
+            [],
+            |row| row.get(0),
+        )?;
         let avg_words: f64 = if total > 0 {
             total_words as f64 / total as f64
         } else {
@@ -134,7 +135,7 @@ impl HistoryManager {
 
     pub fn get_recording_dir() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push("wisper");
+        path.push(crate::app_info::data_dir_name());
         path.push("recordings");
         let _ = std::fs::create_dir_all(&path);
         path
@@ -159,7 +160,11 @@ pub fn save_recording_to_disk(samples: &[f32], sample_rate: u32) -> Option<Strin
     }
 }
 
-fn wav_from_samples(samples: &[f32], sample_rate: u32, path: &std::path::Path) -> Result<(), String> {
+fn wav_from_samples(
+    samples: &[f32],
+    sample_rate: u32,
+    path: &std::path::Path,
+) -> Result<(), String> {
     use std::io::Write;
 
     let mut raw = Vec::with_capacity(samples.len() * 2);
@@ -174,18 +179,27 @@ fn wav_from_samples(samples: &[f32], sample_rate: u32, path: &std::path::Path) -
 
     let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
     f.write_all(b"RIFF").map_err(|e| e.to_string())?;
-    f.write_all(&file_size.to_le_bytes()).map_err(|e| e.to_string())?;
+    f.write_all(&file_size.to_le_bytes())
+        .map_err(|e| e.to_string())?;
     f.write_all(b"WAVE").map_err(|e| e.to_string())?;
     f.write_all(b"fmt ").map_err(|e| e.to_string())?;
-    f.write_all(&16u32.to_le_bytes()).map_err(|e| e.to_string())?; // chunk size
-    f.write_all(&1u16.to_le_bytes()).map_err(|e| e.to_string())?;  // PCM
-    f.write_all(&1u16.to_le_bytes()).map_err(|e| e.to_string())?;  // mono
-    f.write_all(&sample_rate.to_le_bytes()).map_err(|e| e.to_string())?;
-    f.write_all(&(sample_rate * 2u32).to_le_bytes()).map_err(|e| e.to_string())?; // byte rate
-    f.write_all(&2u16.to_le_bytes()).map_err(|e| e.to_string())?;  // block align
-    f.write_all(&16u16.to_le_bytes()).map_err(|e| e.to_string())?; // bits per sample
+    f.write_all(&16u32.to_le_bytes())
+        .map_err(|e| e.to_string())?; // chunk size
+    f.write_all(&1u16.to_le_bytes())
+        .map_err(|e| e.to_string())?; // PCM
+    f.write_all(&1u16.to_le_bytes())
+        .map_err(|e| e.to_string())?; // mono
+    f.write_all(&sample_rate.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    f.write_all(&(sample_rate * 2u32).to_le_bytes())
+        .map_err(|e| e.to_string())?; // byte rate
+    f.write_all(&2u16.to_le_bytes())
+        .map_err(|e| e.to_string())?; // block align
+    f.write_all(&16u16.to_le_bytes())
+        .map_err(|e| e.to_string())?; // bits per sample
     f.write_all(b"data").map_err(|e| e.to_string())?;
-    f.write_all(&data_size.to_le_bytes()).map_err(|e| e.to_string())?;
+    f.write_all(&data_size.to_le_bytes())
+        .map_err(|e| e.to_string())?;
     f.write_all(&raw).map_err(|e| e.to_string())?;
 
     Ok(())
@@ -216,7 +230,11 @@ pub fn delete_history_entry(id: i64) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn update_history_entry(id: i64, raw_text: String, formatted_text: Option<String>) -> Result<(), String> {
+pub fn update_history_entry(
+    id: i64,
+    raw_text: String,
+    formatted_text: Option<String>,
+) -> Result<(), String> {
     let manager = HistoryManager::new();
     manager
         .update(id, &raw_text, formatted_text.as_deref())
