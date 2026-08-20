@@ -5,14 +5,16 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 use std::thread;
 
-use crate::paste::paste_text;
 use crate::engine::{create_local_engine, CloudEngineProvider, EngineProvider};
+use crate::paste::paste_text;
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static VAD_ENABLED: AtomicBool = AtomicBool::new(true);
-pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
-pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
+pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static ENGINE_MODE: Mutex<String> = Mutex::new(String::new());
 pub static INPUT_DEVICE: Mutex<String> = Mutex::new(String::new()); // empty = system default
@@ -33,7 +35,8 @@ pub static CLOUD_MODEL: Mutex<String> = Mutex::new(String::new());
 pub fn model_display_name(path: &std::path::Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     if name.starts_with("parakeet-") {
-        name.replace("parakeet-", "Parakeet ").replace("-int8", " (INT8)")
+        name.replace("parakeet-", "Parakeet ")
+            .replace("-int8", " (INT8)")
     } else {
         name.to_string()
     }
@@ -79,17 +82,28 @@ impl TranscriptionCoordinator {
     /// Selected input device name (empty = system default), for cpal resolution.
     fn input_device(&self) -> Option<String> {
         let d = INPUT_DEVICE.lock().unwrap();
-        if d.is_empty() { None } else { Some(d.clone()) }
+        if d.is_empty() {
+            None
+        } else {
+            Some(d.clone())
+        }
     }
 
     pub fn run(mut self) {
         while let Ok(command) = self.rx.recv() {
+            // Drop ghost presses queued while we were transcribing ( Processing is synchronous )
+            if self.state == CoordinatorState::Processing {
+                // Drain any burst that arrived while busy
+                while self.rx.try_recv().is_ok() {}
+                continue;
+            }
             match command {
                 CoordinatorCommand::Hotkey(HotkeyEvent::Pressed) => {
                     let is_push_to_talk = HOTKEY_MODE.load(Ordering::Relaxed);
                     if is_push_to_talk {
                         if self.state == CoordinatorState::Idle {
-                            if let Err(e) = self.audio_recorder.start_recording(self.input_device()) {
+                            if let Err(e) = self.audio_recorder.start_recording(self.input_device())
+                            {
                                 eprintln!("Failed to start recording: {}", e);
                             } else {
                                 self.play_sound(800.0, 100);
@@ -100,7 +114,9 @@ impl TranscriptionCoordinator {
                         // Toggle mode
                         match self.state {
                             CoordinatorState::Idle => {
-                                if let Err(e) = self.audio_recorder.start_recording(self.input_device()) {
+                                if let Err(e) =
+                                    self.audio_recorder.start_recording(self.input_device())
+                                {
                                     eprintln!("Failed to start recording: {}", e);
                                 } else {
                                     self.play_sound(800.0, 100);
@@ -117,7 +133,9 @@ impl TranscriptionCoordinator {
                 }
                 CoordinatorCommand::Hotkey(HotkeyEvent::Released) => {
                     // Only act on release in push-to-talk mode
-                    if HOTKEY_MODE.load(Ordering::Relaxed) && self.state == CoordinatorState::Recording {
+                    if HOTKEY_MODE.load(Ordering::Relaxed)
+                        && self.state == CoordinatorState::Recording
+                    {
                         self.play_sound(600.0, 150);
                         self.stop_and_process();
                     }
@@ -157,12 +175,24 @@ impl TranscriptionCoordinator {
         if !trimmed.is_empty() {
             let mode = ENGINE_MODE.lock().unwrap().clone();
             let result = if mode == "cloud" {
-                let _provider = CLOUD_PROVIDER.lock().unwrap().clone();
-                let base_url = CLOUD_BASE_URL.lock().unwrap().clone();
-                let api_key = CLOUD_API_KEY.lock().unwrap().clone();
-                let model = CLOUD_MODEL.lock().unwrap().clone();
-                let engine = CloudEngineProvider::new(base_url, api_key, model);
-                engine.transcribe(&trimmed, 16000)
+                let provider = CLOUD_PROVIDER.lock().unwrap().clone();
+                let mut base_url = CLOUD_BASE_URL.lock().unwrap().clone();
+                if base_url.trim().is_empty() {
+                    base_url = match provider.as_str() {
+                        "openai" => "https://api.openai.com/v1".into(),
+                        "groq" => "https://api.groq.com/openai/v1".into(),
+                        _ => base_url,
+                    };
+                }
+                if base_url.trim().is_empty() {
+                    // No provider and no URL — fail fast instead of reqwest relative-URL error
+                    Err("Cloud provider not configured (missing base URL)".into())
+                } else {
+                    let api_key = CLOUD_API_KEY.lock().unwrap().clone();
+                    let model = CLOUD_MODEL.lock().unwrap().clone();
+                    let engine = CloudEngineProvider::new(base_url, api_key, model);
+                    engine.transcribe(&trimmed, 16000)
+                }
             } else {
                 let model_path = {
                     let guard = CURRENT_MODEL.lock().unwrap();
@@ -180,7 +210,9 @@ impl TranscriptionCoordinator {
                         return;
                     }
                     None => {
-                        eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
+                        eprintln!(
+                            "No model selected. Go to Engine tab and activate a downloaded model."
+                        );
                         self.set_state(CoordinatorState::Idle);
                         crate::show_overlay_error();
                         return;
@@ -243,7 +275,11 @@ impl TranscriptionCoordinator {
                     if let Err(e) = paste_text(&final_text, &paste_method) {
                         eprintln!("Paste failed: {}", e);
                     }
-                    let duration_ms = samples.len() as i64 / 16;
+                    let duration_ms = if device_sr > 0 {
+                        (samples.len() as i64 * 1000) / device_sr as i64
+                    } else {
+                        0
+                    };
                     let history = crate::history::HistoryManager::new();
                     if let Err(e) = history.insert(
                         &text,
@@ -271,9 +307,14 @@ impl TranscriptionCoordinator {
                     crate::show_overlay_error();
                 }
             }
+        } else {
+            eprintln!("No speech detected (VAD trimmed all audio)");
+            crate::show_overlay_error();
         }
 
         self.set_state(CoordinatorState::Idle);
+        // Discard presses that were queued while transcribing
+        while self.rx.try_recv().is_ok() {}
         self.play_sound(1000.0, 200); // Finished processing beep
     }
 
@@ -303,7 +344,9 @@ mod tests {
         });
 
         // Send pressed event
-        cmd_tx.send(CoordinatorCommand::Hotkey(HotkeyEvent::Pressed)).unwrap();
+        cmd_tx
+            .send(CoordinatorCommand::Hotkey(HotkeyEvent::Pressed))
+            .unwrap();
         // Since start_recording might fail in unit test without audio device, let's verify coordinator builds and channels work
     }
 }

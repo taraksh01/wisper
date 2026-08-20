@@ -41,16 +41,11 @@ pub struct WordSuggestion {
     pub count: u32,
 }
 
-pub struct WordsManager {
-    conn: Mutex<Connection>,
-}
-
-impl WordsManager {
-    pub fn new() -> Self {
-        let db_path = Self::db_path();
-        let conn = Connection::open(&db_path).expect("Failed to open words database");
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS words (
+static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::Lazy::new(|| {
+    let db_path = WordsManager::db_path();
+    let conn = Connection::open(&db_path).expect("Failed to open words database");
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 phrase TEXT NOT NULL,
                 variants TEXT DEFAULT '',
@@ -63,11 +58,21 @@ impl WordsManager {
             CREATE TABLE IF NOT EXISTS ignored_terms (
                 term TEXT PRIMARY KEY COLLATE NOCASE
             );",
-        )
-        .expect("Failed to create words table");
-        Self {
-            conn: Mutex::new(conn),
-        }
+    )
+    .expect("Failed to create words table");
+    Mutex::new(conn)
+});
+
+pub struct WordsManager;
+
+impl WordsManager {
+    pub fn new() -> Self {
+        let _ = &*WORDS_CONN;
+        Self
+    }
+
+    fn conn() -> std::sync::MutexGuard<'static, Connection> {
+        WORDS_CONN.lock().unwrap()
     }
 
     fn db_path() -> PathBuf {
@@ -79,7 +84,7 @@ impl WordsManager {
     }
 
     pub fn all(&self) -> SqlResult<Vec<WordEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         let mut stmt = conn.prepare(
             "SELECT id, phrase, variants, case_sensitive, whole_word, auto, hits, created_at
              FROM words ORDER BY hits DESC, id DESC",
@@ -109,7 +114,7 @@ impl WordsManager {
         whole_word: bool,
         auto: bool,
     ) -> SqlResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute(
             "INSERT INTO words (phrase, variants, case_sensitive, whole_word, auto)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -126,7 +131,7 @@ impl WordsManager {
         case_sensitive: bool,
         whole_word: bool,
     ) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute(
             "UPDATE words SET phrase = ?1, variants = ?2, case_sensitive = ?3, whole_word = ?4
              WHERE id = ?5",
@@ -136,13 +141,13 @@ impl WordsManager {
     }
 
     pub fn delete(&self, id: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute("DELETE FROM words WHERE id = ?1", params![id])?;
         Ok(())
     }
 
     fn bump_hits(&self, id: i64) {
-        if let Ok(conn) = self.conn.lock() {
+        if let Ok(conn) = WORDS_CONN.lock() {
             let _ = conn.execute("UPDATE words SET hits = hits + 1 WHERE id = ?1", params![id]);
         }
     }
@@ -164,7 +169,7 @@ impl WordsManager {
     }
 
     pub fn ignore(&self, term: &str) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute(
             "INSERT OR IGNORE INTO ignored_terms (term) VALUES (?1)",
             params![term],
@@ -173,7 +178,7 @@ impl WordsManager {
     }
 
     pub fn remove_ignored(&self, term: &str) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         conn.execute(
             "DELETE FROM ignored_terms WHERE term = ?1",
             params![term.to_lowercase()],
@@ -183,7 +188,7 @@ impl WordsManager {
 
     fn ignored_terms(&self) -> std::collections::HashSet<String> {
         let mut set = std::collections::HashSet::new();
-        let conn = match self.conn.lock() {
+        let conn = match WORDS_CONN.lock() {
             Ok(c) => c,
             Err(_) => return set,
         };
@@ -198,7 +203,7 @@ impl WordsManager {
     }
 
     pub fn ignored_list(&self) -> SqlResult<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = Self::conn();
         let mut stmt = conn.prepare("SELECT term FROM ignored_terms")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         Ok(rows.flatten().collect())

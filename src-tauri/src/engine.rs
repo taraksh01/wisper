@@ -41,13 +41,20 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
     if input_rate == output_rate {
         return input.to_vec();
     }
+    if input.is_empty() {
+        return Vec::new();
+    }
     let ratio = output_rate as f64 / input_rate as f64;
     let output_len = (input.len() as f64 * ratio) as usize;
     let mut output = Vec::with_capacity(output_len);
     for i in 0..output_len {
-        let src_idx = (i as f64 / ratio) as usize;
-        let src_idx = src_idx.min(input.len().saturating_sub(1));
-        output.push(input[src_idx]);
+        let src_pos = i as f64 / ratio;
+        let idx = src_pos as usize;
+        let frac = (src_pos - idx as f64) as f32;
+        let a = input[idx.min(input.len() - 1)];
+        let b = input[(idx + 1).min(input.len() - 1)];
+        // Linear interpolation reduces aliasing vs nearest-neighbour
+        output.push(a * (1.0 - frac) + b * frac);
     }
     output
 }
@@ -89,7 +96,10 @@ impl EngineProvider for CloudEngineProvider {
             .text("model", self.model.clone())
             .part("file", part);
 
-        let endpoint = format!("{}/audio/transcriptions", self.base_url.trim_end_matches('/'));
+        let endpoint = format!(
+            "{}/audio/transcriptions",
+            self.base_url.trim_end_matches('/')
+        );
 
         let resp = client
             .post(&endpoint)
@@ -99,7 +109,10 @@ impl EngineProvider for CloudEngineProvider {
             .map_err(|e| format!("HTTP request failed: {}", e))?;
 
         if !resp.status().is_success() {
-            return Err(format!("Cloud API error: {}", resp.text().unwrap_or_default()));
+            return Err(format!(
+                "Cloud API error: {}",
+                resp.text().unwrap_or_default()
+            ));
         }
 
         let json: serde_json::Value = resp

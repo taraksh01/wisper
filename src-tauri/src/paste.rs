@@ -127,6 +127,8 @@ pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
     r
 }
 
+static CLIPBOARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     let mut clipboard = match Clipboard::new() {
         Ok(c) => c,
@@ -134,8 +136,10 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     };
 
     let original_text = clipboard.get_text().ok();
+    let expected = text.to_string();
+    let gen = CLIPBOARD_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
 
-    if let Err(e) = clipboard.set_text(text.to_string()) {
+    if let Err(e) = clipboard.set_text(expected.clone()) {
         return Err(format!("Failed to set clipboard text: {}", e));
     }
 
@@ -146,8 +150,16 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     if let Some(orig) = original_text {
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(250));
+            // Only restore if no newer dictation has overwritten the clipboard
+            if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
+                return;
+            }
             if let Ok(mut c) = Clipboard::new() {
-                let _ = c.set_text(orig);
+                if let Ok(cur) = c.get_text() {
+                    if cur == expected {
+                        let _ = c.set_text(orig);
+                    }
+                }
             }
         });
     }
@@ -167,7 +179,9 @@ fn simulate_key_combo(method: &str) -> Result<(), String> {
 
 fn wtype_paste(method: &str) -> Result<(), String> {
     let args: Vec<&str> = match method {
-        "Ctrl+Shift+V" => vec!["-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
+        "Ctrl+Shift+V" => vec![
+            "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl",
+        ],
         "Shift+Insert" => vec!["-M", "shift", "-k", "Insert", "-m", "shift"],
         _ => vec!["-M", "ctrl", "-k", "v", "-m", "ctrl"],
     };
@@ -207,30 +221,51 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
 }
 
 fn enigo_paste(method: &str) -> Result<(), String> {
-    let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
+    let mut enigo =
+        Enigo::new(&Settings::default()).map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
 
-    match method {
+    let res: Result<(), String> = match method {
         "Ctrl+Shift+V" => {
-            let _ = enigo.key(Key::Control, Direction::Press);
-            let _ = enigo.key(Key::Shift, Direction::Press);
-            let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-            let _ = enigo.key(Key::Shift, Direction::Release);
-            let _ = enigo.key(Key::Control, Direction::Release);
+            enigo
+                .key(Key::Control, Direction::Press)
+                .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
+            enigo
+                .key(Key::Shift, Direction::Press)
+                .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
+            enigo
+                .key(Key::Unicode('v'), Direction::Click)
+                .map_err(|e| format!("Enigo V failed: {:?}", e))?;
+            enigo
+                .key(Key::Shift, Direction::Release)
+                .map_err(|e| format!("Enigo Shift release failed: {:?}", e))?;
+            enigo
+                .key(Key::Control, Direction::Release)
+                .map_err(|e| format!("Enigo Ctrl release failed: {:?}", e))
         }
         "Shift+Insert" => {
-            let _ = enigo.key(Key::Shift, Direction::Press);
-            let _ = enigo.key(Key::Insert, Direction::Click);
-            let _ = enigo.key(Key::Shift, Direction::Release);
+            enigo
+                .key(Key::Shift, Direction::Press)
+                .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
+            enigo
+                .key(Key::Insert, Direction::Click)
+                .map_err(|e| format!("Enigo Insert failed: {:?}", e))?;
+            enigo
+                .key(Key::Shift, Direction::Release)
+                .map_err(|e| format!("Enigo Shift release failed: {:?}", e))
         }
         _ => {
-            let _ = enigo.key(Key::Control, Direction::Press);
-            let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-            let _ = enigo.key(Key::Control, Direction::Release);
+            enigo
+                .key(Key::Control, Direction::Press)
+                .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
+            enigo
+                .key(Key::Unicode('v'), Direction::Click)
+                .map_err(|e| format!("Enigo V failed: {:?}", e))?;
+            enigo
+                .key(Key::Control, Direction::Release)
+                .map_err(|e| format!("Enigo Ctrl release failed: {:?}", e))
         }
-    }
-
-    Ok(())
+    };
+    res
 }
 
 fn type_text_directly(text: &str) -> Result<(), String> {
@@ -259,8 +294,8 @@ fn type_text_directly(text: &str) -> Result<(), String> {
         _ => {}
     }
 
-    let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
+    let mut enigo =
+        Enigo::new(&Settings::default()).map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
 
     enigo
         .text(text)

@@ -133,7 +133,11 @@ fn get_paste_environment(preference: String) -> paste::PasteEnvironment {
 #[tauri::command]
 fn get_current_state() -> String {
     let state = STATE_LOCK.lock().unwrap();
-    format!("{:?}", *state)
+    match *state {
+        CoordinatorState::Idle => "idle".into(),
+        CoordinatorState::Recording => "recording".into(),
+        CoordinatorState::Processing => "processing".into(),
+    }
 }
 
 #[tauri::command]
@@ -251,7 +255,10 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
         if *OVERLAY_ENABLED.lock().unwrap() {
             create_overlay(app);
-            return update_overlay(app, state);
+            // Guard against infinite recursion if build() failed (e.g. compositor rejects transparent window)
+            if app.get_webview_window(OVERLAY_LABEL).is_some() {
+                return update_overlay(app, state);
+            }
         }
         return;
     };
@@ -484,8 +491,14 @@ pub fn run() {
                     }
                 });
             // libayatana-appindicator prints a deprecation warning to C stderr
-            // during tray construction. Silence it for the build() call only.
-            let tray = silence_stderr(|| tray_builder.build(app))?;
+            // during tray construction. Degrade gracefully if tray fails (e.g. no tray available).
+            let tray: Option<tauri::tray::TrayIcon> = match silence_stderr(|| tray_builder.build(app)) {
+                Ok(t) => Some(t),
+                Err(e) => {
+                    eprintln!("Tray build failed (running without tray): {}", e);
+                    None
+                }
+            };
 
             let (cmd_tx, cmd_rx) = mpsc::channel();
             let (state_tx, state_rx) = mpsc::channel();
@@ -570,13 +583,15 @@ pub fn run() {
                 let _ = app.autolaunch().disable();
             }
 
-            // Show the window on startup unless the user prefers launching to
-            // the tray only (they still need the window to configure the app).
-            if !saved_settings.launch_to_tray {
+            // Window visibility is user-controlled via General →
+            // Startup → Launch to system tray (no `visible` in tauri.conf).
+            if saved_settings.launch_to_tray {
                 if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
+                    let _ = win.hide();
                 }
+            } else if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.set_focus();
             }
 
             let recorder = AudioRecorder::new();
@@ -624,7 +639,9 @@ pub fn run() {
                         CoordinatorState::Recording => format!("{} - Recording...", dn),
                         CoordinatorState::Processing => format!("{} - Processing...", dn),
                     };
-                    let _ = tray.set_tooltip(Some(&tooltip));
+                    if let Some(tray) = &tray {
+                        let _ = tray.set_tooltip(Some(&tooltip));
+                    }
                     {
                         let mut lock = STATE_LOCK.lock().unwrap();
                         *lock = state;
@@ -637,8 +654,11 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().unwrap();
-                api.prevent_close();
+                // Only intercept the main window; overlay is managed via destroy()
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![

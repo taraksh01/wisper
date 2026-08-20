@@ -17,10 +17,15 @@ pub fn list_input_devices() -> Vec<(String, String)> {
         .map(|devices| {
             // Best capture node per physical device name: dsnoop > hw > plughw > rest.
             let rank = |id: &str| {
-                if id.contains("dsnoop") { 0 }
-                else if id.contains("hw:CARD") || id.contains("hw=") { 1 }
-                else if id.contains("plughw") { 2 }
-                else { 3 }
+                if id.contains("dsnoop") {
+                    0
+                } else if id.contains("hw:CARD") || id.contains("hw=") {
+                    1
+                } else if id.contains("plughw") {
+                    2
+                } else {
+                    3
+                }
             };
             let is_virtual = |name: &str, id: &str| {
                 id.contains(":null")
@@ -29,7 +34,8 @@ pub fn list_input_devices() -> Vec<(String, String)> {
                     || name.contains("Discard all samples")
                     || name.contains("Default ALSA Output")
             };
-            let mut best: std::collections::HashMap<String, (String, usize)> = std::collections::HashMap::new();
+            let mut best: std::collections::HashMap<String, (String, usize)> =
+                std::collections::HashMap::new();
             for d in devices {
                 let name = d.to_string();
                 if name.is_empty() {
@@ -45,7 +51,9 @@ pub fn list_input_devices() -> Vec<(String, String)> {
                 let r = rank(&id);
                 match best.get(&name) {
                     Some(existing) if existing.1 <= r => {}
-                    _ => { best.insert(name.clone(), (id, r)); }
+                    _ => {
+                        best.insert(name.clone(), (id, r));
+                    }
                 }
             }
             best.into_iter().map(|(name, (id, _))| (id, name)).collect()
@@ -60,14 +68,17 @@ fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
     if let Some(id) = device {
         if !id.is_empty() {
             if let Ok(mut devices) = host.input_devices() {
-                if let Some(d) = devices.find(|d| d.id().ok().map(|i| i.to_string()) == Some(id.to_string())) {
+                if let Some(d) =
+                    devices.find(|d| d.id().ok().map(|i| i.to_string()) == Some(id.to_string()))
+                {
                     return Ok(d);
                 }
             }
-            return Err(format!("Input device '{}' not found", id));
+            eprintln!("Input device '{}' not found, falling back to default", id);
         }
     }
-    host.default_input_device().ok_or("No input device available".into())
+    host.default_input_device()
+        .ok_or("No input device available".into())
 }
 
 #[derive(Clone)]
@@ -115,13 +126,21 @@ impl AudioRecorder {
         let level_clone = self.level.clone();
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => Self::build_stream::<f32>(&device, &config.into(), buffer_clone, level_clone),
-            cpal::SampleFormat::I16 => Self::build_stream::<i16>(&device, &config.into(), buffer_clone, level_clone),
-            cpal::SampleFormat::U16 => Self::build_stream::<u16>(&device, &config.into(), buffer_clone, level_clone),
+            cpal::SampleFormat::F32 => {
+                Self::build_stream::<f32>(&device, &config.into(), buffer_clone, level_clone)
+            }
+            cpal::SampleFormat::I16 => {
+                Self::build_stream::<i16>(&device, &config.into(), buffer_clone, level_clone)
+            }
+            cpal::SampleFormat::U16 => {
+                Self::build_stream::<u16>(&device, &config.into(), buffer_clone, level_clone)
+            }
             _ => Err("Unsupported sample format".into()),
         }?;
 
-        stream.play().map_err(|e| format!("Failed to play stream: {}", e))?;
+        stream
+            .play()
+            .map_err(|e| format!("Failed to play stream: {}", e))?;
 
         let mut current_stream = self.stream.lock().unwrap();
         *current_stream = Some(stream);
@@ -159,12 +178,20 @@ impl AudioRecorder {
         let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
         let level_clone = self.level.clone();
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => Self::build_stream::<f32>(&device, &config.into(), buf.clone(), level_clone),
-            cpal::SampleFormat::I16 => Self::build_stream::<i16>(&device, &config.into(), buf.clone(), level_clone),
-            cpal::SampleFormat::U16 => Self::build_stream::<u16>(&device, &config.into(), buf.clone(), level_clone),
+            cpal::SampleFormat::F32 => {
+                Self::build_stream::<f32>(&device, &config.into(), buf.clone(), level_clone)
+            }
+            cpal::SampleFormat::I16 => {
+                Self::build_stream::<i16>(&device, &config.into(), buf.clone(), level_clone)
+            }
+            cpal::SampleFormat::U16 => {
+                Self::build_stream::<u16>(&device, &config.into(), buf.clone(), level_clone)
+            }
             _ => Err("Unsupported sample format".into()),
         }?;
-        stream.play().map_err(|e| format!("Failed to play stream: {}", e))?;
+        stream
+            .play()
+            .map_err(|e| format!("Failed to play stream: {}", e))?;
         *self.stream.lock().unwrap() = Some(stream);
         Ok(())
     }
@@ -196,6 +223,10 @@ impl AudioRecorder {
                 config.clone(),
                 move |data: &[T], _: &_| {
                     let mut b = buffer.lock().unwrap();
+                    // Cap at ~5 minutes at 48kHz (~14M mono samples) to avoid OOM if hotkey stuck
+                    if b.len() > 15_000_000 {
+                        return;
+                    }
                     let mut sum_sq: f32 = 0.0;
                     let mut count: usize = 0;
                     // Downmix to mono if stereo, and convert to f32
@@ -249,14 +280,19 @@ pub fn save_wav(filename: &str, data: &[f32], sample_rate: u32) -> Result<(), ho
 }
 
 pub fn load_wav(filename: &str) -> Result<(Vec<f32>, u32), String> {
-    let mut reader = hound::WavReader::open(filename).map_err(|e| format!("Failed to open WAV: {}", e))?;
+    let mut reader =
+        hound::WavReader::open(filename).map_err(|e| format!("Failed to open WAV: {}", e))?;
     let spec = reader.spec();
     let sample_rate = spec.sample_rate;
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?,
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?,
         hound::SampleFormat::Int => {
             let max = 2i32.pow(spec.bits_per_sample as u32 - 1) as f32;
-            reader.samples::<i32>()
+            reader
+                .samples::<i32>()
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| e.to_string())?
                 .into_iter()
