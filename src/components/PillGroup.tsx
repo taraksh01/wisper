@@ -14,13 +14,14 @@ interface PillGroupProps {
 
 export function PillGroup({ value, options, onChange, title }: PillGroupProps) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5" role="group">
       {options.map((opt) => (
         <button
           key={opt.value}
           onClick={() => !opt.disabled && onChange(opt.value)}
           disabled={opt.disabled}
-          title={title}
+          aria-pressed={value === opt.value}
+          title={opt.title ?? title}
           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-150 ${
             opt.disabled
               ? "text-muted/40 cursor-not-allowed"

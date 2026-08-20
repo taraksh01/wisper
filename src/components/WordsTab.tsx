@@ -44,7 +44,7 @@ export function WordsTab({ settings, onSave, onReset }: WordsTabProps) {
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
-          <h1 className="text-sm font-semibnold text-ink tracking-tight">Words</h1>
+          <h1 className="text-sm font-semibold text-ink tracking-tight">Words</h1>
         </div>
         <ResetButton onClick={onReset} />
       </div>
@@ -55,8 +55,7 @@ export function WordsTab({ settings, onSave, onReset }: WordsTabProps) {
             <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Custom Words</h2>
             <p className="text-[11px] text-muted mt-1 leading-relaxed">Correct names and terms in every dictation.</p>
           </div>
-          <Switch
-            checked={settings.words_enabled}
+          <Switch label="Custom words" checked={settings.words_enabled}
             onChange={(v) => onSave("words_enabled", v)}
           />
         </div>

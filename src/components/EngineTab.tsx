@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { AppSettings, modelCatalog, allModelKeys, languages, formatModelFilename } from "../types";
 import ModelCard from "./ModelCard";
 import { Select } from "./Select";
@@ -48,33 +48,23 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   useEffect(() => {
     fetchModels();
-    let cancelled = false;
-    let unlistenProgress: UnlistenFn | undefined;
-    let unlistenCanceled: UnlistenFn | undefined;
-    (async () => {
-      unlistenProgress = await listen<{ model: string; progress: number }>("download-progress", (event) => {
-        const { model, progress } = event.payload;
-        setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
+    const unlistenProgressPromise = listen<{ model: string; progress: number }>("download-progress", (event) => {
+      const { model, progress } = event.payload;
+      setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
+    });
+    const unlistenCanceledPromise = listen<{ model: string }>("download-canceled", (event) => {
+      const { model } = event.payload;
+      setDownloading(null);
+      setDownloadProgress((prev) => {
+        const next = { ...prev };
+        delete next[model];
+        return next;
       });
-      unlistenCanceled = await listen<{ model: string }>("download-canceled", (event) => {
-        const { model } = event.payload;
-        setDownloading(null);
-        setDownloadProgress((prev) => {
-          const next = { ...prev };
-          delete next[model];
-          return next;
-        });
-        addToast(`Download canceled: ${model}`, "info");
-      });
-      if (cancelled) {
-        if (unlistenProgress) unlistenProgress();
-        if (unlistenCanceled) unlistenCanceled();
-      }
-    })();
+      addToast(`Download canceled: ${model}`, "info");
+    });
     return () => {
-      cancelled = true;
-      if (unlistenProgress) unlistenProgress();
-      if (unlistenCanceled) unlistenCanceled();
+      unlistenProgressPromise.then((fn) => fn()).catch(() => {});
+      unlistenCanceledPromise.then((fn) => fn()).catch(() => {});
     };
   }, []);
 

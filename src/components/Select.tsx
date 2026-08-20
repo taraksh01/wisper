@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId } from "react";
 import { createPortal } from "react-dom";
 
 export function Select({
@@ -25,19 +25,26 @@ export function Select({
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const autoId = useId();
+  const buttonId = label ? `select-${label.replace(/\s+/g, "-").toLowerCase()}` : `select-${autoId}`;
+  const listId = `select-list-${buttonId}`;
 
   const selected = options.find((o) => o.value === value);
   const enabledOptions = options;
   const activeIndexRef = useRef(Math.max(0, enabledOptions.findIndex((o) => o.value === value)));
 
+  useEffect(() => {
+    activeIndexRef.current = Math.max(0, enabledOptions.findIndex((o) => o.value === value));
+  }, [value, enabledOptions]);
+
   const moveActive = useCallback((dir: 1 | -1) => {
     if (enabledOptions.length === 0) return;
     const next = (activeIndexRef.current + dir + enabledOptions.length) % enabledOptions.length;
     activeIndexRef.current = next;
-    const list = document.getElementById(`select-list-${buttonRef.current?.id ?? ""}`);
+    const list = document.getElementById(listId);
     list?.querySelectorAll<HTMLElement>("[data-opt]")[next]?.scrollIntoView({ block: "nearest" });
     setForceRender((r) => r + 1);
-  }, [enabledOptions.length]);
+  }, [enabledOptions.length, listId]);
 
   const updatePos = useCallback(() => {
     if (!buttonRef.current) return;
@@ -86,10 +93,11 @@ export function Select({
       {label && <label className="label-soft block mb-1">{label}</label>}
       <div className="relative w-full" ref={containerRef}>
         <button
-          id={label ? `select-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined}
+          id={buttonId}
           ref={buttonRef}
           aria-haspopup="listbox"
           aria-expanded={open}
+          aria-controls={listId}
           onClick={() => setOpen((p) => !p)}
           onKeyDown={(e) => {
             if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
@@ -125,7 +133,7 @@ export function Select({
 
         {open && pos && createPortal(
           <div
-            id={buttonRef.current?.id ? `select-list-${buttonRef.current.id}` : undefined}
+            id={listId}
             role="listbox"
             className="fixed z-[9999] bg-surface border border-stroke rounded-md shadow-lg overflow-y-auto custom-scrollbar py-1"
             style={{

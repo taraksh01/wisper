@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { Onboarding } from "./components/Onboarding";
@@ -58,24 +58,20 @@ function AppShell() {
     fetchAgentProfiles();
     invoke<string>("get_current_state").then(setAppState).catch((e) => { console.error(e); });
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
-    invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment")
+    invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment", { preference: "auto" })
       .then(setPasteEnv)
       .catch(() => {});
 
-    let unlisten: UnlistenFn | undefined;
-    let unlistenTab: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen<string>("wisper:state", (event) => {
-        setAppState(event.payload);
-      });
-      unlistenTab = await listen<string>("wisper:open-tab", (event) => {
-        setActiveTab(event.payload);
-      });
-    })();
+    const unlistenStatePromise = listen<string>("wisper:state", (event) => {
+      setAppState(event.payload);
+    });
+    const unlistenTabPromise = listen<string>("wisper:open-tab", (event) => {
+      setActiveTab(event.payload);
+    });
 
     return () => {
-      if (unlisten) unlisten();
-      if (unlistenTab) unlistenTab();
+      unlistenStatePromise.then((fn) => fn()).catch(() => {});
+      unlistenTabPromise.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -88,15 +84,20 @@ function AppShell() {
     } catch {}
   }, []);
 
+  const hasMounted = useRef(false);
   useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
     if (appState === "idle") {
       const h = invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
       const s = invoke<[number, number, number]>("get_history_stats");
-      const settings = invoke<AppSettings>("load_settings");
-      Promise.all([h, s, settings]).then(([entries, stats, st]) => {
+      const settingsReq = invoke<AppSettings>("load_settings");
+      Promise.all([h, s, settingsReq]).then(([entries, st, stt]) => {
         setHistory(entries);
-        setStats(stats);
-        setSettings(st);
+        setStats(st);
+        setSettings(stt);
       }).catch(() => {});
     }
   }, [appState]);
@@ -112,27 +113,28 @@ function AppShell() {
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
   };
 
+  const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
   const saveSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     if (!settings) return;
     const updated = { ...settings, [key]: value };
     setSettings(updated);
-    console.log("[saveSetting]", key, value);
+    console.log("[saveSetting]", key);
     const msg = settingToast(key, value);
     invoke("save_settings", { settings: updated })
       .then(() => { if (msg) toast.addToast(msg, "success"); })
       .catch((e) => { console.error("[saveSetting]", e); toast.addToast("Failed to save settings", "error"); });
-    refreshCurrentModel();
+    if ((MODEL_KEYS as string[]).includes(key as string)) refreshCurrentModel();
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
     if (!settings) return;
     const merged = { ...settings, ...updates };
     setSettings(merged);
-    console.log("[saveAllSettings]", updates);
+    console.log("[saveAllSettings]");
     invoke("save_settings", { settings: merged })
       .then(() => { toast.addToast("Settings saved", "success"); })
       .catch((e) => { console.error("[saveAllSettings]", e); toast.addToast("Failed to save settings", "error"); });
-    refreshCurrentModel();
+    if (Object.keys(updates).some((k) => (MODEL_KEYS as string[]).includes(k))) refreshCurrentModel();
   };
 
   const settingToast = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): string | null => {
@@ -146,7 +148,7 @@ function AppShell() {
       case "keep_recordings": return `Keep recordings ${on(Boolean(value))}`;
       case "overlay_enabled": return `Recording overlay ${on(Boolean(value))}`;
       case "overlay_position": return `Overlay position: ${String(value)}`;
-      case "hotkey": return `Shortcut: ${String(value)}`;
+      case "hotkey": return null; // handled inline in GeneralTab to avoid double toast + to allow rollback on failure
       case "hotkey_mode": return `Mode: ${String(value)}`;
       case "paste_tool": return `Paste tool: ${String(value)}`;
       case "input_device": return value ? `Microphone: ${String(value)}` : "Microphone: System default";
@@ -244,7 +246,7 @@ function AppShell() {
   };
 
   return (
-    <div className={`h-screen ${dark ? "dark" : "light"} bg-base text-ink flex font-sans select-none`}>
+    <div className={`h-screen ${dark ? "dark" : "light"} bg-base text-ink flex font-sans`}>
         {!onboarded && settings && (
           <Onboarding
             env={pasteEnv}

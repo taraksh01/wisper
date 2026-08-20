@@ -42,6 +42,7 @@
 }
 .light[data-dev="true"] {
   --color-accent: #7c3aed;
+  --color-accent-dim: #6d28d9;
 }
 
 /* ─── Theme color scheme (native scrollbars, form controls) ─── */

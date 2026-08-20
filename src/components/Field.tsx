@@ -28,9 +28,11 @@ export function Field({
         {secret && (
           <button
             type="button"
-            onMouseDown={(e) => { e.preventDefault(); setShow(!show); }}
+            onClick={() => setShow(!show)}
+            onMouseDown={(e) => e.preventDefault()}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
             aria-label={show ? "Hide value" : "Show value"}
+            aria-pressed={show}
           >
             {show ? (
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

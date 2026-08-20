@@ -113,8 +113,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
           <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">AI Post-Processing</h2>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted font-mono">Enabled</span>
-            <Switch
-              checked={settings.process_enabled}
+            <Switch label="AI processing" checked={settings.process_enabled}
               onChange={(v) => onSave("process_enabled", v)}
             />
           </div>

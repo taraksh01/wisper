@@ -67,13 +67,13 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
   useEffect(() => {
     let alive = true;
-    invoke<PasteEnvironment>("get_paste_environment")
+    invoke<PasteEnvironment>("get_paste_environment", { preference: value })
       .then((e) => alive && setEnv(e))
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [value]);
 
   const options = [
     { value: "auto", label: "Auto" },
@@ -156,10 +156,7 @@ function StartupControl({ value, onChange }: { value: boolean; onChange: (v: boo
   return (
     <div className="flex items-center justify-between gap-3">
       <span className="text-xs text-muted">Start Wisper automatically when you log in</span>
-      <Switch
-        checked={value}
-        onChange={onChange}
-      />
+      <Switch label="Start Wisper automatically when you log in" checked={value} onChange={onChange} />
     </div>
   );
 }
@@ -387,9 +384,9 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       showMessage("Combine a modifier with a key (e.g. CtrlRight+Space)", false);
       return;
     }
-    onSave("hotkey", hotkey);
     try {
       await invoke("set_hotkey", { key: hotkey });
+      onSave("hotkey", hotkey);
       showMessage(`Hotkey set to ${hotkey}`, true);
     } catch (e) {
       showMessage(String(e), false);
@@ -506,10 +503,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
                   Floating recording indicator while you dictate.
                 </p>
               </div>
-              <Switch
-                checked={settings.overlay_enabled}
-                onChange={(v) => onSave("overlay_enabled", v)}
-              />
+              <Switch label="Show Overlay" checked={settings.overlay_enabled} onChange={(v) => onSave("overlay_enabled", v)} />
             </div>
 
             <div className="px-3 py-2.5">
@@ -553,10 +547,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
                 Drop audio below the threshold before transcribing.
               </p>
             </div>
-            <Switch
-              checked={settings.vad_enabled}
-              onChange={(v) => onSave("vad_enabled", v)}
-            />
+            <Switch label="Trim silence from recordings" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
           </div>
           {settings.vad_enabled && (
             <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />
@@ -597,10 +588,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               Start hidden with only the tray icon. The window opens on launch by default so you can set up Wisper.
             </p>
           </div>
-          <Switch
-            checked={settings.launch_to_tray}
-            onChange={(v) => onSave("launch_to_tray", v)}
-          />
+          <Switch label="Launch to system tray" checked={settings.launch_to_tray} onChange={(v) => onSave("launch_to_tray", v)} />
         </div>
       </SectionCard>
 

@@ -103,9 +103,13 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
 
   const copyEntry = useCallback(async (entry: HistoryEntry) => {
     const text = entry.formatted_text || entry.raw_text;
-    await navigator.clipboard.writeText(text);
-    setCopiedId(entry.id);
-    setTimeout(() => setCopiedId(null), 2000);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(entry.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // clipboard may be blocked (e.g. insecure context); ignore
+    }
   }, []);
 
   const togglePlay = useCallback(async (id: number, path: string) => {
@@ -190,7 +194,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
           ].map((s) => (
             <div
               key={s.label}
-              title={s.label === "Time Saved" ? "Estimated at 60 WPM typing speed" : undefined}
+              title={s.label === "Time Saved @60wpm" ? "Estimated at 60 WPM typing speed" : undefined}
               className="bg-elevated/30 rounded-lg px-2 py-2.5 text-center min-w-0"
             >
               <div className="text-lg font-bold font-mono text-accent tabular-nums truncate">{s.value}</div>
@@ -218,8 +222,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
           <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted">
               <span>Keep recordings</span>
-              <Switch
-                checked={settings.keep_recordings}
+              <Switch label="Keep recordings" checked={settings.keep_recordings}
                 onChange={(v) => onSave("keep_recordings", v)}
               />
             </div>
@@ -254,10 +257,10 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             <span className="text-[10px] font-mono text-muted tabular-nums">{selectedIds.size} selected</span>
             {selectedIds.size < filteredHistory.length && (
               <button
-                onClick={() => setSelectedIds(new Set(history.map((e) => e.id)))}
+                onClick={() => setSelectedIds(new Set(filteredHistory.map((e) => e.id)))}
                 className="text-[11px] font-mono text-accent/70 hover:text-accent transition-colors"
               >
-                Select all
+                Select all filtered
               </button>
             )}
             <button

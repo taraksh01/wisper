@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { useEffect } from "react";
 
 interface ConfirmModalProps {
   title: string;
@@ -10,9 +11,14 @@ interface ConfirmModalProps {
 }
 
 export function ConfirmModal({ title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel }: ConfirmModalProps) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onCancel]);
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel}>
-      <div className="bg-surface border border-stroke rounded-xl p-5 max-w-xs w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onCancel} role="dialog" aria-modal="true">
+      <div className="bg-surface border border-stroke rounded-xl p-5 max-w-xs w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()} role="document">
         <h3 className="text-sm font-bold font-mono text-ink mb-2">{title}</h3>
         <p className="text-xs text-muted mb-4 leading-relaxed">{message}</p>
         <div className="flex justify-end gap-2">

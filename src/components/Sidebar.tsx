@@ -158,6 +158,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
               <button
                 key={tab.id}
                 onClick={() => onTabChange(tab.id)}
+                aria-current={isActive ? "page" : undefined}
                 className={`group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 ${
                   isActive
                     ? "bg-accent/12 text-ink"
