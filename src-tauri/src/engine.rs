@@ -219,11 +219,73 @@ impl SherpaIndicProvider {
     }
 }
 
+struct CachedIndic {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static INDIC_CACHE: OnceLock<Mutex<Option<CachedIndic>>> = OnceLock::new();
+
+fn indic_cache() -> &'static Mutex<Option<CachedIndic>> {
+    INDIC_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// Spawn a background check that evicts the cached model if idle past MODEL_TTL.
+fn schedule_indic_eviction(dir: PathBuf) {
+    std::thread::spawn(move || {
+        std::thread::sleep(MODEL_TTL);
+        if let Ok(mut guard) = indic_cache().lock() {
+            if let Some(c) = guard.as_ref() {
+                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                    *guard = None;
+                }
+            }
+        }
+    });
+}
+
 impl EngineProvider for SherpaIndicProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
-        use sherpa_onnx::{
-            OfflineNemoEncDecCtcModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
+        use sherpa_onnx::{OfflineNemoEncDecCtcModelConfig, OfflineRecognizerConfig};
+
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
         };
+
+        // Reuse cached recognizer if same dir and within TTL
+        {
+            let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+            let reuse = guard
+                .as_ref()
+                .map(|c| c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL)
+                .unwrap_or(false);
+            if reuse {
+                let cached = guard.as_mut().unwrap();
+                cached.last_used = Instant::now();
+                let dir = cached.dir.clone();
+                drop(guard);
+                schedule_indic_eviction(dir);
+
+                let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+                let cached = guard.as_mut().unwrap();
+                let stream = cached.recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                cached.recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "Indic decode: no result".to_string())?;
+                return Ok(result.text.trim().to_string());
+            }
+        }
+
+        // Build fresh recognizer (drops old cached one first to free RAM)
+        {
+            let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
 
         let model_path = self.model_dir.join("model.onnx");
         if !model_path.exists() {
@@ -237,20 +299,24 @@ impl EngineProvider for SherpaIndicProvider {
                 let vocab_str = std::fs::read_to_string(&vocab_path).map_err(|e| e.to_string())?;
                 let vocab: serde_json::Value =
                     serde_json::from_str(&vocab_str).map_err(|e| e.to_string())?;
-                // vocab.json is typically {"tokens": [...]} or direct map
-                let tokens: Vec<String> =
-                    if let Some(arr) = vocab.get("tokens").and_then(|v| v.as_array()) {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect()
-                    } else if let Some(obj) = vocab.as_object() {
-                        // vocab is object with token->id
-                        let mut pairs: Vec<_> = obj.iter().collect();
-                        pairs.sort_by_key(|(_, id)| id.as_u64().unwrap_or(0));
-                        pairs.into_iter().map(|(k, _)| k.clone()).collect()
-                    } else {
-                        return Err("Unknown vocab.json format".into());
-                    };
+                // vocab.json formats seen: bare array ["<unk>", ...] (index = id),
+                // {"tokens": [...]}, or {token: id} map
+                let tokens: Vec<String> = if let Some(arr) = vocab.as_array() {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                } else if let Some(arr) = vocab.get("tokens").and_then(|v| v.as_array()) {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                } else if let Some(obj) = vocab.as_object() {
+                    // vocab is object with token->id
+                    let mut pairs: Vec<_> = obj.iter().collect();
+                    pairs.sort_by_key(|(_, id)| id.as_u64().unwrap_or(0));
+                    pairs.into_iter().map(|(k, _)| k.clone()).collect()
+                } else {
+                    return Err("Unknown vocab.json format".into());
+                };
                 let mut out = String::new();
                 for tok in tokens {
                     out.push_str(&tok);
@@ -267,12 +333,6 @@ impl EngineProvider for SherpaIndicProvider {
             }
         }
 
-        let samples = if sample_rate != 16000 {
-            resample(audio, sample_rate, 16000)
-        } else {
-            audio.to_vec()
-        };
-
         let mut config = OfflineRecognizerConfig::default();
         config.model_config.nemo_ctc = OfflineNemoEncDecCtcModelConfig {
             model: Some(model_path.to_string_lossy().to_string()),
@@ -281,19 +341,33 @@ impl EngineProvider for SherpaIndicProvider {
         config.model_config.num_threads = 2;
         config.model_config.debug = false;
 
-        let recognizer = OfflineRecognizer::create(&config).ok_or_else(|| {
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
             format!(
                 "Failed to create Indic recognizer for {}",
                 self.model_dir.display()
             )
         })?;
+
         let stream = recognizer.create_stream();
         stream.accept_waveform(16000, &samples);
         recognizer.decode(&stream);
         let result = stream
             .get_result()
             .ok_or_else(|| "Indic decode: no result".to_string())?;
-        Ok(result.text.trim().to_string())
+        let text = result.text.trim().to_string();
+
+        // Cache for next call within TTL
+        {
+            let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedIndic {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_indic_eviction(self.model_dir.clone());
+
+        Ok(text)
     }
 }
 

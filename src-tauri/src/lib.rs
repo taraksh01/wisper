@@ -673,6 +673,8 @@ pub fn run() {
             models::download_model,
             models::delete_model,
             models::cancel_download,
+            models::install_model_assets,
+            models::has_model_assets,
             process::get_agent_profiles,
             words::get_words,
             words::add_word_entry,
