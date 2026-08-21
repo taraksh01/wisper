@@ -1,4 +1,4 @@
-import { IconEngine, IconSearch } from "./ui/icons";
+import { IconEngine, IconSearch, IconChevronDown } from "./ui/icons";
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -31,10 +31,15 @@ function sortKeys(keys: string[]) {
 export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   const toast = useToast();
   const [localModels, setLocalModels] = useState<string[]>([]);
-  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<Set<string>>(new Set());
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const [downloadSpeed, setDownloadSpeed] = useState<Record<string, number>>({});
+  const [downloadedBytes, setDownloadedBytes] = useState<Record<string, number>>({});
+  const [totalBytes, setTotalBytes] = useState<Record<string, number>>({});
   const [justDownloaded, setJustDownloaded] = useState<string | null>(null);
   const [modelLangFilter, setModelLangFilter] = useState("all");
+  const [downloadedCollapsed, setDownloadedCollapsed] = useState(false);
+  const [availableCollapsed, setAvailableCollapsed] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [showDelete, setShowDelete] = useState<string | null>(null);
 
@@ -49,14 +54,36 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   useEffect(() => {
     fetchModels();
-    const unlistenProgressPromise = listen<{ model: string; progress: number }>("download-progress", (event) => {
-      const { model, progress } = event.payload;
+    const unlistenProgressPromise = listen<{ model: string; progress: number; speed_bps?: number; downloaded?: number; total?: number }>("download-progress", (event) => {
+      const { model, progress, speed_bps, downloaded, total } = event.payload;
       setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
+      if (speed_bps !== undefined) setDownloadSpeed((prev) => ({ ...prev, [model]: speed_bps }));
+      if (downloaded !== undefined) setDownloadedBytes((prev) => ({ ...prev, [model]: downloaded }));
+      if (total !== undefined) setTotalBytes((prev) => ({ ...prev, [model]: total }));
     });
     const unlistenCanceledPromise = listen<{ model: string }>("download-canceled", (event) => {
       const { model } = event.payload;
-      setDownloading(null);
+      setDownloading((prev) => {
+        const next = new Set(prev);
+        next.delete(model);
+        return next;
+      });
       setDownloadProgress((prev) => {
+        const next = { ...prev };
+        delete next[model];
+        return next;
+      });
+      setDownloadSpeed((prev) => {
+        const next = { ...prev };
+        delete next[model];
+        return next;
+      });
+      setDownloadedBytes((prev) => {
+        const next = { ...prev };
+        delete next[model];
+        return next;
+      });
+      setTotalBytes((prev) => {
         const next = { ...prev };
         delete next[model];
         return next;
@@ -70,7 +97,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   }, []);
 
   const downloadModel = async (name: string) => {
-    setDownloading(name);
+    setDownloading((prev) => new Set(prev).add(name));
     try {
       await invoke("download_model", { modelName: name });
       toast.addToast(`Downloaded ${name}`, "success");
@@ -84,8 +111,27 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
         toast.addToast(`Failed to download ${name}`, "error");
       }
     }
-    setDownloading(null);
+    setDownloading((prev) => {
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
     setDownloadProgress((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setDownloadSpeed((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setDownloadedBytes((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    setTotalBytes((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -103,9 +149,11 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
     }
   };
 
-  const cancelDownload = async () => {
+  const cancelDownload = async (modelName?: string) => {
     try {
-      await invoke("cancel_download");
+      const target = modelName || Array.from(downloading)[0];
+      if (!target) return;
+      await invoke("cancel_download", { modelName: target });
     } catch (e) {
       console.error("Cancel failed:", e);
     }
@@ -113,7 +161,12 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   const isLocal = settings.engine_mode === "local";
 
-  const filtered = allModelKeys
+  // One engine family at a time — Parakeet is fully wired and tested.
+  // Indic (sherpa tokens pending user re-test) and Moonshine (needs 4-file bundle)
+  // are hidden from the catalog until their engines ship.
+  const enabledModelKeys = allModelKeys.filter((k) => k.startsWith("parakeet-"));
+
+  const filtered = enabledModelKeys
     .filter((key) => modelLangFilter === "all" || modelCatalog[key].languages.includes(modelLangFilter))
     .filter((key) => !modelSearchQuery || key.toLowerCase().includes(modelSearchQuery.toLowerCase()) || modelCatalog[key].name.toLowerCase().includes(modelSearchQuery.toLowerCase()));
 
@@ -155,8 +208,8 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
       {isLocal ? (
         <>
-          <SectionCard className="card-enter">
-            <div className="flex items-center gap-2">
+          <SectionCard title="Models" className="card-enter">
+            <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
                 <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
                 <input
@@ -170,36 +223,62 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                 value={modelLangFilter}
                 options={langOptions}
                 onChange={setModelLangFilter}
-                className="w-32 text-[10px]"
+                searchable
+                className="w-36 text-[10px]"
               />
             </div>
-          </SectionCard>
-
-          <SectionCard title={`Downloaded (${downloadedKeys.length})`} className="card-enter">
-            <div className="grid grid-cols-1 gap-2">
-              {downloadedKeys.map((key) => {
-                const info = modelCatalog[key];
-                return (
-                  <ModelCard
-                    key={key}
-                    modelKey={key}
-                    info={info}
-                    isInstalled={true}
-                    isActive={settings.local_model_file === formatModelFilename(key, info.format)}
-                    isDownloading={false}
-                    justDownloaded={justDownloaded === key}
-                    onActivate={(f) => onSave("local_model_file", f)}
-                    onDownload={() => {}}
-                    onDelete={(f) => setShowDelete(f)}
-                    onCancel={() => {}}
-                  />
-                );
-              })}
+            {downloadedKeys.length > 0 && (
+              <>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-medium tracking-widest uppercase text-muted">Downloaded</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-ready/10 border border-ready/15 text-ready">{downloadedKeys.length}</span>
+                  <div className="flex-1 h-px bg-stroke/50" />
+                  <button
+                    onClick={() => setDownloadedCollapsed((v) => !v)}
+                    className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-elevated border border-stroke text-muted hover:text-ink hover:border-stroke transition-colors"
+                    aria-label={downloadedCollapsed ? "Expand downloaded" : "Collapse downloaded"}
+                  >
+                    <IconChevronDown className={`w-3 h-3 transition-transform duration-200 ${downloadedCollapsed ? "-rotate-90" : ""}`} />
+                  </button>
+                </div>
+                {!downloadedCollapsed && (
+                  <div className="grid grid-cols-1 gap-2 mb-4">
+                  {downloadedKeys.map((key) => {
+                    const info = modelCatalog[key];
+                    return (
+                      <ModelCard
+                        key={key}
+                        modelKey={key}
+                        info={info}
+                        isInstalled={true}
+                        isActive={settings.local_model_file === formatModelFilename(key, info.format)}
+                        isDownloading={false}
+                        justDownloaded={justDownloaded === key}
+                        onActivate={(f) => onSave("local_model_file", f)}
+                        onDownload={() => {}}
+                        onDelete={(f) => setShowDelete(f)}
+                        onCancel={() => {}}
+                      />
+                    );
+                  })}
+                </div>
+                )}
+              </>
+            )}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] font-medium tracking-widest uppercase text-muted">Available</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-accent-soft border border-accent/15 text-accent">{availableKeys.length}</span>
+              <div className="flex-1 h-px bg-stroke/50" />
+              <button
+                onClick={() => setAvailableCollapsed((v) => !v)}
+                className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-elevated border border-stroke text-muted hover:text-ink hover:border-stroke transition-colors"
+                aria-label={availableCollapsed ? "Expand available" : "Collapse available"}
+              >
+                <IconChevronDown className={`w-3 h-3 transition-transform duration-200 ${availableCollapsed ? "-rotate-90" : ""}`} />
+              </button>
             </div>
-          </SectionCard>
-
-          <SectionCard title={`Available to Download (${availableKeys.length})`} className="card-enter">
-            <div className="grid grid-cols-1 gap-2">
+            {!availableCollapsed && (
+              <div className="grid grid-cols-1 gap-2">
               {availableKeys.map((key) => {
                 const info = modelCatalog[key];
                 return (
@@ -209,17 +288,21 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     info={info}
                     isInstalled={false}
                     isActive={false}
-                    isDownloading={downloading === key}
+                    isDownloading={downloading.has(key)}
                     progress={downloadProgress[key]}
+                    speedBps={downloadSpeed[key]}
+                    downloaded={downloadedBytes[key]}
+                    total={totalBytes[key]}
                     justDownloaded={justDownloaded === key}
                     onActivate={() => {}}
                     onDownload={(k) => downloadModel(k)}
                     onDelete={() => {}}
-                    onCancel={() => cancelDownload()}
+                    onCancel={() => cancelDownload(key)}
                   />
                 );
               })}
             </div>
+            )}
           </SectionCard>
 
           {availableKeys.length === 0 && downloadedKeys.length === 0 && (
