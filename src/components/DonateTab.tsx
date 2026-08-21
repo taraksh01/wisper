@@ -1,9 +1,10 @@
+import { IconDonate } from "./ui/icons";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { SectionCard } from "./SectionCard";
+import QRCode from "qrcode";
 
 const UPI_ID = "taraksh01@upi";
 const UPI_LINK = `upi://pay?pa=${UPI_ID}&pn=Tarak`;
-const QR_URL = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=15&data=${encodeURIComponent(UPI_LINK)}`;
 
 const MIN_QR = 140;
 const MAX_QR = 300;
@@ -12,8 +13,15 @@ const QR_VERTICAL_RESERVE = 96;
 
 export function DonateTab() {
   const [copied, setCopied] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const cardRef = useRef<HTMLDivElement>(null);
   const [qrSize, setQrSize] = useState(MIN_QR);
+
+  useEffect(() => {
+    QRCode.toDataURL(UPI_LINK, { width: 500, margin: 1, color: { dark: "#000000", light: "#ffffff" } })
+      .then(setQrDataUrl)
+      .catch(() => {});
+  }, []);
 
   const measure = useCallback(() => {
     const card = cardRef.current;
@@ -47,11 +55,9 @@ export function DonateTab() {
     };
   }, [measure]);
   return (
-    <div className="max-w-5xl mx-auto space-y-4 card-enter">
+    <div className="w-full space-y-4 card-enter">
       <div className="flex items-center gap-2">
-        <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-        </svg>
+        <IconDonate className="w-5 h-5 text-accent" />
         <h1 className="text-sm font-semibold text-ink tracking-tight">Donate</h1>
       </div>
 
@@ -118,12 +124,16 @@ export function DonateTab() {
             }}
             className="relative cursor-pointer"
           >
-            <img
-              src={QR_URL}
-              alt="UPI QR Code"
-              style={{ width: qrSize, height: qrSize }}
-              className="rounded-lg ring-1 ring-stroke"
-            />
+            {qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt="UPI QR Code"
+                style={{ width: qrSize, height: qrSize }}
+                className="rounded-lg ring-1 ring-stroke bg-white"
+              />
+            ) : (
+              <div style={{ width: qrSize, height: qrSize }} className="rounded-lg ring-1 ring-stroke bg-elevated animate-pulse" />
+            )}
           </button>
           <button
             onClick={() => {
