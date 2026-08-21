@@ -1,5 +1,7 @@
 use reqwest::blocking::Client;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 pub trait EngineProvider: Send + Sync {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String>;
@@ -15,6 +17,19 @@ impl ParakeetOnnxProvider {
     }
 }
 
+struct CachedParakeet {
+    dir: PathBuf,
+    model: transcribe_rs::onnx::parakeet::ParakeetModel,
+    last_used: Instant,
+}
+
+static PARAKEET_CACHE: OnceLock<Mutex<Option<CachedParakeet>>> = OnceLock::new();
+const MODEL_TTL: Duration = Duration::from_secs(60 * 60); // 1 hour
+
+fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
+    PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
+}
+
 impl EngineProvider for ParakeetOnnxProvider {
     fn transcribe(&self, audio: &[f32], _sample_rate: u32) -> Result<String, String> {
         use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
@@ -26,14 +41,67 @@ impl EngineProvider for ParakeetOnnxProvider {
             audio.to_vec()
         };
 
-        let mut model = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-            .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
+        // Try to reuse cached model if same dir and within TTL
+        let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+        let use_cached = guard
+            .as_ref()
+            .map(|c| c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL)
+            .unwrap_or(false);
 
-        let result = model
-            .transcribe_with(&samples, &ParakeetParams::default())
-            .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
+        let text = if use_cached {
+            let cached = guard.as_mut().unwrap();
+            cached.last_used = Instant::now();
+            // Spawn idle eviction check in background
+            let dir_clone = cached.dir.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(MODEL_TTL);
+                if let Ok(mut guard) = parakeet_cache().lock() {
+                    if let Some(c) = guard.as_ref() {
+                        if c.dir == dir_clone && c.last_used.elapsed() >= MODEL_TTL {
+                            *guard = None;
+                        }
+                    }
+                }
+            });
+            cached
+                .model
+                .transcribe_with(&samples, &ParakeetParams::default())
+                .map_err(|e| format!("Parakeet transcription failed: {}", e))?
+                .text
+                .trim()
+                .to_string()
+        } else {
+            // Drop old model before loading new (frees RAM)
+            *guard = None;
+            drop(guard);
+            let mut model = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
+            let result = model
+                .transcribe_with(&samples, &ParakeetParams::default())
+                .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
+            let text = result.text.trim().to_string();
+            // Cache for next call within TTL
+            let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedParakeet {
+                dir: self.model_dir.clone(),
+                model,
+                last_used: Instant::now(),
+            });
+            let dir_clone = self.model_dir.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(MODEL_TTL);
+                if let Ok(mut guard) = parakeet_cache().lock() {
+                    if let Some(c) = guard.as_ref() {
+                        if c.dir == dir_clone && c.last_used.elapsed() >= MODEL_TTL {
+                            *guard = None;
+                        }
+                    }
+                }
+            });
+            text
+        };
 
-        Ok(result.text.trim().to_string())
+        Ok(text)
     }
 }
 
@@ -141,6 +209,115 @@ impl EngineProvider for CloudEngineProvider {
     }
 }
 
+pub struct SherpaIndicProvider {
+    model_dir: PathBuf,
+}
+
+impl SherpaIndicProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+impl EngineProvider for SherpaIndicProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{
+            OfflineNemoEncDecCtcModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
+        };
+
+        let model_path = self.model_dir.join("model.onnx");
+        if !model_path.exists() {
+            return Err(format!("Indic model missing: {}", model_path.display()));
+        }
+        // Tokens: try tokens.txt, else generate from vocab.json
+        let tokens_path = self.model_dir.join("tokens.txt");
+        if !tokens_path.exists() {
+            let vocab_path = self.model_dir.join("vocab.json");
+            if vocab_path.exists() {
+                let vocab_str = std::fs::read_to_string(&vocab_path).map_err(|e| e.to_string())?;
+                let vocab: serde_json::Value =
+                    serde_json::from_str(&vocab_str).map_err(|e| e.to_string())?;
+                // vocab.json is typically {"tokens": [...]} or direct map
+                let tokens: Vec<String> =
+                    if let Some(arr) = vocab.get("tokens").and_then(|v| v.as_array()) {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    } else if let Some(obj) = vocab.as_object() {
+                        // vocab is object with token->id
+                        let mut pairs: Vec<_> = obj.iter().collect();
+                        pairs.sort_by_key(|(_, id)| id.as_u64().unwrap_or(0));
+                        pairs.into_iter().map(|(k, _)| k.clone()).collect()
+                    } else {
+                        return Err("Unknown vocab.json format".into());
+                    };
+                let mut out = String::new();
+                for tok in tokens {
+                    out.push_str(&tok);
+                    out.push('\n');
+                }
+                // CTC blank is last id
+                out.push_str("<blk>\n");
+                std::fs::write(&tokens_path, out).map_err(|e| e.to_string())?;
+            } else {
+                return Err(format!(
+                    "Missing tokens/vocab in {}",
+                    self.model_dir.display()
+                ));
+            }
+        }
+
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.nemo_ctc = OfflineNemoEncDecCtcModelConfig {
+            model: Some(model_path.to_string_lossy().to_string()),
+        };
+        config.model_config.tokens = Some(tokens_path.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+
+        let recognizer = OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Indic recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Indic decode: no result".to_string())?;
+        Ok(result.text.trim().to_string())
+    }
+}
+
+struct UnsupportedProvider {
+    msg: String,
+}
+impl EngineProvider for UnsupportedProvider {
+    fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String, String> {
+        Err(self.msg.clone())
+    }
+}
+
 pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
-    Box::new(ParakeetOnnxProvider::new(model_path))
+    let name = model_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if name.starts_with("indicconformer-") {
+        Box::new(SherpaIndicProvider::new(model_path))
+    } else if name.starts_with("moonshine-") {
+        Box::new(UnsupportedProvider {
+            msg: "Moonshine models need encoder+decoder+tokens (4 files). Use Parakeet or IndicConformer for now, or download the full Moonshine ONNX bundle manually.".into(),
+        })
+    } else {
+        Box::new(ParakeetOnnxProvider::new(model_path))
+    }
 }
