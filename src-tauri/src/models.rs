@@ -31,9 +31,13 @@ pub fn list_local_models() -> Vec<String> {
                         || name.starts_with("indicconformer-")
                         || name.starts_with("moonshine-"))
                 {
-                    // For single-file models, ensure model.onnx exists
-                    let model_file = entry.path().join("model.onnx");
-                    if name.starts_with("parakeet-") || model_file.exists() {
+                    // Family-appropriate marker: parakeet is a directory bundle,
+                    // indic uses model.onnx, moonshine uses encoder_model.onnx
+                    let path = entry.path();
+                    let complete = name.starts_with("parakeet-")
+                        || path.join("model.onnx").exists()
+                        || path.join("encoder_model.onnx").exists();
+                    if complete {
                         models.push(name);
                     }
                 }
@@ -57,10 +61,7 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "indicconformer-120m-ml" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/ml/model.int8.onnx",
         "indicconformer-120m-pa" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
         "indicconformer-8lang" => "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
-        "moonshine-tiny-ja" => "https://huggingface.co/onnx-community/moonshine-tiny-ja-ONNX/resolve/main/onnx/encoder_model.onnx",
-        "moonshine-tiny-ko" => "https://huggingface.co/onnx-community/moonshine-tiny-ko-ONNX/resolve/main/onnx/encoder_model.onnx",
-        "moonshine-base-zh" => "https://huggingface.co/onnx-community/moonshine-base-zh-ONNX/resolve/main/onnx/encoder_model.onnx",
-        "moonshine-tiny-ar" => "https://huggingface.co/onnx-community/moonshine-tiny-ar-ONNX/resolve/main/onnx/encoder_model.onnx",
+        "moonshine-base" => "https://blob.handy.computer/moonshine-base.tar.gz",
         _ => return None,
     };
     Some(url.to_string())
@@ -80,10 +81,7 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "indicconformer-120m-ml" => Some("indicconformer-120m-ml".into()),
         "indicconformer-120m-pa" => Some("indicconformer-120m-pa".into()),
         "indicconformer-8lang" => Some("indicconformer-8lang".into()),
-        "moonshine-tiny-ja" => Some("moonshine-tiny-ja".into()),
-        "moonshine-tiny-ko" => Some("moonshine-tiny-ko".into()),
-        "moonshine-base-zh" => Some("moonshine-base-zh".into()),
-        "moonshine-tiny-ar" => Some("moonshine-tiny-ar".into()),
+        "moonshine-base" => Some("moonshine-base".into()),
         _ => None,
     }
 }
