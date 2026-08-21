@@ -264,7 +264,11 @@ impl AudioRecorder {
     }
 }
 
-pub fn save_wav(filename: &str, data: &[f32], sample_rate: u32) -> Result<(), hound::Error> {
+pub fn save_wav(
+    filename: impl AsRef<std::path::Path>,
+    data: &[f32],
+    sample_rate: u32,
+) -> Result<(), hound::Error> {
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate,

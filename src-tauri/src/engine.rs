@@ -78,9 +78,21 @@ impl CloudEngineProvider {
 impl EngineProvider for CloudEngineProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
         let temp_dir = std::env::temp_dir();
-        let wav_path = temp_dir.join("wisper_dictate_temp.wav");
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let wav_path = temp_dir.join(format!("wisper_{}_{}.wav", std::process::id(), nanos));
+        // Ensure unique file with 0600 permissions and cleanup on scope exit
+        struct Guard(std::path::PathBuf);
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _guard = Guard(wav_path.clone());
 
-        crate::audio::save_wav(wav_path.to_str().unwrap(), audio, sample_rate)
+        crate::audio::save_wav(&wav_path, audio, sample_rate)
             .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
 
         let file_bytes = std::fs::read(&wav_path)

@@ -77,13 +77,31 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         return Ok(target_dir.to_string_lossy().to_string());
     }
 
-    let temp_archive = std::env::temp_dir().join(format!("wisper_{}.tar.gz", &model_name));
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let temp_archive = std::env::temp_dir().join(format!("wisper_{}_{}.tar.gz", &model_name, nanos));
 
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let total = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut file = fs::File::create(&temp_archive).map_err(|e| e.to_string())?;
+    #[allow(unused_mut)]
+    let mut file: fs::File = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&temp_archive)
+                .map_err(|e| e.to_string())?
+        }
+        #[cfg(not(unix))]
+        {
+            fs::File::create(&temp_archive).map_err(|e| e.to_string())?
+        }
+    };
 
     let mut stream = response.bytes_stream();
     let mut last_emitted = 0u32;
@@ -117,16 +135,20 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     let models_dir_canonical = models_dir.canonicalize().unwrap_or_else(|_| models_dir.clone());
     for entry in archive.entries().map_err(|e| format!("Failed to read archive: {}", e))? {
         let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+        if matches!(entry.link_name(), Ok(Some(_))) {
+            return Err("Archive contains symlink".into());
+        }
         let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
         if path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
             return Err("Archive contains invalid path".into());
         }
         let dest = models_dir.join(&path);
-        // Ensure dest is inside models_dir
-        let dest_parent = dest.parent().unwrap_or(&models_dir);
-        let _ = fs::create_dir_all(dest_parent);
-        // We'll unpack after validation, so just check now
-        let _ = dest;
+        let canonical_dest_parent = dest.parent().unwrap_or(&models_dir).to_path_buf();
+        // Ensure dest is inside canonical base (string prefix check before existence)
+        if !dest.to_string_lossy().starts_with(models_dir_canonical.to_string_lossy().as_ref()) {
+            return Err("Archive path escapes models dir".into());
+        }
+        let _ = canonical_dest_parent;
     }
     // Re-open and unpack after validation (entries consumed above)
     let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
@@ -153,7 +175,19 @@ pub fn cancel_download() {
 
 #[tauri::command]
 pub fn delete_model(model_name: String) -> Result<(), String> {
-    let path = get_models_dir().join(&model_name);
+    if model_name.contains('/') || model_name.contains('\\') || model_name.contains("..") {
+        return Err("Invalid model name".to_string());
+    }
+    if !model_name.starts_with("parakeet-") {
+        return Err("Invalid model name prefix".to_string());
+    }
+    let models_dir = get_models_dir();
+    let canonical_base = models_dir.canonicalize().unwrap_or(models_dir.clone());
+    let path = models_dir.join(&model_name);
+    let canonical_path = path.canonicalize().unwrap_or(path.clone());
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err("Invalid model path".to_string());
+    }
     if !path.exists() {
         return Err(format!("Model '{}' not found", model_name));
     }

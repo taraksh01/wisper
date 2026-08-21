@@ -17,8 +17,14 @@ pub struct HistoryEntry {
 
 static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::Lazy::new(|| {
     let db_path = HistoryManager::get_db_path();
-    let conn = Connection::open(&db_path).expect("Failed to open history database");
-    conn.execute_batch(
+    let conn = Connection::open(&db_path).unwrap_or_else(|e| {
+        eprintln!(
+            "[history] failed to open {}: {e} — using in-memory DB",
+            db_path.display()
+        );
+        Connection::open_in_memory().expect("in-memory DB")
+    });
+    if let Err(e) = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 raw_text TEXT NOT NULL,
@@ -29,8 +35,9 @@ static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync:
                 created_at TEXT DEFAULT (datetime('now')),
                 recording_path TEXT
             );",
-    )
-    .expect("Failed to create history table");
+    ) {
+        eprintln!("[history] failed to create table: {e}");
+    }
     let _ = conn.execute("ALTER TABLE history ADD COLUMN recording_path TEXT", []);
     Mutex::new(conn)
 });
@@ -45,7 +52,7 @@ impl HistoryManager {
     }
 
     fn conn() -> std::sync::MutexGuard<'static, Connection> {
-        HISTORY_CONN.lock().unwrap()
+        HISTORY_CONN.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn get_db_path() -> PathBuf {
@@ -141,6 +148,11 @@ impl HistoryManager {
         path.push(crate::app_info::data_dir_name());
         path.push("recordings");
         let _ = std::fs::create_dir_all(&path);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+        }
         path
     }
 }
@@ -203,7 +215,24 @@ fn wav_from_samples(
     let data_size = raw.len() as u32;
     let file_size = 36 + data_size;
 
-    let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    #[allow(unused_mut)]
+    let mut f: std::fs::File = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(path)
+                .map_err(|e| e.to_string())?
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::File::create(path).map_err(|e| e.to_string())?
+        }
+    };
     f.write_all(b"RIFF").map_err(|e| e.to_string())?;
     f.write_all(&file_size.to_le_bytes())
         .map_err(|e| e.to_string())?;

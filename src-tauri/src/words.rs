@@ -43,8 +43,11 @@ pub struct WordSuggestion {
 
 static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::Lazy::new(|| {
     let db_path = WordsManager::db_path();
-    let conn = Connection::open(&db_path).expect("Failed to open words database");
-    conn.execute_batch(
+    let conn = Connection::open(&db_path).unwrap_or_else(|e| {
+        eprintln!("[words] failed to open {}: {e} — using in-memory DB", db_path.display());
+        Connection::open_in_memory().expect("in-memory DB")
+    });
+    if let Err(e) = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 phrase TEXT NOT NULL,
@@ -58,8 +61,9 @@ static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::L
             CREATE TABLE IF NOT EXISTS ignored_terms (
                 term TEXT PRIMARY KEY COLLATE NOCASE
             );",
-    )
-    .expect("Failed to create words table");
+    ) {
+        eprintln!("[words] failed to create table: {e}");
+    }
     Mutex::new(conn)
 });
 
@@ -72,7 +76,7 @@ impl WordsManager {
     }
 
     fn conn() -> std::sync::MutexGuard<'static, Connection> {
-        WORDS_CONN.lock().unwrap()
+        WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn db_path() -> PathBuf {
