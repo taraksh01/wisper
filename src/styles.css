@@ -17,6 +17,7 @@
   --color-muted: #a1a1a1;
   --color-stroke: #1f1f1f;
   --color-stroke-soft: #ffffff0a;
+  --content-max: 688px;
 
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
