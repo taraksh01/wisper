@@ -16,10 +16,14 @@ interface ModelCardProps {
   downloaded?: number;
   total?: number;
   justDownloaded?: boolean;
+  /** Downloaded Indic model missing tokens/vocab — shows repair button */
+  missingAssets?: boolean;
+  installingAssets?: boolean;
   onActivate: (filename: string) => void;
   onDownload: (modelKey: string) => void;
   onDelete: (filename: string) => void;
   onCancel: (modelKey: string) => void;
+  onInstallAssets: (modelKey: string) => void;
 }
 
 function formatSpeed(bps?: number): string {
@@ -46,10 +50,13 @@ function ModelCard({
   downloaded,
   total,
   justDownloaded,
+  missingAssets = false,
+  installingAssets = false,
   onActivate,
   onDownload,
   onDelete,
   onCancel,
+  onInstallAssets,
 }: ModelCardProps) {
   const filename = formatModelFilename(modelKey, info.format);
   const [showLangs, setShowLangs] = useState(false);
@@ -169,13 +176,32 @@ function ModelCard({
                 </button>
               )
             ) : (
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(filename); }}
-                className="w-7 h-7 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 hover:bg-recording/10 transition-colors"
-                title="Delete model"
-              >
-                <IconTrash className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                {missingAssets && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onInstallAssets(modelKey); }}
+                    disabled={installingAssets}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-warning/15 border border-warning/25 text-warning hover:bg-warning/20 transition-colors text-[10px] font-medium disabled:opacity-50"
+                    title="Download missing tokens/vocab so this model can transcribe"
+                  >
+                    {installingAssets ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-warning border-t-transparent animate-spin" />
+                        Installing…
+                      </>
+                    ) : (
+                      "Install language data"
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(filename); }}
+                  className="w-7 h-7 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 hover:bg-recording/10 transition-colors"
+                  title="Delete model"
+                >
+                  <IconTrash className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
           </div>
         </div>

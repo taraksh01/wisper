@@ -42,11 +42,25 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   const [availableCollapsed, setAvailableCollapsed] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [showDelete, setShowDelete] = useState<string | null>(null);
+  const [missingAssets, setMissingAssets] = useState<Set<string>>(new Set());
+  const [installingAssets, setInstallingAssets] = useState<Set<string>>(new Set());
 
   const fetchModels = useCallback(async () => {
     try {
       const m = await invoke<string[]>("list_local_models");
       setLocalModels(m);
+      // Check which downloaded Indic models are missing tokens/vocab
+      const indic = m.filter((k) => k.startsWith("indicconformer-"));
+      const missing = new Set<string>();
+      await Promise.all(
+        indic.map(async (k) => {
+          try {
+            const has = await invoke<boolean>("has_model_assets", { modelName: k });
+            if (!has) missing.add(k);
+          } catch {}
+        })
+      );
+      setMissingAssets(missing);
     } catch {}
   }, []);
 
@@ -149,6 +163,27 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
     }
   };
 
+  const installAssets = async (name: string) => {
+    setInstallingAssets((prev) => new Set(prev).add(name));
+    try {
+      await invoke("install_model_assets", { modelName: name });
+      toast.addToast(`Language data installed for ${name}`, "success");
+      setMissingAssets((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    } catch (e) {
+      console.error("Asset install failed:", e);
+      toast.addToast(`Failed to install language data: ${String(e)}`, "error");
+    }
+    setInstallingAssets((prev) => {
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+  };
+
   const cancelDownload = async (modelName?: string) => {
     try {
       const target = modelName || Array.from(downloading)[0];
@@ -161,10 +196,11 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   const isLocal = settings.engine_mode === "local";
 
-  // One engine family at a time — Parakeet is fully wired and tested.
-  // Indic (sherpa tokens pending user re-test) and Moonshine (needs 4-file bundle)
-  // are hidden from the catalog until their engines ship.
-  const enabledModelKeys = allModelKeys.filter((k) => k.startsWith("parakeet-"));
+  // Engine families shipped: parakeet (transcribe-rs) + indicconformer (sherpa-onnx).
+  // Moonshine stays hidden until the 4-file bundle download is wired.
+  const enabledModelKeys = allModelKeys.filter(
+    (k) => k.startsWith("parakeet-") || k.startsWith("indicconformer-")
+  );
 
   const filtered = enabledModelKeys
     .filter((key) => modelLangFilter === "all" || modelCatalog[key].languages.includes(modelLangFilter))
@@ -254,10 +290,13 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                         isActive={settings.local_model_file === formatModelFilename(key, info.format)}
                         isDownloading={false}
                         justDownloaded={justDownloaded === key}
+                        missingAssets={missingAssets.has(key)}
+                        installingAssets={installingAssets.has(key)}
                         onActivate={(f) => onSave("local_model_file", f)}
                         onDownload={() => {}}
                         onDelete={(f) => setShowDelete(f)}
                         onCancel={() => {}}
+                        onInstallAssets={(k) => installAssets(k)}
                       />
                     );
                   })}
@@ -298,6 +337,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     onDownload={(k) => downloadModel(k)}
                     onDelete={() => {}}
                     onCancel={() => cancelDownload(key)}
+                    onInstallAssets={() => {}}
                   />
                 );
               })}
