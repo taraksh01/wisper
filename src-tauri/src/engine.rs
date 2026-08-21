@@ -41,68 +41,66 @@ impl EngineProvider for ParakeetOnnxProvider {
             audio.to_vec()
         };
 
-        // Try to reuse cached model if same dir and within TTL
-        let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
-        let use_cached = guard
-            .as_ref()
-            .map(|c| c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL)
-            .unwrap_or(false);
-
-        let text = if use_cached {
-            let cached = guard.as_mut().unwrap();
-            cached.last_used = Instant::now();
-            // Spawn idle eviction check in background
-            let dir_clone = cached.dir.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(MODEL_TTL);
-                if let Ok(mut guard) = parakeet_cache().lock() {
-                    if let Some(c) = guard.as_ref() {
-                        if c.dir == dir_clone && c.last_used.elapsed() >= MODEL_TTL {
-                            *guard = None;
-                        }
-                    }
-                }
-            });
-            cached
-                .model
-                .transcribe_with(&samples, &ParakeetParams::default())
-                .map_err(|e| format!("Parakeet transcription failed: {}", e))?
-                .text
-                .trim()
-                .to_string()
-        } else {
-            // Drop old model before loading new (frees RAM)
-            *guard = None;
-            drop(guard);
-            let mut model = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
-            let result = model
-                .transcribe_with(&samples, &ParakeetParams::default())
-                .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
-            let text = result.text.trim().to_string();
-            // Cache for next call within TTL
+        // Take the model out of the cache for the duration of inference so the
+        // lock is never held across the (seconds-long) transcribe call.
+        let mut model = {
             let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take().map(|c| c.model)
+                }
+                _ => {
+                    // Drop stale/other model before loading new (frees RAM)
+                    *guard = None;
+                    None
+                }
+            }
+        };
+
+        if model.is_none() {
+            model = Some(
+                ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?,
+            );
+        }
+
+        let result = model
+            .as_mut()
+            .expect("model present")
+            .transcribe_with(&samples, &ParakeetParams::default())
+            .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
+        let text = result.text.trim().to_string();
+
+        // Return the model to the cache for reuse within TTL
+        {
+            let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+            let model = model.take().expect("model present");
             *guard = Some(CachedParakeet {
                 dir: self.model_dir.clone(),
                 model,
                 last_used: Instant::now(),
             });
-            let dir_clone = self.model_dir.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(MODEL_TTL);
-                if let Ok(mut guard) = parakeet_cache().lock() {
-                    if let Some(c) = guard.as_ref() {
-                        if c.dir == dir_clone && c.last_used.elapsed() >= MODEL_TTL {
-                            *guard = None;
-                        }
-                    }
-                }
-            });
-            text
-        };
+        }
+        schedule_parakeet_eviction(self.model_dir.clone());
 
         Ok(text)
     }
+}
+
+/// Spawn a background check that evicts the cached Parakeet model if idle past MODEL_TTL.
+fn schedule_parakeet_eviction(dir: PathBuf) {
+    std::thread::spawn(move || {
+        std::thread::sleep(MODEL_TTL);
+        if let Ok(mut guard) = parakeet_cache().lock() {
+            // Only evict if still idle — a recent transcribe refreshes last_used
+            if let Some(c) = guard.as_ref() {
+                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                    *guard = None;
+                }
+            }
+        }
+    });
 }
 
 pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
@@ -202,8 +200,6 @@ impl EngineProvider for CloudEngineProvider {
         let text = json["text"]
             .as_str()
             .ok_or("No 'text' field in JSON response")?;
-
-        let _ = std::fs::remove_file(&wav_path);
 
         Ok(text.to_string())
     }
@@ -324,7 +320,19 @@ impl EngineProvider for SherpaIndicProvider {
                 }
                 // CTC blank is last id
                 out.push_str("<blk>\n");
-                std::fs::write(&tokens_path, out).map_err(|e| e.to_string())?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    let mut opts = std::fs::OpenOptions::new();
+                    opts.write(true).create(true).truncate(true).mode(0o600);
+                    let mut f = opts.open(&tokens_path).map_err(|e| e.to_string())?;
+                    use std::io::Write;
+                    f.write_all(out.as_bytes()).map_err(|e| e.to_string())?;
+                }
+                #[cfg(not(unix))]
+                {
+                    std::fs::write(&tokens_path, out).map_err(|e| e.to_string())?;
+                }
             } else {
                 return Err(format!(
                     "Missing tokens/vocab in {}",

@@ -114,12 +114,15 @@ impl AudioRecorder {
 
         // Store the actual device sample rate
         {
-            let mut sr = self.sample_rate.lock().unwrap();
+            let mut sr = self.sample_rate.lock().unwrap_or_else(|e| e.into_inner());
             *sr = config.sample_rate();
         }
 
         // Clear the buffer before starting
-        self.buffer.lock().unwrap().clear();
+        self.buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         self.level.store(0, Ordering::Relaxed);
 
         let buffer_clone = self.buffer.clone();
@@ -142,18 +145,18 @@ impl AudioRecorder {
             .play()
             .map_err(|e| format!("Failed to play stream: {}", e))?;
 
-        let mut current_stream = self.stream.lock().unwrap();
+        let mut current_stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         *current_stream = Some(stream);
 
         Ok(())
     }
 
     pub fn stop_recording(&self) -> Vec<f32> {
-        let mut current_stream = self.stream.lock().unwrap();
+        let mut current_stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         *current_stream = None;
         self.level.store(0, Ordering::Relaxed);
 
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         let final_buffer = buffer.clone();
         buffer.clear();
         final_buffer
@@ -162,7 +165,12 @@ impl AudioRecorder {
     /// Open the input stream to feed the live level meter without recording
     /// or transcribing. Used by the mic-test preview in settings.
     pub fn start_preview(&self, device: Option<String>) -> Result<(), String> {
-        if self.stream.lock().unwrap().is_some() {
+        if self
+            .stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
             return Ok(());
         }
         let device = resolve_device(device.as_deref())?;
@@ -170,7 +178,7 @@ impl AudioRecorder {
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;
         {
-            let mut sr = self.sample_rate.lock().unwrap();
+            let mut sr = self.sample_rate.lock().unwrap_or_else(|e| e.into_inner());
             *sr = config.sample_rate();
         }
         self.level.store(0, Ordering::Relaxed);
@@ -192,17 +200,17 @@ impl AudioRecorder {
         stream
             .play()
             .map_err(|e| format!("Failed to play stream: {}", e))?;
-        *self.stream.lock().unwrap() = Some(stream);
+        *self.stream.lock().unwrap_or_else(|e| e.into_inner()) = Some(stream);
         Ok(())
     }
 
     pub fn stop_preview(&self) {
-        *self.stream.lock().unwrap() = None;
+        *self.stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.level.store(0, Ordering::Relaxed);
     }
 
     pub fn sample_rate(&self) -> u32 {
-        *self.sample_rate.lock().unwrap()
+        *self.sample_rate.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn build_stream<T>(
@@ -222,7 +230,10 @@ impl AudioRecorder {
             .build_input_stream(
                 config.clone(),
                 move |data: &[T], _: &_| {
-                    let mut b = buffer.lock().unwrap();
+                    let mut b = match buffer.try_lock() {
+                        Ok(g) => g,
+                        Err(_) => return,
+                    };
                     // Cap at ~5 minutes at 48kHz (~14M mono samples) to avoid OOM if hotkey stuck
                     if b.len() > 15_000_000 {
                         return;
@@ -269,13 +280,25 @@ pub fn save_wav(
     data: &[f32],
     sample_rate: u32,
 ) -> Result<(), hound::Error> {
+    let path = filename.as_ref();
+    // Create with 0600 first so the wav is never world-readable, even briefly
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path);
+    }
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate,
         bits_per_sample: 32,
         sample_format: hound::SampleFormat::Float,
     };
-    let mut writer = hound::WavWriter::create(filename, spec)?;
+    let mut writer = hound::WavWriter::create(path, spec)?;
     for &sample in data {
         writer.write_sample(sample)?;
     }
