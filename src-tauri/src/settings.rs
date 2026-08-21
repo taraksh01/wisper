@@ -131,20 +131,23 @@ impl AppSettings {
     pub fn save(&self) -> Result<(), String> {
         let p = Self::path();
         let content = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        let tmp = p.with_extension("json.tmp");
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             let mut opts = fs::OpenOptions::new();
             opts.write(true).create(true).truncate(true).mode(0o600);
-            let mut f = opts.open(&p).map_err(|e| e.to_string())?;
+            let mut f = opts.open(&tmp).map_err(|e| e.to_string())?;
             use std::io::Write;
             f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
-            return Ok(());
+            f.sync_all().map_err(|e| e.to_string())?;
         }
         #[cfg(not(unix))]
         {
-            return fs::write(&p, content).map_err(|e| e.to_string());
+            fs::write(&tmp, &content).map_err(|e| e.to_string())?;
         }
+        fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
+        Ok(())
     }
 }
 

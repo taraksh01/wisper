@@ -3,7 +3,29 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+
+static REGEX_CACHE: OnceLock<Mutex<HashMap<i64, Vec<(Regex, String)>>>> = OnceLock::new();
+
+fn regex_cache() -> &'static Mutex<HashMap<i64, Vec<(Regex, String)>>> {
+    REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn clear_regex_cache_for(id: i64) {
+    if let Some(m) = REGEX_CACHE.get() {
+        if let Ok(mut g) = m.lock() {
+            g.remove(&id);
+        }
+    }
+}
+
+fn clear_regex_cache_all() {
+    if let Some(m) = REGEX_CACHE.get() {
+        if let Ok(mut g) = m.lock() {
+            g.clear();
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordEntry {
@@ -124,7 +146,10 @@ impl WordsManager {
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![phrase, variants, case_sensitive as i64, whole_word as i64, auto as i64],
         )?;
-        Ok(conn.last_insert_rowid())
+        let id = conn.last_insert_rowid();
+        drop(conn);
+        clear_regex_cache_all();
+        Ok(id)
     }
 
     pub fn update(
@@ -141,12 +166,16 @@ impl WordsManager {
              WHERE id = ?5",
             params![phrase, variants, case_sensitive as i64, whole_word as i64, id],
         )?;
+        drop(conn);
+        clear_regex_cache_for(id);
         Ok(())
     }
 
     pub fn delete(&self, id: i64) -> SqlResult<()> {
         let conn = Self::conn();
         conn.execute("DELETE FROM words WHERE id = ?1", params![id])?;
+        drop(conn);
+        clear_regex_cache_for(id);
         Ok(())
     }
 
@@ -223,30 +252,44 @@ pub fn apply_words(text: &str) -> String {
 
     let mut out = text.to_string();
     for entry in &entries {
-        let phrase = entry.phrase.trim();
+        let phrase = entry.phrase.trim().to_string();
         if phrase.is_empty() {
             continue;
         }
-        let mut matched = false;
-        for form in entry.match_forms() {
-            let escaped = regex::escape(&form);
-            let pattern = if entry.whole_word {
-                format!(r"(?:\b|_){}(?:\b|_)", escaped)
+        // Get or build cached regexes for this entry
+        let regexes: Vec<(Regex, String)> = {
+            let mut cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(v) = cache.get(&entry.id) {
+                v.clone()
             } else {
-                escaped
-            };
-            let built = if entry.case_sensitive {
-                Regex::new(&pattern)
-            } else {
-                Regex::new(&format!("(?i){}", pattern))
-            };
-            if let Ok(re) = built {
-                if re.is_match(&out) {
-                    let replaced = re.replace_all(&out, NoExpand(phrase)).into_owned();
-                    if replaced != out {
-                        out = replaced;
-                        matched = true;
+                let mut vec = Vec::new();
+                for form in entry.match_forms() {
+                    let escaped = regex::escape(&form);
+                    let pattern = if entry.whole_word {
+                        format!(r"(?:\b|_){}(?:\b|_)", escaped)
+                    } else {
+                        escaped
+                    };
+                    let built = if entry.case_sensitive {
+                        Regex::new(&pattern)
+                    } else {
+                        Regex::new(&format!("(?i){}", pattern))
+                    };
+                    if let Ok(re) = built {
+                        vec.push((re, phrase.clone()));
                     }
+                }
+                cache.insert(entry.id, vec.clone());
+                vec
+            }
+        };
+        let mut matched = false;
+        for (re, ph) in regexes {
+            if re.is_match(&out) {
+                let replaced = re.replace_all(&out, NoExpand(ph.as_str())).into_owned();
+                if replaced != out {
+                    out = replaced;
+                    matched = true;
                 }
             }
         }
