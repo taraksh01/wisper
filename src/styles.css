@@ -8,12 +8,15 @@
   --color-elevated: #141414;
   --color-accent: #ea580c;
   --color-accent-dim: #c2410c;
+  --color-accent-soft: #ea580c14;
+  --color-accent-muted: #ea580c0d;
   --color-ready: #22c55e;
   --color-recording: #ef4444;
   --color-warning: #eab308;
   --color-ink: #f5f5f5;
   --color-muted: #a1a1a1;
   --color-stroke: #1f1f1f;
+  --color-stroke-soft: #ffffff0a;
 
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -22,28 +25,44 @@
   --color-inverse-ink: #171717;
   --color-inverse-muted: #a3a3a3;
   --color-inverse-stroke: #e5e5e5;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --radius-card: 16px;
+  --radius-pill: 9999px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.14);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.16), 0 8px 24px rgba(0,0,0,0.18);
 }
 
 /* Dev flavour accent (violet) — toggled by data-dev attribute on <html> via appConfig */
 [data-dev="true"] {
   --color-accent: #7c3aed;
   --color-accent-dim: #6d28d9;
+  --color-accent-soft: #7c3aed14;
+  --color-accent-muted: #7c3aed0d;
 }
 
 /* ─── Light theme overrides ─── */
 .light {
-  --color-base: #ffffff;
-  --color-surface: #fafafa;
-  --color-elevated: #f5f5f5;
-  --color-stroke: #e5e5e5;
-  --color-ink: #171717;
-  --color-muted: #525252;
+  --color-base: #f6f5f3;
+  --color-surface: #ffffff;
+  --color-elevated: #f0efed;
+  --color-stroke: #e8e6e1;
+  --color-stroke-soft: #00000008;
+  --color-ink: #141210;
+  --color-muted: #6b6560;
   --color-accent: #ea580c;
+  --color-accent-soft: #ea580c10;
+  --color-accent-muted: #ea580c08;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 8px 20px rgba(0,0,0,0.08);
 }
 [data-dev="true"] .light,
 .light[data-dev="true"] {
   --color-accent: #7c3aed;
   --color-accent-dim: #6d28d9;
+  --color-accent-soft: #7c3aed12;
+  --color-accent-muted: #7c3aed08;
 }
 
 /* ─── Theme color scheme (native scrollbars, form controls) ─── */
@@ -52,6 +71,42 @@
 }
 .light {
   color-scheme: light;
+}
+
+/* ─── Font rendering — crisp text on Linux/WebKitGTK ─── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+  font-synthesis-weight: none;
+}
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── App canvas — paper + tape texture (10/10 signature) ─── */
+.app-canvas {
+  background-color: var(--color-base);
+  background-image:
+    radial-gradient(ellipse 700px 400px at 15% 0%, var(--color-accent-muted), transparent 60%),
+    radial-gradient(ellipse 600px 300px at 85% 100%, color-mix(in srgb, var(--color-accent) 4%, transparent), transparent 60%),
+    linear-gradient(to bottom, transparent 0, transparent 31px, var(--color-stroke-soft) 31px, transparent 32px);
+  background-size: auto, auto, 100% 32px;
+}
+/* subtle dot grid overlay */
+.app-canvas::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, var(--color-stroke-soft) 1px, transparent 0);
+  background-size: 20px 20px;
+  pointer-events: none;
+  opacity: 0.35;
+  mask-image: radial-gradient(ellipse 800px 600px at 50% 0%, black 40%, transparent 75%);
+}
+.light .app-canvas::before {
+  opacity: 0.5;
 }
 
 /* ─── Waveform State Indicator ─── */
@@ -109,8 +164,6 @@
   transform-origin: center;
 }
 
-/* Recording is driven live by real microphone amplitude (inline heights).
-   Processing uses a gentle, de-synced idle sweep. */
 .wisper-logo--processing .wisper-bar:nth-child(1) { animation: wisper-eq-a 1.5s ease-in-out infinite; }
 .wisper-logo--processing .wisper-bar:nth-child(2) { animation: wisper-eq-c 1.7s ease-in-out infinite; }
 .wisper-logo--processing .wisper-bar:nth-child(3) { animation: wisper-eq-b 1.3s ease-in-out infinite; }
@@ -147,7 +200,7 @@
 @keyframes fade-up {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -163,7 +216,7 @@
 @keyframes slide-up {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -172,11 +225,11 @@
 }
 
 .panel-enter {
-  animation: fade-up 200ms ease-out both;
+  animation: fade-up 180ms var(--ease-out) both;
 }
 
 .toast-enter {
-  animation: slide-up 200ms ease-out both;
+  animation: slide-up 200ms var(--ease-out) both;
 }
 .toast-exit {
   animation: fade-in 150ms ease-in both;
@@ -184,31 +237,47 @@
   opacity: 0;
 }
 
+/* Toast auto-dismiss progress bar — depletes over lifetime (duration set inline) */
+.toast-progress {
+  transform-origin: left center;
+  animation-name: toast-bar;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes toast-bar {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
 .panel-enter:nth-child(1) { animation-delay: 0ms; }
-.panel-enter:nth-child(2) { animation-delay: 50ms; }
-.panel-enter:nth-child(3) { animation-delay: 100ms; }
+.panel-enter:nth-child(2) { animation-delay: 40ms; }
+.panel-enter:nth-child(3) { animation-delay: 80ms; }
 
 .card-enter {
-  animation: fade-in 300ms ease-out both;
+  animation: fade-in 260ms var(--ease-out) both;
 }
 
 .card-enter:nth-child(1) { animation-delay: 0ms; }
-.card-enter:nth-child(2) { animation-delay: 80ms; }
-.card-enter:nth-child(3) { animation-delay: 160ms; }
+.card-enter:nth-child(2) { animation-delay: 60ms; }
+.card-enter:nth-child(3) { animation-delay: 120ms; }
 
 /* ── Scrollbar ── */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 5px;
+  height: 5px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: var(--color-stroke);
-  border-radius: 2px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: content-box;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--color-muted);
+  background-clip: content-box;
 }
 
 /* ── Focus ── */
@@ -220,23 +289,45 @@
   }
 }
 
-/* ── Section label (soft, AA-contrast muted — not shouty) ── */
+/* ── Section label (editorial) ── */
 .label-soft {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.label-soft::before {
+  content: "";
+  width: 12px;
+  height: 1px;
+  background: var(--color-stroke);
+  opacity: 0.8;
+}
+.label-soft::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-stroke);
+  opacity: 0.6;
 }
 
 /* ── Tab cross-fade ── */
 .tab-enter {
-  animation: tab-fade 220ms ease-out both;
+  animation: tab-fade 180ms var(--ease-out) both;
 }
 @keyframes tab-fade {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Press feedback ── */
+.pressable {
+  transition: transform 140ms var(--ease-out), background 140ms var(--ease-out), border-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
+}
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .waveform--recording .waveform-bar {
