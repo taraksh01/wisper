@@ -5,7 +5,14 @@
     "enableGTKAppId": true,
     "windows": [
       {
-        "title": "Wisper Dev"
+        "title": "Wisper Dev",
+        "width": 960,
+        "height": 760,
+        "minWidth": 960,
+        "minHeight": 760,
+        "maxWidth": 960,
+        "maxHeight": 760,
+        "resizable": false
       }
     ],
     "security": {
