@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId } from "react";
 import { createPortal } from "react-dom";
+import { IconChevronDown } from "./ui/icons";
 
 export function Select({
   value,
@@ -117,25 +118,19 @@ export function Select({
               setOpen(false);
             }
           }}
-          className="w-full bg-elevated rounded-md px-2.5 py-1.5 text-xs font-mono text-ink text-left outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all cursor-pointer flex items-center justify-between gap-2"
+          className="w-full bg-surface border border-stroke rounded-xl px-3.5 py-2.5 text-xs font-medium text-ink text-left outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150 cursor-pointer flex items-center justify-between gap-2"
         >
           <span className="truncate">{selected?.label ?? value}</span>
-          <svg
-            className={`shrink-0 w-3 h-3 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-elevated border border-stroke">
+            <IconChevronDown className={`w-3 h-3 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+          </span>
         </button>
 
         {open && pos && createPortal(
           <div
             id={listId}
             role="listbox"
-            className="fixed z-[9999] bg-surface border border-stroke rounded-md shadow-lg overflow-y-auto custom-scrollbar py-1"
+            className="fixed z-[9999] bg-surface border border-stroke rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.16)] overflow-y-auto custom-scrollbar p-1"
             style={{
               left: pos.left,
               width: pos.width,
@@ -166,9 +161,9 @@ export function Select({
                     setOpen(false);
                   }}
                   onMouseEnter={() => { activeIndexRef.current = i; }}
-                  className={`w-full text-left px-2.5 py-1.5 text-xs font-mono transition-colors cursor-pointer truncate ${
+                  className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer truncate ${
                     value === opt.value
-                      ? "bg-accent text-white"
+                      ? "bg-accent/10 text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]"
                       : isActive
                       ? "bg-elevated text-ink"
                       : "text-muted hover:bg-elevated hover:text-ink"
