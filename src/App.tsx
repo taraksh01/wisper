@@ -26,6 +26,16 @@ function useSystemTheme() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+  // Sync theme class onto <html> so portaled elements (Select dropdown,
+  // ConfirmModal, toasts) inherit the correct CSS variables.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", dark);
+    root.classList.toggle("light", !dark);
+    return () => {
+      root.classList.remove("dark", "light");
+    };
+  }, [dark]);
   return dark;
 }
 
@@ -53,23 +63,25 @@ function AppShell() {
   }, [activeTab]);
 
   useEffect(() => {
-    invoke<AppSettings>("load_settings").then(setSettings).catch((e) => { console.error(e); });
+    let alive = true;
+    invoke<AppSettings>("load_settings").then((v) => alive && setSettings(v)).catch((e) => { console.error(e); });
     fetchHistory();
     fetchAgentProfiles();
-    invoke<string>("get_current_state").then(setAppState).catch((e) => { console.error(e); });
-    invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
+    invoke<string>("get_current_state").then((v) => alive && setAppState(v)).catch((e) => { console.error(e); });
+    invoke<string>("get_current_model").then((v) => alive && setCurrentModelName(v)).catch(() => {});
     invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment", { preference: "auto" })
-      .then(setPasteEnv)
+      .then((v) => alive && setPasteEnv(v))
       .catch(() => {});
 
     const unlistenStatePromise = listen<string>("wisper:state", (event) => {
-      setAppState(event.payload);
+      if (alive) setAppState(event.payload);
     });
     const unlistenTabPromise = listen<string>("wisper:open-tab", (event) => {
-      setActiveTab(event.payload);
+      if (alive) setActiveTab(event.payload);
     });
 
     return () => {
+      alive = false;
       unlistenStatePromise.then((fn) => fn()).catch(() => {});
       unlistenTabPromise.then((fn) => fn()).catch(() => {});
     };
@@ -153,7 +165,7 @@ function AppShell() {
       case "paste_tool": return `Paste tool: ${String(value)}`;
       case "input_device": return value ? `Microphone: ${String(value)}` : "Microphone: System default";
       case "process_enabled": return `AI processing ${on(Boolean(value))}`;
-      case "words_enabled": return `Custom words ${on(Boolean(value))}`;
+      case "words_enabled": return `Your dictionary ${on(Boolean(value))}`;
       case "local_model_file": return "Local model changed";
       case "engine_mode": return `Engine: ${String(value)}`;
       default: return null;
@@ -246,7 +258,7 @@ function AppShell() {
   };
 
   return (
-    <div className={`h-screen ${dark ? "dark" : "light"} bg-base text-ink flex font-sans`}>
+    <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex font-sans selection:bg-accent/20`}>
         {!onboarded && settings && (
           <Onboarding
             env={pasteEnv}
@@ -267,17 +279,25 @@ function AppShell() {
         />
 
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
-            <UpdateBanner />
-            <div key={activeTab} className="tab-enter">
-              {renderTab()}
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="max-w-[688px] mx-auto w-full px-6 py-6">
+              <UpdateBanner />
+              <div key={activeTab} className="tab-enter">
+                {renderTab()}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 px-6 py-2 border-t border-stroke text-[10px] font-mono text-muted">
-            <span>{stats[0]} dictations</span>
-            <span className="w-1 h-1 rounded-full bg-stroke" />
-            <span className="capitalize">{settings.engine_mode} mode</span>
+          <div className="shrink-0 px-6 py-3 border-t border-stroke/80 bg-surface/60 backdrop-blur-[6px] flex items-center gap-2.5 text-[11px] font-mono">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-elevated border border-stroke text-muted">
+              <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
+              {stats[0]} dictations
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft border border-accent/15 text-ink/80 capitalize">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              {settings.engine_mode}
+            </span>
+            <span className="ml-auto text-muted/50 text-[10px] tracking-widest uppercase hidden sm:inline">private · on-device</span>
           </div>
         </div>
       </div>
