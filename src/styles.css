@@ -40,6 +40,7 @@
   --color-muted: #525252;
   --color-accent: #ea580c;
 }
+[data-dev="true"] .light,
 .light[data-dev="true"] {
   --color-accent: #7c3aed;
   --color-accent-dim: #6d28d9;
