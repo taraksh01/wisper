@@ -1,3 +1,4 @@
+import { IconProcess } from "./ui/icons";
 import { useState, useEffect, useRef } from "react";
 import { AppSettings, AgentProfile, PROCESS_PROVIDERS } from "../types";
 import { Select } from "./Select";
@@ -96,13 +97,10 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 card-enter">
+    <div className="w-full space-y-4 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2 13.7 8.3 20 10 13.7 11.7 12 18 10.3 11.7 4 10 10.3 8.3Z" />
-            <path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9Z" />
-          </svg>
+          <IconProcess className="w-5 h-5 text-accent" />
           <h1 className="text-sm font-semibold text-ink tracking-tight">Process</h1>
         </div>
         <ResetButton onClick={onReset} />
@@ -110,9 +108,9 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
 
       <SectionCard className="card-enter">
         <div className="flex items-center justify-between">
-          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">AI Post-Processing</h2>
+          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Polish with AI</h2>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted font-mono">Enabled</span>
+            <span className="text-xs text-muted font-mono">On</span>
             <Switch label="AI processing" checked={settings.process_enabled}
               onChange={(v) => onSave("process_enabled", v)}
             />
@@ -122,7 +120,11 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
 
       {settings.process_enabled && (
         <>
-          <SectionCard title="Provider" className="card-enter space-y-3">
+          <SectionCard title="AI Provider" className="card-enter space-y-3">
+            <p className="text-[11px] text-muted leading-relaxed">
+              Wisper sends your transcript to an AI to clean it up — fixing filler words,
+              punctuation and formatting before it's typed out.
+            </p>
             <Select
               label="Provider"
               value={settings.process_provider}
@@ -179,7 +181,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
           <Field label="AI API Key" value={settings.process_api_key} onChange={(v) => onSave("process_api_key", v)} placeholder="sk-..." secret />
 
             <div>
-              <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Max Tokens</label>
+              <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Response length limit</label>
               <input
                 type="number"
                 min={0}
@@ -192,14 +194,14 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
                 className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
               />
               <p className="text-[10px] text-muted mt-1 leading-relaxed">
-                Leave empty for automatic. Raise it if a reasoning model returns blank output; lower it to cap cost.
+                Leave empty to let the AI decide. Raise it only if long dictations get cut off.
               </p>
             </div>
           </SectionCard>
 
-          <SectionCard title="Wisper Agent" className="card-enter space-y-3">
+          <SectionCard title="Writing Style" className="card-enter space-y-3">
             <p className="text-[11px] text-muted leading-relaxed">
-              Choose how Wisper reshapes your dictation before pasting. Auto picks the best style for each utterance.
+              Decide how your spoken words are rewritten. "Auto" picks the best style for each note automatically.
             </p>
 
             <Select
@@ -218,7 +220,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
             {isCustomProfile ? (
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <label className="text-[11px] font-mono text-muted tracking-wider">Custom instructions</label>
+                  <label className="text-[11px] font-mono text-muted tracking-wider">Your instructions</label>
                   {settings.process_agent_prompt && (
                     <button
                       onClick={() => onSave("process_agent_prompt", "")}
@@ -237,7 +239,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
             ) : (
               selectedProfile && selectedProfile.system_prompt && (
                 <div>
-                  <label className="text-[11px] font-mono text-muted block mb-1.5 tracking-wider">Prompt preview</label>
+                  <label className="text-[11px] font-mono text-muted block mb-1.5 tracking-wider">Instructions being used</label>
                   <AutoTextarea value={selectedProfile.system_prompt} />
                 </div>
               )

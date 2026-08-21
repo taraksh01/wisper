@@ -13,7 +13,7 @@ const steps = [
       </svg>
     ),
     title: "Setup",
-    desc: "Download a model from the Engine tab first.",
+    desc: "Pick a voice model in the Engine tab to get started.",
   },
   {
     icon: (
@@ -24,7 +24,7 @@ const steps = [
       </svg>
     ),
     title: "Speak",
-    desc: "Hold the global hotkey and talk.",
+    desc: "Hold your shortcut key and just talk.",
   },
   {
     icon: (
@@ -33,7 +33,7 @@ const steps = [
       </svg>
     ),
     title: "Transcribe",
-    desc: "Converted to text on your device.",
+    desc: "Your words become text instantly.",
   },
   {
     icon: (
@@ -44,7 +44,7 @@ const steps = [
       </svg>
     ),
     title: "Insert",
-    desc: "Text lands wherever your cursor is.",
+    desc: "The text appears wherever your cursor is — in any app.",
   },
 ];
 

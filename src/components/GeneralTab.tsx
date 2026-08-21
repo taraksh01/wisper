@@ -1,3 +1,4 @@
+import { IconGeneral } from "./ui/icons";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -85,7 +86,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-2">
-        <label className="label-soft">Paste Tool</label>
+        <label className="label-soft">Insertion method</label>
         <button
           type="button"
           onClick={() => setShowHelp((v) => !v)}
@@ -100,8 +101,8 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
       {showHelp && (
         <div className="mt-3 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5 space-y-2 text-[10px] font-mono text-muted leading-relaxed">
-          <p className="text-ink">ydotool pastes without any permission prompt (uses a kernel uinput device).</p>
-          <p>wtype &amp; built-in (enigo) type via Wayland and trigger a one-time <span className="text-ink">RemoteDesktop</span> permission prompt on native Wayland.</p>
+          <p className="text-ink">ydotool types text without ever asking for permission.</p>
+          <p>wtype and Built-in may ask for a one-time permission from your desktop the first time they type.</p>
           <a
             href="https://github.com/taraksh01/wisper#setting-up-ydotool-no-prompts"
             target="_blank"
@@ -117,11 +118,11 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
         <div className="mt-3 space-y-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5">
           <div className="flex items-center gap-3 text-[10px] font-mono text-muted">
             <span>
-              session: <span className="text-ink">{env.session_type}</span>
+              Desktop session: <span className="text-ink">{env.session_type}</span>
             </span>
             <span className="w-1 h-1 rounded-full bg-stroke" />
             <span>
-              using: <span className="text-ink">{env.backend === "enigo" ? "built-in" : env.backend}</span>
+              Currently using: <span className="text-ink">{env.backend === "enigo" ? "Built-in" : env.backend}</span>
             </span>
           </div>
 
@@ -136,14 +137,14 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
           {env.preference_unavailable && (
             <p className="text-[10px] font-mono text-warning leading-relaxed">
-              {value} isn't installed — falling back to {env.backend === "enigo" ? "built-in" : env.backend}.
+              {value} isn't installed, so Wisper will use {env.backend === "enigo" ? "Built-in" : env.backend} instead.
             </p>
           )}
 
           {!env.reliable && (
             <p className="text-[10px] font-mono text-recording leading-relaxed">
-              On Wayland the built-in method can't reliably paste into other apps.
-              Install <span className="text-ink">wtype</span> or <span className="text-ink">ydotool</span> for dependable pasting.
+              Your desktop (Wayland) blocks the built-in method from typing into other apps.
+              Install <span className="text-ink">wtype</span> or <span className="text-ink">ydotool</span> so dictation always lands correctly.
             </p>
           )}
         </div>
@@ -155,7 +156,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 function StartupControl({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-xs text-muted">Start Wisper automatically when you log in</span>
+      <span className="text-xs text-muted">Start Wisper when you log in</span>
       <Switch label="Start Wisper automatically when you log in" checked={value} onChange={onChange} />
     </div>
   );
@@ -304,7 +305,7 @@ function VadThresholdControl({ threshold, onChange }: { threshold: number; onCha
   return (
     <div className="mt-3 space-y-2">
       <div className="flex items-center gap-2">
-        <label className="label-soft">VAD threshold</label>
+        <label className="label-soft">Noise cutoff</label>
         <input
           type="range"
           min="0"
@@ -421,19 +422,16 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   }, [listening, setHotkey]);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-4 py-1 card-enter">
+    <div className="w-full space-y-4 py-1 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-          </svg>
+          <IconGeneral className="w-5 h-5 text-accent" />
           <h1 className="text-sm font-semibold text-ink tracking-tight">General</h1>
         </div>
         <ResetButton onClick={onReset} />
       </div>
 
-      <SectionCard title="Shortcut Key">
+      <SectionCard title="Keyboard Shortcut">
         <div className="space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
             <button
@@ -468,7 +466,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
 
           <div className="flex items-center gap-3 flex-wrap">
             <p className="text-[10px] font-mono text-muted leading-relaxed">
-              Single keys like <span className="text-ink">F9</span> work everywhere. Or <span className="text-ink">Mod+Key</span>. Bare modifiers aren't supported.
+              Press one key like <span className="text-ink">F9</span>, or combine like <span className="text-ink">Ctrl+K</span>. A modifier alone (just Ctrl) won't work.
             </p>
             <button
               onClick={() => setShowKeys(true)}
@@ -500,7 +498,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
               <div>
                 <label className="label-soft block mb-0.5">Show Overlay</label>
                 <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-                  Floating recording indicator while you dictate.
+                  Show a small banner on screen while you're speaking.
                 </p>
               </div>
               <Switch label="Show Overlay" checked={settings.overlay_enabled} onChange={(v) => onSave("overlay_enabled", v)} />
@@ -523,7 +521,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
 
       <SectionCard title="Microphone">
         <div className="space-y-2">
-          <label className="label-soft block">Input device</label>
+          <label className="label-soft block">Microphone</label>
           <Select
             value={settings.input_device}
             options={[
@@ -533,18 +531,18 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
             onChange={(v) => onSave("input_device", v)}
           />
           <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-            Choose which microphone to use. Leave on System default to use the OS-selected input.
+            Pick which microphone Wisper listens to. "System default" uses whatever your OS has selected.
           </p>
         </div>
       </SectionCard>
 
-      <SectionCard title="Voice Activity">
+      <SectionCard title="Silence Trimming">
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <label className="label-soft block mb-1">Trim silence from recordings</label>
+              <label className="label-soft block mb-1">Cut quiet parts automatically</label>
               <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-                Drop audio below the threshold before transcribing.
+                Ignores silence and background noise so only your speech is transcribed.
               </p>
             </div>
             <Switch label="Trim silence from recordings" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
@@ -558,7 +556,7 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
       <SectionCard title="Output">
         <div className="space-y-4">
           <div>
-            <label className="label-soft block mb-2">Paste Method</label>
+            <label className="label-soft block mb-2">How text is inserted</label>
             <PillGroup
               value={settings.paste_method}
               options={[

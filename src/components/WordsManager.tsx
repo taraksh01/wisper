@@ -233,8 +233,8 @@ export function WordsManager({ suggestions, scanning, scanMsg, onScan, setSugges
 
       <SectionCard title="Dictionary" className="card-enter space-y-3">
         <p className="text-[11px] text-muted leading-relaxed">
-          Force your spelling for names, brands, and technical terms. Wisper rewrites the misheard
-          forms to your canonical version — e.g. <span className="text-ink font-mono">whisper</span> →{" "}
+          Teach Wisper the right spelling for names, brands and technical terms. Whenever it mishears
+          one, it's corrected automatically — e.g. <span className="text-ink font-mono">whisper</span> →{" "}
           <span className="text-ink font-mono">Wisper</span>.
         </p>
 
@@ -244,7 +244,7 @@ export function WordsManager({ suggestions, scanning, scanMsg, onScan, setSugges
             value={phrase}
             onChange={(e) => setPhrase(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addEntry()}
-            placeholder="Correct spelling (e.g. Wisper)"
+            placeholder="The correct spelling (e.g. Wisper)"
             className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
           />
           <input
@@ -252,7 +252,7 @@ export function WordsManager({ suggestions, scanning, scanMsg, onScan, setSugges
             value={variants}
             onChange={(e) => setVariants(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addEntry()}
-            placeholder="Misheard forms, comma separated (e.g. whisper, wispr)"
+            placeholder="Ways it might be misheard, separated by commas (e.g. whisper, wispr)"
             className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
           />
           <div className="flex items-center gap-2">

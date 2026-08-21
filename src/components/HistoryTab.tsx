@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { IconHistory, IconSearch } from "./ui/icons";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
 import { SectionCard } from "./SectionCard";
@@ -19,6 +20,12 @@ const audioCache = new Map<string, string>();
 
 export function HistoryTab({ history, stats, settings, onSave, onRefresh }: HistoryTabProps) {
   const { addToast } = useToast();
+  useEffect(() => {
+    return () => {
+      audioCache.forEach((url) => URL.revokeObjectURL(url));
+      audioCache.clear();
+    };
+  }, []);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editRaw, setEditRaw] = useState("");
   const [editFormatted, setEditFormatted] = useState("");
@@ -166,13 +173,10 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   }, [onRefresh, addToast]);
 
   return (
-    <div className="h-full max-w-5xl mx-auto flex flex-col space-y-4 card-enter">
+    <div className="w-full flex flex-col space-y-4 card-enter min-h-0">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
+          <IconHistory className="w-5 h-5 text-accent" />
           <h1 className="text-sm font-semibold text-ink tracking-tight">History</h1>
         </div>
       </div>
@@ -184,7 +188,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             { label: "Words", value: stats[1] },
             { label: "Avg Words", value: stats[2].toFixed(1) },
             {
-              label: "Time Saved @60wpm",
+              label: "Typing time saved",
               value: timeSavedSec >= 3600
                 ? `${Math.floor(timeSavedSec / 3600)}h ${Math.floor((timeSavedSec % 3600) / 60)}m`
                 : timeSavedSec >= 60
@@ -208,10 +212,7 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase shrink-0">Recent</h2>
           <div className="relative flex-1 min-w-0">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted/50 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <circle cx="11" cy="11" r="7" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="m20 20-4.35-4.35" />
-            </svg>
+            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
