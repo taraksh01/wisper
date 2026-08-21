@@ -196,11 +196,9 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   const isLocal = settings.engine_mode === "local";
 
-  // Engine families shipped: parakeet (transcribe-rs) + indicconformer (sherpa-onnx).
-  // Moonshine stays hidden until the 4-file bundle download is wired.
-  const enabledModelKeys = allModelKeys.filter(
-    (k) => k.startsWith("parakeet-") || k.startsWith("indicconformer-")
-  );
+  // All engine families shipped: parakeet (transcribe-rs), indicconformer +
+  // moonshine (sherpa-onnx nemo_ctc / moonshine loaders).
+  const enabledModelKeys = allModelKeys;
 
   const filtered = enabledModelKeys
     .filter((key) => modelLangFilter === "all" || modelCatalog[key].languages.includes(modelLangFilter))
