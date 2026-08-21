@@ -81,7 +81,7 @@ impl TranscriptionCoordinator {
 
     /// Selected input device name (empty = system default), for cpal resolution.
     fn input_device(&self) -> Option<String> {
-        let d = INPUT_DEVICE.lock().unwrap();
+        let d = INPUT_DEVICE.lock().unwrap_or_else(|e| e.into_inner());
         if d.is_empty() {
             None
         } else {
@@ -173,10 +173,19 @@ impl TranscriptionCoordinator {
         };
 
         if !trimmed.is_empty() {
-            let mode = ENGINE_MODE.lock().unwrap().clone();
+            let mode = ENGINE_MODE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             let result = if mode == "cloud" {
-                let provider = CLOUD_PROVIDER.lock().unwrap().clone();
-                let mut base_url = CLOUD_BASE_URL.lock().unwrap().clone();
+                let provider = CLOUD_PROVIDER
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let mut base_url = CLOUD_BASE_URL
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
                 if base_url.trim().is_empty() {
                     base_url = match provider.as_str() {
                         "openai" => "https://api.openai.com/v1".into(),
@@ -188,14 +197,20 @@ impl TranscriptionCoordinator {
                     // No provider and no URL — fail fast instead of reqwest relative-URL error
                     Err("Cloud provider not configured (missing base URL)".into())
                 } else {
-                    let api_key = CLOUD_API_KEY.lock().unwrap().clone();
-                    let model = CLOUD_MODEL.lock().unwrap().clone();
+                    let api_key = CLOUD_API_KEY
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    let model = CLOUD_MODEL
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                     let engine = CloudEngineProvider::new(base_url, api_key, model);
                     engine.transcribe(&trimmed, 16000)
                 }
             } else {
                 let model_path = {
-                    let guard = CURRENT_MODEL.lock().unwrap();
+                    let guard = CURRENT_MODEL.lock().unwrap_or_else(|e| e.into_inner());
                     guard.clone()
                 };
                 match model_path {
@@ -227,9 +242,18 @@ impl TranscriptionCoordinator {
                     let mut agent_name = None;
                     let words_enabled = WORDS_ENABLED.load(Ordering::Relaxed);
                     if PROCESS_ENABLED.load(Ordering::Relaxed) {
-                        let process_base_url = PROCESS_BASE_URL.lock().unwrap().clone();
-                        let process_api_key = PROCESS_API_KEY.lock().unwrap().clone();
-                        let process_model = PROCESS_MODEL.lock().unwrap().clone();
+                        let process_base_url = PROCESS_BASE_URL
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
+                        let process_api_key = PROCESS_API_KEY
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
+                        let process_model = PROCESS_MODEL
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
                         let process_max_tokens = PROCESS_MAX_TOKENS.load(Ordering::Relaxed);
                         let mut agent = {
                             let settings = crate::settings::AppSettings::load();
@@ -267,7 +291,10 @@ impl TranscriptionCoordinator {
                     if words_enabled {
                         final_text = crate::words::apply_words(&final_text);
                     }
-                    let paste_method = PASTE_METHOD.lock().unwrap().clone();
+                    let paste_method = PASTE_METHOD
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                     // Drop overlay focus so synthetic keystrokes land in the
                     // target app, not the (invisible) overlay window.
                     crate::hide_overlay();

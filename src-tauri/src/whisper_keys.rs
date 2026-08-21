@@ -45,9 +45,15 @@ fn state() -> &'static WhisperKeysState {
 /// Initialize the whisper-keys backend. Spawns the manager thread.
 pub fn init(_app: &AppHandle) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<ManagerCommand>();
-    *state().command_sender.lock().unwrap() = Some(cmd_tx);
+    *state()
+        .command_sender
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(cmd_tx);
     let handle = thread::spawn(move || manager_thread(cmd_rx));
-    *state().thread_handle.lock().unwrap() = Some(handle);
+    *state()
+        .thread_handle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(handle);
 }
 
 /// Register (or re-register) the single push-to-talk hotkey.
@@ -118,11 +124,7 @@ fn manager_thread(cmd_rx: Receiver<ManagerCommand>) {
                 hotkey_string,
                 response,
             }) => {
-                let _ = response.send(do_register(
-                    &manager,
-                    &mut hotkey_to_id,
-                    &hotkey_string,
-                ));
+                let _ = response.send(do_register(&manager, &mut hotkey_to_id, &hotkey_string));
             }
             Ok(ManagerCommand::UnregisterAll { response }) => {
                 let _ = response.send(do_unregister_all(&manager, &mut hotkey_to_id));

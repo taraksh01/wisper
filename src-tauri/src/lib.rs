@@ -98,7 +98,7 @@ fn get_input_level() -> f32 {
 
 #[tauri::command]
 fn start_mic_preview() -> Result<(), String> {
-    let device = crate::coordinator::INPUT_DEVICE.lock().unwrap().clone();
+    let device = crate::coordinator::INPUT_DEVICE.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let device = if device.is_empty() { None } else { Some(device) };
     RECORDER
         .lock()
@@ -115,7 +115,7 @@ fn list_audio_devices() -> Vec<(String, String)> {
 
 #[tauri::command]
 fn stop_mic_preview() {
-    if let Some(r) = RECORDER.lock().unwrap().as_ref() {
+    if let Some(r) = RECORDER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         r.stop_preview();
     }
 }
@@ -132,7 +132,7 @@ fn get_paste_environment(preference: String) -> paste::PasteEnvironment {
 
 #[tauri::command]
 fn get_current_state() -> String {
-    let state = STATE_LOCK.lock().unwrap();
+    let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     match *state {
         CoordinatorState::Idle => "idle".into(),
         CoordinatorState::Recording => "recording".into(),
@@ -147,12 +147,12 @@ fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
 
 #[tauri::command]
 fn get_current_model() -> String {
-    coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone()
+    coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 #[tauri::command]
 fn unload_model(_app: tauri::AppHandle) {
-    let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
+    let mode = coordinator::ENGINE_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if mode == "cloud" {
         if let Some(win) = _app.get_webview_window("main") {
             let _ = win.show();
@@ -161,11 +161,11 @@ fn unload_model(_app: tauri::AppHandle) {
         let _ = _app.emit("wisper:open-tab", "engine");
     } else {
         {
-            let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
+            let mut current = coordinator::CURRENT_MODEL.lock().unwrap_or_else(|e| e.into_inner());
             *current = None;
         }
         {
-            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner());
             name.clear();
         }
         update_tray_menu_text();
@@ -226,7 +226,7 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
     if app.get_webview_window(OVERLAY_LABEL).is_some() {
         return;
     }
-    if !*OVERLAY_ENABLED.lock().unwrap() {
+    if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
     let builder = tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
@@ -253,7 +253,7 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
 /// Show/hide the overlay, mirroring Handy's show_overlay_state positioning.
 fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
-        if *OVERLAY_ENABLED.lock().unwrap() {
+        if *OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
             create_overlay(app);
             // Guard against infinite recursion if build() failed (e.g. compositor rejects transparent window)
             if app.get_webview_window(OVERLAY_LABEL).is_some() {
@@ -262,7 +262,7 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
         }
         return;
     };
-    if !*OVERLAY_ENABLED.lock().unwrap() {
+    if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         let _ = win.hide();
         return;
     }
@@ -276,7 +276,7 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
             let _ = win.destroy();
         }
         CoordinatorState::Recording | CoordinatorState::Processing => {
-            let top = *OVERLAY_POSITION.lock().unwrap() == "top";
+            let top = *OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner()) == "top";
             #[cfg(not(target_os = "linux"))]
             let _ = top;
             #[cfg(target_os = "linux")]
@@ -301,7 +301,7 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
 /// Hide the overlay window (used before pasting so keyboard focus
 /// returns to the target app instead of the overlay).
 pub fn hide_overlay() {
-    if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
+    if let Some(handle) = APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         if let Some(win) = handle.get_webview_window(OVERLAY_LABEL) {
             let _ = win.hide();
         }
@@ -312,8 +312,8 @@ pub fn hide_overlay() {
 /// transcription. The window is destroyed afterwards so it can never get
 /// stuck in the error state; the next recording builds a fresh normal one.
 pub fn show_overlay_error() {
-    let Some(handle) = APP_HANDLE.lock().unwrap().as_ref().cloned() else { return };
-    if !*OVERLAY_ENABLED.lock().unwrap() {
+    let Some(handle) = APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().cloned() else { return };
+    if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
     OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -342,9 +342,9 @@ pub fn show_overlay_error() {
 }
 
 pub fn update_tray_menu_text() {
-    if let Some(item) = UNLOAD_ITEM.lock().unwrap().as_ref() {
-        let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
-        let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
+    if let Some(item) = UNLOAD_ITEM.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mode = coordinator::ENGINE_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let text = if name.is_empty() {
             "No model loaded".into()
         } else if mode == "cloud" {
@@ -355,9 +355,9 @@ pub fn update_tray_menu_text() {
         let _ = item.set_text(&text);
 
         // Update tooltip too
-        if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
+        if let Some(handle) = APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             if let Some(tray) = handle.tray_by_id("main") {
-                let state = STATE_LOCK.lock().unwrap();
+                let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
                 let dn = crate::app_info::display_name();
                 let label = match *state {
                     CoordinatorState::Idle => {
@@ -394,7 +394,7 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             {
-                let mut guard = APP_HANDLE.lock().unwrap();
+                let mut guard = APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(app_handle.clone());
             }
 
@@ -404,12 +404,12 @@ pub fn run() {
             let unload_i =
                 MenuItem::with_id(app, "unload", "Unload Model", true, None::<&str>)?;
             {
-                let mut guard = UNLOAD_ITEM.lock().unwrap();
+                let mut guard = UNLOAD_ITEM.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(unload_i.clone());
             }
             // Set initial text if model is loaded
             {
-                let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+                let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner());
                 if !name.is_empty() {
                     let _ = unload_i.set_text(&format!("✕  {}", name));
                 }
@@ -436,7 +436,10 @@ pub fn run() {
                     let _ = win.set_icon(dev_icon.clone());
                 }
             }
-            let tray_icon = dev_icon.unwrap_or_else(|| app.default_window_icon().unwrap().clone());
+            let tray_icon = dev_icon.or_else(|| app.default_window_icon().cloned()).unwrap_or_else(|| {
+                eprintln!("no tray icon available, using fallback");
+                tauri::image::Image::new(&[0, 0, 0, 0], 1, 1)
+            });
             let tray_builder = TrayIconBuilder::with_id("main")
                 .icon(tray_icon)
                 .menu(&menu)
@@ -453,7 +456,7 @@ pub fn run() {
                         }
                     }
                     "unload" => {
-                        let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
+                        let mode = coordinator::ENGINE_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
                         if mode == "cloud" {
                             if let Some(win) = app.get_webview_window("main") {
                                 let _ = win.show();
@@ -462,11 +465,11 @@ pub fn run() {
                             let _ = app.emit("wisper:open-tab", "engine");
                         } else {
                             {
-                                let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
+                                let mut current = coordinator::CURRENT_MODEL.lock().unwrap_or_else(|e| e.into_inner());
                                 *current = None;
                             }
                             {
-                                let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
+                                let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner());
                                 name.clear();
                             }
                             update_tray_menu_text();
@@ -506,7 +509,7 @@ pub fn run() {
             let (hk_tx, hk_rx) = mpsc::channel();
             {
                 let sender: HotkeySender = Arc::new(Mutex::new(hk_tx.clone()));
-                *HOTKEY_SENDER.lock().unwrap() = Some(sender);
+                *HOTKEY_SENDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(sender);
             }
             thread::spawn(move || {
                 while let Ok(event) = hk_rx.recv() {
@@ -571,9 +574,9 @@ pub fn run() {
     settings::update_display_name(&saved_settings);
 
             {
-                let mut en = OVERLAY_ENABLED.lock().unwrap();
+                let mut en = OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner());
                 *en = saved_settings.overlay_enabled;
-                let mut pos = OVERLAY_POSITION.lock().unwrap();
+                let mut pos = OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner());
                 *pos = if saved_settings.overlay_position == "top" { "top".into() } else { "bottom".into() };
             }
 
@@ -596,7 +599,7 @@ pub fn run() {
 
             let recorder = AudioRecorder::new();
             {
-                let mut guard = RECORDER.lock().unwrap();
+                let mut guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(recorder.clone());
             }
             let coordinator =
@@ -626,7 +629,7 @@ pub fn run() {
             let app_handle_clone = app_handle.clone();
             thread::spawn(move || {
                 while let Ok(state) = state_rx.recv() {
-                    let model_name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
+                    let model_name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner()).clone();
                     let dn = crate::app_info::display_name();
                     let tooltip = match state {
                         CoordinatorState::Idle => {
@@ -643,7 +646,7 @@ pub fn run() {
                         let _ = tray.set_tooltip(Some(&tooltip));
                     }
                     {
-                        let mut lock = STATE_LOCK.lock().unwrap();
+                        let mut lock = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
                         *lock = state;
                     }
                     emit_state(&app_handle_clone, state);

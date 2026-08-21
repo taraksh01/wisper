@@ -109,10 +109,16 @@ pub fn get_paste_environment(preference: &str) -> PasteEnvironment {
 /// Resolves the paste backend to use right now, re-checking installed tools on
 /// every call so a newly installed wtype/ydotool is picked up without a restart.
 fn active_backend() -> String {
-    let preference = crate::coordinator::PASTE_TOOL.lock().unwrap().clone();
+    let preference = crate::coordinator::PASTE_TOOL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let backend = if preference.is_empty() {
         // Fall back to the cached backend if no preference has been set yet.
-        crate::coordinator::PASTE_BACKEND.lock().unwrap().clone()
+        crate::coordinator::PASTE_BACKEND
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     } else {
         resolve_paste_backend(&preference)
     };
