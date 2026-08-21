@@ -47,15 +47,15 @@ pub fn download_url(model_name: &str) -> Option<String> {
     let url = match model_name {
         "parakeet-onnx-tdt-0.6b-v3" => "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
         "parakeet-onnx-tdt-0.6b-v2" => "https://blob.handy.computer/parakeet-v2-int8.tar.gz",
-        "indicconformer-120m-hi" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/hi/model.onnx",
-        "indicconformer-120m-bn" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/bn/model.onnx",
-        "indicconformer-120m-ta" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/ta/model.onnx",
-        "indicconformer-120m-te" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/te/model.onnx",
-        "indicconformer-120m-mr" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/mr/model.onnx",
-        "indicconformer-120m-gu" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/gu/model.onnx",
-        "indicconformer-120m-kn" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/kn/model.onnx",
-        "indicconformer-120m-ml" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/ml/model.onnx",
-        "indicconformer-120m-pa" => "https://huggingface.co/sulabhkatiyar/indicconformer-120m-onnx/resolve/main/pa/model.onnx",
+        "indicconformer-120m-hi" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/hi/model.int8.onnx",
+        "indicconformer-120m-bn" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/bn/model.int8.onnx",
+        "indicconformer-120m-ta" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/ta/model.int8.onnx",
+        "indicconformer-120m-te" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/te/model.int8.onnx",
+        "indicconformer-120m-mr" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/mr/model.int8.onnx",
+        "indicconformer-120m-gu" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/gu/model.int8.onnx",
+        "indicconformer-120m-kn" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/kn/model.int8.onnx",
+        "indicconformer-120m-ml" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/ml/model.int8.onnx",
+        "indicconformer-120m-pa" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
         "indicconformer-8lang" => "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
         "moonshine-tiny-ja" => "https://huggingface.co/onnx-community/moonshine-tiny-ja-ONNX/resolve/main/onnx/encoder_model.onnx",
         "moonshine-tiny-ko" => "https://huggingface.co/onnx-community/moonshine-tiny-ko-ONNX/resolve/main/onnx/encoder_model.onnx",
@@ -200,22 +200,12 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         let _ = fs::remove_file(&temp_archive);
         // For IndicConformer, also fetch tokens.txt / vocab.json for sherpa
         if model_name.starts_with("indicconformer-") {
-            let base = &url[..url.rfind('/').unwrap_or(url.len())];
-            for fname in ["tokens.txt", "vocab.json"] {
-                let furl = format!("{}/{}", base, fname);
-                if let Ok(resp) = reqwest::blocking::Client::new().get(&furl).send() {
-                    if resp.status().is_success() {
-                        if let Ok(bytes) = resp.bytes() {
-                            let dest = target_dir.join(fname);
-                            let _ = std::fs::write(&dest, &bytes);
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600));
-                            }
-                        }
-                    }
-                }
+            if let Err(e) = fetch_indic_assets(&target_dir, &model_name).await {
+                eprintln!("[models] asset fetch failed for {}: {}", model_name, e);
+                return Err(format!(
+                    "Model downloaded but language data failed: {}. Use 'Install language data' on the model card to retry.",
+                    e
+                ));
             }
         }
     } else {
@@ -285,4 +275,87 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     } else {
         fs::remove_file(&path).map_err(|e| format!("Failed to delete model: {}", e))
     }
+}
+
+/// Fetch tokens.txt for an IndicConformer model into its directory.
+/// parismita repo: shared tokens.txt at repo root (all Indic languages).
+/// sulabhkatiyar fallback: vocab.json next to the model, converted by the engine.
+pub async fn fetch_indic_assets(target_dir: &std::path::Path, model_name: &str) -> Result<(), String> {
+    let url = download_url(model_name).ok_or_else(|| format!("Unknown model: {}", model_name))?;
+    let client = reqwest::Client::new();
+    let mut saved = false;
+    let mut last_status = String::from("no attempts");
+
+    // Candidate token URLs: repo root first (parismita layout), then lang dir (sulabh layout)
+    let main_root = url
+        .split("/resolve/main/")
+        .next()
+        .map(|root| format!("{}/resolve/main", root));
+    let lang_dir = &url[..url.rfind('/').unwrap_or(url.len())];
+
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    if let Some(root) = main_root {
+        candidates.push(("tokens.txt".into(), format!("{}/tokens.txt", root)));
+    }
+    candidates.push(("tokens.txt".into(), format!("{}/tokens.txt", lang_dir)));
+    candidates.push(("vocab.json".into(), format!("{}/vocab.json", lang_dir)));
+
+    for (fname, furl) in candidates {
+        if target_dir.join(&fname).exists() {
+            return Ok(());
+        }
+        match client.get(&furl).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                let bytes = resp
+                    .bytes()
+                    .await
+                    .map_err(|e| format!("failed to read {}: {}", fname, e))?;
+                let dest = target_dir.join(&fname);
+                std::fs::write(&dest, &bytes).map_err(|e| format!("failed to write {}: {}", fname, e))?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600));
+                }
+                saved = true;
+                break;
+            }
+            Ok(resp) => {
+                last_status = format!("{} -> HTTP {}", fname, resp.status());
+            }
+            Err(e) => {
+                last_status = format!("{} -> {}", fname, e);
+            }
+        }
+    }
+
+    if saved {
+        Ok(())
+    } else {
+        Err(format!("language data unavailable ({})", last_status))
+    }
+}
+
+/// Repair path: install missing tokens/vocab for an already-downloaded Indic model.
+#[tauri::command]
+pub async fn install_model_assets(model_name: String) -> Result<(), String> {
+    if !model_name.starts_with("indicconformer-") {
+        return Err("Only IndicConformer models need language data".into());
+    }
+    let dir_name = onnx_dir_name(&model_name).ok_or("Unknown model")?;
+    let target_dir = get_models_dir().join(&dir_name);
+    if !target_dir.exists() {
+        return Err(format!("Model '{}' is not downloaded", model_name));
+    }
+    fetch_indic_assets(&target_dir, &model_name).await
+}
+
+/// True when a downloaded Indic model is missing its language data.
+#[tauri::command]
+pub fn has_model_assets(model_name: String) -> bool {
+    let Some(dir_name) = onnx_dir_name(&model_name) else {
+        return false;
+    };
+    let dir = get_models_dir().join(&dir_name);
+    dir.join("tokens.txt").exists() || dir.join("vocab.json").exists()
 }
