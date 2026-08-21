@@ -379,15 +379,6 @@ impl EngineProvider for SherpaIndicProvider {
     }
 }
 
-struct UnsupportedProvider {
-    msg: String,
-}
-impl EngineProvider for UnsupportedProvider {
-    fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String, String> {
-        Err(self.msg.clone())
-    }
-}
-
 pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
     let name = model_path
         .file_name()
@@ -396,10 +387,116 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
     if name.starts_with("indicconformer-") {
         Box::new(SherpaIndicProvider::new(model_path))
     } else if name.starts_with("moonshine-") {
-        Box::new(UnsupportedProvider {
-            msg: "Moonshine models need encoder+decoder+tokens (4 files). Use Parakeet or IndicConformer for now, or download the full Moonshine ONNX bundle manually.".into(),
-        })
+        Box::new(MoonshineProvider::new(model_path))
     } else {
         Box::new(ParakeetOnnxProvider::new(model_path))
+    }
+}
+
+pub struct MoonshineProvider {
+    model_dir: PathBuf,
+}
+
+impl MoonshineProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+
+    fn variant(&self) -> Option<transcribe_rs::onnx::moonshine::MoonshineVariant> {
+        use transcribe_rs::onnx::moonshine::MoonshineVariant;
+        let name = self
+            .model_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        match name {
+            "moonshine-base" => Some(MoonshineVariant::Base),
+            _ => None,
+        }
+    }
+}
+
+struct CachedMoonshine {
+    dir: PathBuf,
+    model: transcribe_rs::onnx::moonshine::MoonshineModel,
+    last_used: Instant,
+}
+
+static MOONSHINE_CACHE: OnceLock<Mutex<Option<CachedMoonshine>>> = OnceLock::new();
+
+fn moonshine_cache() -> &'static Mutex<Option<CachedMoonshine>> {
+    MOONSHINE_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn schedule_moonshine_eviction(dir: PathBuf) {
+    std::thread::spawn(move || {
+        std::thread::sleep(MODEL_TTL);
+        if let Ok(mut guard) = moonshine_cache().lock() {
+            if let Some(c) = guard.as_ref() {
+                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                    *guard = None;
+                }
+            }
+        }
+    });
+}
+
+impl EngineProvider for MoonshineProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineParams};
+        use transcribe_rs::onnx::Quantization;
+
+        let variant = self
+            .variant()
+            .ok_or_else(|| format!("Unknown Moonshine variant for {}", self.model_dir.display()))?;
+
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+
+        // Take model out of cache so lock is never held across inference
+        let mut model = {
+            let mut guard = moonshine_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take().map(|c| c.model)
+                }
+                _ => {
+                    *guard = None;
+                    None
+                }
+            }
+        };
+
+        if model.is_none() {
+            model = Some(
+                MoonshineModel::load(&self.model_dir, variant, &Quantization::FP32)
+                    .map_err(|e| format!("Failed to load Moonshine ONNX model: {}", e))?,
+            );
+        }
+
+        let result = model
+            .as_mut()
+            .expect("model present")
+            .transcribe_with(&samples, &MoonshineParams::default())
+            .map_err(|e| format!("Moonshine transcription failed: {}", e))?;
+        let text = result.text.trim().to_string();
+
+        // Return the model to the cache
+        {
+            let mut guard = moonshine_cache().lock().unwrap_or_else(|e| e.into_inner());
+            let model = model.take().expect("model present");
+            *guard = Some(CachedMoonshine {
+                dir: self.model_dir.clone(),
+                model,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_moonshine_eviction(self.model_dir.clone());
+
+        Ok(text)
     }
 }
