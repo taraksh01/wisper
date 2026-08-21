@@ -47,11 +47,19 @@ export function Select({
       )
     : enabledOptions;
 
-  const activeIndexRef = useRef(Math.max(0, enabledOptions.findIndex((o) => o.value === value)));
+  const activeIndexRef = useRef(Math.max(0, visibleOptions.findIndex((o) => o.value === value)));
 
   useEffect(() => {
-    activeIndexRef.current = Math.max(0, enabledOptions.findIndex((o) => o.value === value));
-  }, [value, enabledOptions]);
+    activeIndexRef.current = Math.max(0, visibleOptions.findIndex((o) => o.value === value));
+  }, [value, visibleOptions]);
+
+  // Keep active index in bounds when filter shrinks
+  useEffect(() => {
+    if (activeIndexRef.current >= visibleOptions.length) {
+      activeIndexRef.current = Math.max(0, visibleOptions.length - 1);
+      setForceRender((r) => r + 1);
+    }
+  }, [visibleOptions.length]);
 
   const moveActive = useCallback((dir: 1 | -1) => {
     if (visibleOptions.length === 0) return;
@@ -86,19 +94,24 @@ export function Select({
 
   useEffect(() => {
     if (!open) return;
+    const esc = (typeof CSS !== "undefined" && (CSS as any).escape) ? (CSS as any).escape(listId) : listId.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
     const handler = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
         containerRef.current &&
         !containerRef.current.contains(target) &&
-        !(target instanceof Element && target.closest(`#${CSS.escape(listId)}`))
+        !(target instanceof Element && target.closest(`#${esc}`))
       ) {
         setOpen(false);
         setQuery("");
       }
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler as unknown as EventListener);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler as unknown as EventListener);
+    };
   }, [open, listId]);
 
   useLayoutEffect(() => {
@@ -135,6 +148,7 @@ export function Select({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls={listId}
+          aria-activedescendant={open && visibleOptions[activeIndexRef.current] ? `${listId}-opt-${activeIndexRef.current}` : undefined}
           onClick={() => setOpen((p) => !p)}
           onKeyDown={(e) => {
             if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
@@ -230,6 +244,7 @@ export function Select({
               return (
                 <button
                   key={opt.value}
+                  id={`${listId}-opt-${i}`}
                   data-opt
                   role="option"
                   aria-selected={value === opt.value}

@@ -128,24 +128,24 @@ function AppShell() {
   const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
   const saveSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     if (!settings) return;
+    const prev = { ...settings };
     const updated = { ...settings, [key]: value };
     setSettings(updated);
-    console.log("[saveSetting]", key);
     const msg = settingToast(key, value);
     invoke("save_settings", { settings: updated })
       .then(() => { if (msg) toast.addToast(msg, "success"); })
-      .catch((e) => { console.error("[saveSetting]", e); toast.addToast("Failed to save settings", "error"); });
+      .catch((e) => { console.error("[saveSetting]", e); setSettings(prev); toast.addToast("Failed to save settings", "error"); });
     if ((MODEL_KEYS as string[]).includes(key as string)) refreshCurrentModel();
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
     if (!settings) return;
+    const prev = { ...settings };
     const merged = { ...settings, ...updates };
     setSettings(merged);
-    console.log("[saveAllSettings]");
     invoke("save_settings", { settings: merged })
       .then(() => { toast.addToast("Settings saved", "success"); })
-      .catch((e) => { console.error("[saveAllSettings]", e); toast.addToast("Failed to save settings", "error"); });
+      .catch((e) => { console.error("[saveAllSettings]", e); setSettings(prev); toast.addToast("Failed to save settings", "error"); });
     if (Object.keys(updates).some((k) => (MODEL_KEYS as string[]).includes(k))) refreshCurrentModel();
   };
 
@@ -188,7 +188,7 @@ function AppShell() {
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
     general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "overlay_enabled", "overlay_position", "input_device"],
-    engine: ["engine_mode", "engine_model", "local_model_file"],
+    engine: ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"],
     process: ["process_enabled", "process_provider", "process_base_url", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
     words: ["words_enabled"],
   };
@@ -280,9 +280,9 @@ function AppShell() {
 
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="max-w-[688px] mx-auto w-full px-6 py-6">
+            <div className="max-w-[var(--content-max)] mx-auto w-full px-6 py-6">
               <UpdateBanner />
-              <div key={activeTab} className="tab-enter">
+              <div className="tab-enter">
                 {renderTab()}
               </div>
             </div>

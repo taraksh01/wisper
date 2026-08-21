@@ -129,8 +129,18 @@ function ModelCard({
         document.body
       )}
       <div
+        role={isInstalled ? "button" : undefined}
+        tabIndex={isInstalled ? 0 : undefined}
+        aria-pressed={isInstalled ? isActive : undefined}
         onClick={() => { if (isInstalled) onActivate(filename); }}
-        className={`group rounded-xl border p-4 transition-all duration-150 cursor-pointer ${
+        onKeyDown={(e) => {
+          if (!isInstalled) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onActivate(filename);
+          }
+        }}
+        className={`group rounded-xl border p-4 transition-all duration-150 ${isInstalled ? "cursor-pointer" : "cursor-default"} ${
           isActive
             ? "bg-accent-soft border-accent/20 shadow-sm"
             : "bg-surface border-stroke hover:border-accent/25 hover:shadow-sm"

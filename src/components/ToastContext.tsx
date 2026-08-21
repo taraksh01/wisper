@@ -30,6 +30,12 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const remainingRef = useRef(toast.duration);
   const startedRef = useRef(Date.now());
+  const onDismissRef = useRef(onDismiss);
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
 
   const clear = () => {
     if (timerRef.current !== undefined) clearTimeout(timerRef.current);
@@ -40,8 +46,8 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     if (toast.duration <= 0) return;
     clear();
     startedRef.current = Date.now();
-    timerRef.current = setTimeout(onDismiss, remainingRef.current);
-  }, [toast.duration, onDismiss]);
+    timerRef.current = setTimeout(() => onDismissRef.current(), remainingRef.current);
+  }, [toast.duration]);
 
   // start countdown on mount, clean up on unmount
   useEffect(() => {
@@ -53,11 +59,13 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     if (timerRef.current === undefined) return;
     clear();
     remainingRef.current -= Date.now() - startedRef.current;
+    setPaused(true);
   };
 
   const resume = () => {
     if (toast.duration <= 0) return;
     arm();
+    setPaused(false);
   };
 
   const s = typeStyles[toast.type];
@@ -65,10 +73,15 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
 
   return (
     <div
-      role="status"
+      role={toast.type === "error" ? "alert" : "status"}
+      aria-live={toast.type === "error" ? "assertive" : "polite"}
+      aria-atomic="true"
       onMouseEnter={pause}
       onMouseLeave={resume}
-      className="toast-enter pointer-events-auto relative flex items-start gap-3 w-[340px] rounded-[var(--radius-card)] border border-stroke bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.18),inset_0_1px_0_var(--color-stroke-soft)] p-3.5 overflow-hidden"
+      onFocus={pause}
+      onBlur={resume}
+      tabIndex={0}
+      className="toast-enter pointer-events-auto relative flex items-start gap-3 w-[340px] rounded-[var(--radius-card)] border border-stroke bg-surface shadow-[0_8px_24px_rgba(0,0,0,0.18),inset_0_1px_0_var(--color-stroke-soft)] p-3.5 overflow-hidden focus:outline-none"
     >
       <span className={`shrink-0 w-7 h-7 grid place-items-center rounded-full ${s.chip}`}>
         <Icon className="w-3.5 h-3.5" />
@@ -84,7 +97,7 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
       {toast.duration > 0 && (
         <span
           className={`toast-progress absolute bottom-0 left-0 h-[2px] w-full ${s.bar}`}
-          style={{ animationDuration: `${toast.duration}ms` }}
+          style={{ animationDuration: `${toast.duration}ms`, animationPlayState: paused ? "paused" as const : "running" as const }}
         />
       )}
     </div>
