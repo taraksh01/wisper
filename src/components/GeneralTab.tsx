@@ -80,21 +80,20 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
   const options = [
     { value: "auto", label: "Auto" },
-    { value: "wtype", label: "wtype", disabled: env ? !env.has_wtype : false, title: env && !env.has_wtype ? "wtype is not installed — install it to enable this option" : undefined },
-    { value: "ydotool", label: "ydotool", disabled: env ? !env.has_ydotool : false, title: env && !env.has_ydotool ? "ydotool is not installed — install it to enable this option" : undefined },
+    { value: "wtype", label: "wtype", disabled: env ? !env.has_wtype : false, title: env && !env.has_wtype ? "wtype is not installed" : undefined },
+    { value: "ydotool", label: "ydotool", disabled: env ? !env.has_ydotool : false, title: env && !env.has_ydotool ? "ydotool is not installed" : undefined },
     { value: "enigo", label: "Built-in" },
   ];
 
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-2">
-        <label className="label-soft">Insertion method</label>
+        <label className="label-soft">Tool</label>
         <button
           type="button"
           onClick={() => setShowHelp((v) => !v)}
-          aria-label="How to set up ydotool"
           title="How to set up ydotool"
-          className="shrink-0 w-4 h-4 rounded-full border border-stroke text-[10px] leading-none text-muted hover:text-accent hover:border-accent/50 flex items-center justify-center transition-colors"
+          className="shrink-0 w-4 h-4 rounded-full border border-stroke text-[10px] text-muted hover:text-accent flex items-center justify-center"
         >
           ?
         </button>
@@ -102,58 +101,24 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
       <PillGroup value={value} options={options} onChange={onChange} />
 
       {showHelp && (
-        <div className="mt-3 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5 space-y-2 text-[10px] font-mono text-muted leading-relaxed">
-          <p className="text-ink">ydotool types text without ever asking for permission.</p>
-          <p>wtype and Built-in may ask for a one-time permission from your desktop the first time they type.</p>
-          <a
-            href="https://github.com/taraksh01/wisper#setting-up-ydotool-no-prompts"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-accent hover:text-accent-dim transition-colors"
-          >
-            Full setup guide →
-          </a>
+        <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
+          ydotool never asks for permission. wtype/Built-in may ask once.
+          <a href="https://github.com/taraksh01/wisper#setting-up-ydotool-no-prompts" target="_blank" rel="noopener noreferrer" className="text-accent ml-1">Guide →</a>
         </div>
       )}
 
       {env && (
-        <div className="mt-3 space-y-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5">
-          <div className="flex items-center gap-3 text-[10px] font-mono text-muted">
-            <span>
-              Desktop session: <span className="text-ink">{env.session_type}</span>
-            </span>
-            <span className="w-1 h-1 rounded-full bg-stroke" />
-            <span>
-              Currently using: <span className="text-ink">{env.backend === "enigo" ? "Built-in" : env.backend}</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 text-[10px] font-mono">
-            <span className={env.has_wtype ? "text-ready" : "text-muted/50"}>
-              {env.has_wtype ? "✓" : "✗"} wtype
-            </span>
-            <span className={env.has_ydotool ? "text-ready" : "text-muted/50"}>
-              {env.has_ydotool ? "✓" : "✗"} ydotool
-            </span>
-          </div>
-
-          {env.preference_unavailable && (
-            <p className="text-[10px] font-mono text-warning leading-relaxed">
-              {value} isn't installed, so Wisper will use {env.backend === "enigo" ? "Built-in" : env.backend} instead.
-            </p>
-          )}
-
-          {!env.reliable && (
-            <p className="text-[10px] font-mono text-recording leading-relaxed">
-              Your desktop (Wayland) blocks the built-in method from typing into other apps.
-              Install <span className="text-ink">wtype</span> or <span className="text-ink">ydotool</span> so dictation always lands correctly.
-            </p>
-          )}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-muted">
+          <span>Using <span className="text-ink">{env.backend === "enigo" ? "Built-in" : env.backend}</span> · {env.session_type}</span>
+          <span className={env.has_wtype ? "text-ready" : "text-muted/40"}>{env.has_wtype ? "✓" : "✗"} wtype</span>
+          <span className={env.has_ydotool ? "text-ready" : "text-muted/40"}>{env.has_ydotool ? "✓" : "✗"} ydotool</span>
+          {env.preference_unavailable && <span className="text-warning">fallback: {value} unavailable</span>}
+          {!env.reliable && <span className="text-recording">Install wtype or ydotool for Wayland</span>}
         </div>
       )}
      </div>
-   );
-}
+    );
+ }
 
 function StartupControl({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -430,7 +395,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
   }, [listening, setHotkey]);
 
   return (
-    <div className="w-full space-y-4 py-1 card-enter">
+    <div className="w-full space-y-3 py-1 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <IconGeneral className="w-5 h-5 text-accent" />
@@ -439,53 +404,25 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
         <ResetButton onClick={onReset} />
       </div>
 
-      <SectionCard title="Keyboard Shortcut">
-        <div className="space-y-4">
+      <SectionCard title="Input">
+        <div className="space-y-3">
           <div className="flex items-center gap-3 flex-wrap">
             <button
               ref={btnRef}
               onClick={startListening}
               tabIndex={0}
-              className={`relative px-4 py-2 rounded-lg text-xs font-mono font-medium text-left outline-none ring-1 transition-all cursor-pointer min-w-[140px] ${
-                listening
-                  ? "bg-accent/10 text-accent ring-accent/50 animate-pulse"
-                  : "bg-elevated text-ink ring-stroke hover:ring-accent/30"
+              className={`px-3.5 py-2 rounded-lg text-xs font-mono font-medium outline-none ring-1 transition-all cursor-pointer min-w-[140px] ${
+                listening ? "bg-accent/10 text-accent ring-accent/50 animate-pulse" : "bg-elevated text-ink ring-stroke hover:ring-accent/30"
               }`}
             >
               {listening ? (
                 <span className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                  Press a key…
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" /> Press a key…
                 </span>
               ) : (
                 <HotkeyDisplay hotkey={settings.hotkey} />
               )}
             </button>
-            <span className="text-[10px] font-mono text-muted">
-              {listening ? "Listening…" : "Click, then press a key"}
-            </span>
-          </div>
-
-          {message && (
-            <p className={`text-[10px] font-mono ${message.ok ? "text-ready" : "text-recording"}`}>
-              {message.ok ? "✓" : "✗"} {message.text}
-            </p>
-          )}
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <p className="text-[10px] font-mono text-muted leading-relaxed">
-              Press one key like <span className="text-ink">F9</span>, or combine like <span className="text-ink">Ctrl+K</span>. A modifier alone (just Ctrl) won't work.
-            </p>
-            <button
-              onClick={() => setShowKeys(true)}
-              className="text-[10px] font-mono text-accent hover:text-accent-dim underline underline-offset-2 shrink-0"
-            >
-              Example keys
-            </button>
-          </div>
-
-          <div>
-            <label className="label-soft block mb-2">Mode</label>
             <PillGroup
               value={settings.hotkey_mode}
               options={[
@@ -494,106 +431,76 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
               ]}
               onChange={(v) => onSave("hotkey_mode", v)}
             />
-            <p className="text-[10px] font-mono text-muted/70 leading-relaxed mt-2">
-              {settings.hotkey_mode === "push-to-talk"
-                ? `Hold ${settings.hotkey} to talk — release to stop.`
-                : `Press ${settings.hotkey} to start, press again to stop.`}
-            </p>
+            <button onClick={() => setShowKeys(true)} className="text-[10px] font-mono text-accent underline underline-offset-2">
+              Examples
+            </button>
           </div>
 
-          <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke divide-y divide-stroke">
-            <div className="flex items-center justify-between gap-4 px-3 py-2.5">
-              <div>
-                <label className="label-soft block mb-0.5">Show Overlay</label>
-                <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-                  Show a small banner on screen while you're speaking.
-                </p>
-              </div>
-              <Switch label="Show Overlay" checked={settings.overlay_enabled} onChange={(v) => onSave("overlay_enabled", v)} />
-            </div>
+          {message && (
+            <p className={`text-[10px] font-mono ${message.ok ? "text-ready" : "text-recording"}`}>{message.ok ? "✓" : "✗"} {message.text}</p>
+          )}
 
-            <div className="px-3 py-2.5">
-              <label className="label-soft block mb-2">Overlay Position</label>
-              <PillGroup
-                value={settings.overlay_position}
-                options={[
-                  { value: "top", label: "Top Center" },
-                  { value: "bottom", label: "Bottom Center" },
-                ]}
-                onChange={(v) => onSave("overlay_position", v)}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label-soft block mb-1.5">Microphone</label>
+              <Select
+                value={settings.input_device}
+                options={[{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))]}
+                onChange={(v) => onSave("input_device", v)}
               />
             </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Microphone">
-        <div className="space-y-2">
-          <label className="label-soft block">Microphone</label>
-          <Select
-            value={settings.input_device}
-            options={[
-              { value: "", label: "System default" },
-              ...inputDevices.map(([id, name]) => ({ value: id, label: name })),
-            ]}
-            onChange={(v) => onSave("input_device", v)}
-          />
-          <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-            Pick which microphone Wisper listens to. "System default" uses whatever your OS has selected.
-          </p>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Silence Trimming">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
             <div>
-              <label className="label-soft block mb-1">Cut quiet parts automatically</label>
-              <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-                Ignores silence and background noise so only your speech is transcribed.
-              </p>
+              <label className="label-soft block mb-1.5">Language</label>
+              <Select value={settings.language} onChange={(v) => onSave("language", v)} options={[{ value: "auto", label: "Auto-detect" }, ...languages.filter((l) => l.value !== "auto")]} />
             </div>
-            <Switch label="Trim silence from recordings" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
           </div>
-          {settings.vad_enabled && (
-            <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />
-          )}
+
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2">
+            <span className="text-[11px] font-mono text-muted">Recording overlay</span>
+            <div className="flex items-center gap-3">
+              <Switch label="Show Overlay" checked={settings.overlay_enabled} onChange={(v) => onSave("overlay_enabled", v)} />
+              {settings.overlay_enabled && (
+                <PillGroup
+                  value={settings.overlay_position}
+                  options={[{ value: "top", label: "Top" }, { value: "bottom", label: "Bottom" }]}
+                  onChange={(v) => onSave("overlay_position", v)}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Audio Processing">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted">Trim silence</span>
+            <Switch label="Trim silence" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
+          </div>
+          {settings.vad_enabled && <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />}
         </div>
       </SectionCard>
 
       <SectionCard title="Output">
-        <div className="space-y-4">
-          <div>
-            <label className="label-soft block mb-2">How text is inserted</label>
-            <PillGroup
-              value={settings.paste_method}
-              options={[
-                { value: "Ctrl+V", label: "Ctrl+V" },
-                { value: "Ctrl+Shift+V", label: "Ctrl+Shift+V" },
-                { value: "Shift+Insert", label: "Shift+Insert" },
-                { value: "Direct Typing", label: "Direct Typing" },
-              ]}
-              onChange={(v) => onSave("paste_method", v)}
-            />
-          </div>
-
-          <PasteToolControl
-            value={settings.paste_tool}
-            onChange={(v) => onSave("paste_tool", v)}
+        <div className="space-y-3">
+          <PillGroup
+            value={settings.paste_method}
+            options={[
+              { value: "Ctrl+V", label: "Ctrl+V" },
+              { value: "Ctrl+Shift+V", label: "Ctrl+Shift+V" },
+              { value: "Shift+Insert", label: "Shift+Insert" },
+              { value: "Direct Typing", label: "Direct Typing" },
+            ]}
+            onChange={(v) => onSave("paste_method", v)}
           />
+          <PasteToolControl value={settings.paste_tool} onChange={(v) => onSave("paste_tool", v)} />
         </div>
       </SectionCard>
 
       <SectionCard title="Startup">
         <StartupControl value={settings.autostart} onChange={(v) => onSave("autostart", v)} />
-
-        <div className="flex items-center justify-between gap-3 pt-4 mt-4 border-t border-stroke">
-          <div>
-            <span className="text-xs text-muted">Launch to system tray</span>
-            <p className="text-[10px] font-mono text-muted/60 mt-0.5">
-              Start hidden with only the tray icon. The window opens on launch by default so you can set up Wisper.
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-stroke">
+          <span className="text-xs text-muted">Launch to system tray</span>
           <Switch label="Launch to system tray" checked={settings.launch_to_tray} onChange={(v) => onSave("launch_to_tray", v)} />
         </div>
       </SectionCard>
@@ -674,15 +581,6 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
           }}
         />
       )}
-
-      <SectionCard title="Language">
-        <label className="label-soft block mb-2">Transcription Language</label>
-        <Select
-          value={settings.language}
-          onChange={(v) => onSave("language", v)}
-          options={[{ value: "auto", label: "Auto-detect" }, ...languages.filter((l) => l.value !== "auto")]}
-        />
-      </SectionCard>
 
       {showKeys && <SupportedKeysModal onClose={() => setShowKeys(false)} />}
     </div>
