@@ -197,6 +197,14 @@ body {
   55% { transform: scaleY(0.9); }
 }
 
+/* Gentle idle equalizer — hero brand moment on the About page.
+   Same keyframes as the processing state, slowed down so it feels calm. */
+.logo-idle-eq .wisper-bar:nth-child(1) { animation: wisper-eq-a 3.2s ease-in-out infinite; }
+.logo-idle-eq .wisper-bar:nth-child(2) { animation: wisper-eq-c 3.6s ease-in-out infinite; }
+.logo-idle-eq .wisper-bar:nth-child(3) { animation: wisper-eq-b 3s ease-in-out infinite; }
+.logo-idle-eq .wisper-bar:nth-child(4) { animation: wisper-eq-e 4s ease-in-out infinite; }
+.logo-idle-eq .wisper-bar:nth-child(5) { animation: wisper-eq-d 3.4s ease-in-out infinite; }
+
 /* ── Enter animations ── */
 @keyframes fade-up {
   from {
@@ -346,6 +354,14 @@ body {
 
   .wisper-logo--recording .wisper-bar,
   .wisper-logo--processing .wisper-bar {
+    animation: none;
+  }
+
+  .logo-idle-eq .wisper-bar {
+    animation: none;
+  }
+
+  .pipe-flow {
     animation: none;
   }
 }

@@ -261,3 +261,49 @@ export function IconCheck(props: IconProps) {
     </svg>
   );
 }
+
+export function IconMic(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <path d="M12 19v4" />
+    </svg>
+  );
+}
+
+export function IconRecord(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="12" cy="12" r="9" strokeDasharray="3.5 3.5" />
+    </svg>
+  );
+}
+
+export function IconBars(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 12h2M6 8v8M10 4v16M14 7v10M18 9v6M22 11v2" />
+    </svg>
+  );
+}
+
+export function IconInsert(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M8 4h8" />
+      <path d="M12 4v16" />
+      <path d="M8 20h8" />
+    </svg>
+  );
+}
+
+export function IconShield(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
