@@ -8,9 +8,11 @@ import { PillGroup } from "./PillGroup";
 import { ResetButton } from "./ResetButton";
 import { Switch } from "./Switch";
 import { SectionCard } from "./SectionCard";
+import { ConfirmModal } from "./ConfirmModal";
 
 interface GeneralTabProps {
   settings: AppSettings;
+  historyTotal?: number;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onReset: () => void;
 }
@@ -348,11 +350,13 @@ function VadThresholdControl({ threshold, onChange }: { threshold: number; onCha
   );
 }
 
-export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
+export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: GeneralTabProps) {
   const [listening, setListening] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [inputDevices, setInputDevices] = useState<[string, string][]>([]);
+  const [pendingMax, setPendingMax] = useState(settings.max_history_entries);
+  const [trimConfirm, setTrimConfirm] = useState<{ newLimit: number; excess: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const pendingModsRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -360,6 +364,10 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
   useEffect(() => {
     invoke<[string, string][]>("list_audio_devices").then(setInputDevices).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setPendingMax(settings.max_history_entries);
+  }, [settings.max_history_entries]);
 
   useEffect(() => {
     return () => clearTimeout(timerRef.current);
@@ -589,6 +597,83 @@ export function GeneralTab({ settings, onSave, onReset }: GeneralTabProps) {
           <Switch label="Launch to system tray" checked={settings.launch_to_tray} onChange={(v) => onSave("launch_to_tray", v)} />
         </div>
       </SectionCard>
+
+      <SectionCard title="History">
+        <div className="space-y-4">
+          <div>
+            <label className="label-soft block mb-2">Maximum history entries</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={pendingMax}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setPendingMax(Number.isFinite(v) ? Math.max(0, v) : 0);
+                }}
+                onBlur={() => {
+                  const v = pendingMax;
+                  if (v === settings.max_history_entries) return;
+                  if (v > 0 && v < historyTotal && v < settings.max_history_entries) {
+                    const excess = historyTotal - v;
+                    setTrimConfirm({ newLimit: v, excess });
+                  } else {
+                    onSave("max_history_entries", v);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") setPendingMax(settings.max_history_entries);
+                }}
+                className="w-28 bg-surface border border-stroke rounded-xl px-3 py-2 text-xs font-mono text-ink placeholder:text-muted/50 outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 transition-[border-color,box-shadow] duration-150"
+                placeholder="500"
+              />
+              <span className="text-[10px] font-mono text-muted">entries · 0 means unlimited</span>
+            </div>
+            <p className="text-[10px] font-mono text-muted/60 leading-relaxed mt-2">
+              Older entries beyond this limit are removed automatically.
+            </p>
+          </div>
+
+          {settings.keep_recordings && (
+            <div>
+              <label className="label-soft block mb-2">When limit is reached</label>
+              <PillGroup
+                value={settings.history_retention_mode}
+                options={[
+                  { value: "both", label: "Delete transcription and recording" },
+                  { value: "recordings_only", label: "Delete recording only (keep text)" },
+                ]}
+                onChange={(v) => onSave("history_retention_mode", v)}
+              />
+              <p className="text-[10px] font-mono text-muted/60 leading-relaxed mt-2">
+                Keep the transcript text but free up disk space by removing old audio.
+              </p>
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      {trimConfirm && (
+        <ConfirmModal
+          title="Trim history?"
+          message={
+            settings.keep_recordings && settings.history_retention_mode === "recordings_only"
+              ? `This will remove recordings from the ${trimConfirm.excess} oldest entries beyond ${trimConfirm.newLimit}. Transcripts will be kept.`
+              : `This will permanently delete the ${trimConfirm.excess} oldest entries beyond ${trimConfirm.newLimit}.`
+          }
+          confirmLabel="Trim"
+          onConfirm={() => {
+            onSave("max_history_entries", trimConfirm.newLimit);
+            setTrimConfirm(null);
+          }}
+          onCancel={() => {
+            setPendingMax(settings.max_history_entries);
+            setTrimConfirm(null);
+          }}
+        />
+      )}
 
       <SectionCard title="Language">
         <label className="label-soft block mb-2">Transcription Language</label>

@@ -167,8 +167,20 @@ function AppShell() {
     const updated = { ...settings, [key]: value };
     setSettings(updated);
     const msg = settingToast(key, value);
-    invoke("save_settings", { settings: updated })
-      .then(() => { if (msg) toast.addToast(msg, "success"); })
+    invoke<number>("save_settings", { settings: updated })
+      .then((trimmed) => {
+        if (key === "max_history_entries" || key === "history_retention_mode") {
+          fetchHistory();
+          if (typeof trimmed === "number" && trimmed > 0) {
+            toast.addToast(`Trimmed ${trimmed} oldest entries`, "success");
+          } else {
+            if (msg) toast.addToast(msg, "success");
+            else toast.addToast("History limit updated", "success");
+          }
+        } else {
+          if (msg) toast.addToast(msg, "success");
+        }
+      })
       .catch((e) => { console.error("[saveSetting]", e); setSettings(prev); toast.addToast("Failed to save settings", "error"); });
     if ((MODEL_KEYS as string[]).includes(key as string)) refreshCurrentModel();
   };
@@ -203,6 +215,8 @@ function AppShell() {
       case "words_enabled": return `Your dictionary ${on(Boolean(value))}`;
       case "local_model_file": return "Local model changed";
       case "engine_mode": return `Engine: ${String(value)}`;
+      case "max_history_entries": return value === 0 ? "History: unlimited" : `History limit: ${String(value)} entries`;
+      case "history_retention_mode": return String(value) === "both" ? "Retention: delete both" : "Retention: keep transcripts";
       default: return null;
     }
   };
@@ -265,7 +279,7 @@ function AppShell() {
   const renderTab = () => {
     switch (activeTab) {
       case "general":
-        return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
+        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onReset={() => resetTab("general")} />;
       case "engine":
         return (
           <EngineTab
@@ -291,7 +305,7 @@ function AppShell() {
       case "donate":
         return <DonateTab />;
       default:
-        return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
+        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onReset={() => resetTab("general")} />;
     }
   };
 
