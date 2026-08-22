@@ -48,6 +48,8 @@ function AppShell() {
   const [appState, setAppState] = useState("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [stats, setStats] = useState<[number, number, number]>([0, 0, 0]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const [currentModelName, setCurrentModelName] = useState("");
@@ -99,14 +101,33 @@ function AppShell() {
     };
   }, []);
 
+  const PAGE_SIZE = 50;
+
   const fetchHistory = useCallback(async () => {
     try {
-      const h = await invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
+      const [h, s, c] = await Promise.all([
+        invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 }),
+        invoke<[number, number, number]>("get_history_stats"),
+        invoke<number>("get_history_count"),
+      ]);
       setHistory(h);
-      const s = await invoke<[number, number, number]>("get_history_stats");
       setStats(s);
+      setHistoryTotal(c);
     } catch {}
   }, []);
+
+  const loadOlder = useCallback(async () => {
+    if (loadingOlder || history.length >= historyTotal) return;
+    setLoadingOlder(true);
+    try {
+      const older = await invoke<HistoryEntry[]>("get_history_entries", {
+        limit: PAGE_SIZE,
+        offset: history.length,
+      });
+      setHistory((prev) => [...prev, ...older]);
+    } catch {}
+    setLoadingOlder(false);
+  }, [history.length, historyTotal, loadingOlder]);
 
   const hasMounted = useRef(false);
   useEffect(() => {
@@ -115,12 +136,14 @@ function AppShell() {
       return;
     }
     if (appState === "idle") {
-      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
+      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 });
       const s = invoke<[number, number, number]>("get_history_stats");
+      const c = invoke<number>("get_history_count");
       const settingsReq = invoke<AppSettings>("load_settings");
-      Promise.all([h, s, settingsReq]).then(([entries, st, stt]) => {
+      Promise.all([h, s, c, settingsReq]).then(([entries, st, count, stt]) => {
         setHistory(entries);
         setStats(st);
+        setHistoryTotal(count);
         setSettings(stt);
       }).catch(() => {});
     }
@@ -262,7 +285,7 @@ function AppShell() {
           />
         );
       case "history":
-        return <HistoryTab history={history} stats={stats} settings={settings} onSave={saveSetting} onRefresh={fetchHistory} />;
+        return <HistoryTab history={history} stats={stats} settings={settings} historyTotal={historyTotal} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onSave={saveSetting} onRefresh={fetchHistory} />;
       case "about":
         return <AboutTab />;
       case "donate":

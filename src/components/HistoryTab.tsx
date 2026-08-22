@@ -1,24 +1,57 @@
-import { IconHistory, IconSearch } from "./ui/icons";
+import { IconHistory, IconSearch, IconRetry } from "./ui/icons";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryEntry, AppSettings } from "../types";
+import { storageKey } from "../appConfig";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
 import { ConfirmModal } from "./ConfirmModal";
 import { HistoryItem } from "./HistoryItem";
+import { AudioPlayerPopover } from "./AudioPlayerPopover";
 import { useToast } from "./ToastContext";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
   stats: [number, number, number];
   settings: AppSettings;
+  /** Total entries stored in the DB — may exceed what's loaded so far. */
+  historyTotal: number;
+  loadingOlder: boolean;
+  onLoadOlder: () => void;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   onRefresh: () => void;
 }
 
 const audioCache = new Map<string, string>();
+const peaksCache = new Map<string, Float32Array>();
 
-export function HistoryTab({ history, stats, settings, onSave, onRefresh }: HistoryTabProps) {
+/** Downsample channel 0 into peak amplitudes for the waveform. */
+async function computePeaks(blobUrl: string): Promise<Float32Array | null> {
+  try {
+    const buf = await (await fetch(blobUrl)).arrayBuffer();
+    const ctx = new AudioContext();
+    const audio = await ctx.decodeAudioData(buf);
+    const ch = audio.getChannelData(0);
+    const buckets = 120;
+    const size = Math.max(1, Math.floor(ch.length / buckets));
+    const out = new Float32Array(buckets);
+    for (let i = 0; i < buckets; i++) {
+      let max = 0;
+      const start = i * size;
+      for (let j = 0; j < size; j++) {
+        const v = Math.abs(ch[start + j] || 0);
+        if (v > max) max = v;
+      }
+      out[i] = max;
+    }
+    void ctx.close();
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+export function HistoryTab({ history, stats, settings, historyTotal, loadingOlder, onLoadOlder, onSave, onRefresh }: HistoryTabProps) {
   const { addToast } = useToast();
   useEffect(() => {
     return () => {
@@ -30,12 +63,20 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
   const [editRaw, setEditRaw] = useState("");
   const [editFormatted, setEditFormatted] = useState("");
   const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [playingId, setPlayingId] = useState<number | null>(null);
   const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [query, setQuery] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [player, setPlayer] = useState<{
+    id: number;
+    path: string;
+    rect: { top: number; bottom: number; left: number; width: number; height: number };
+  } | null>(null);
+  const [playerPlaying, setPlayerPlaying] = useState(false);
+  const [playerTime, setPlayerTime] = useState(0);
+  const [playerDur, setPlayerDur] = useState(0);
+  const [peaks, setPeaks] = useState<Float32Array | null>(null);
 
   // Time saved is accumulated in settings by the backend on each dictation.
   const timeSavedSec = settings.time_saved_sec;
@@ -119,13 +160,22 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
     }
   }, []);
 
-  const togglePlay = useCallback(async (id: number, path: string) => {
-    if (playingId === id) {
-      audioRef.current?.pause();
-      setPlayingId(null);
+  const closePlayer = useCallback(() => {
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setPlayer(null);
+    setPlayerPlaying(false);
+    setPlayerTime(0);
+    setPlayerDur(0);
+    setPeaks(null);
+  }, []);
+
+  /** Row play button: opens the popover (and starts playback), or closes it if already open. */
+  const togglePlay = useCallback(async (id: number, path: string, rect: { top: number; bottom: number; left: number; width: number; height: number }) => {
+    if (player?.id === id) {
+      closePlayer();
       return;
     }
-
     audioRef.current?.pause();
 
     try {
@@ -133,22 +183,70 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       if (!blobUrl) {
         const data = await invoke<number[]>("get_recording_data", { recordingPath: path });
         const bytes = new Uint8Array(data);
-        const blob = new Blob([bytes], { type: "audio/wav" });
-        blobUrl = URL.createObjectURL(blob);
+        blobUrl = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
         audioCache.set(path, blobUrl);
       }
 
       const audio = new Audio(blobUrl);
-      audio.onended = () => setPlayingId(null);
-      audio.onerror = () => setPlayingId(null);
+      audio.ontimeupdate = () => setPlayerTime(audio.currentTime);
+      audio.onloadedmetadata = () => setPlayerDur(audio.duration || 0);
+      audio.onended = () => setPlayerPlaying(false);
       await audio.play();
       audioRef.current = audio;
-      setPlayingId(id);
+      setPlayer({ id, path, rect });
+      setPlayerPlaying(true);
+      setPlayerTime(0);
+
+      // Waveform peaks (cached per recording)
+      const cached = peaksCache.get(path);
+      if (cached) {
+        setPeaks(cached);
+      } else {
+        setPeaks(null);
+        computePeaks(blobUrl).then((p) => {
+          if (p) peaksCache.set(path, p);
+          setPeaks(p);
+        });
+      }
     } catch (e) {
       console.error("Playback failed:", e);
       addToast("Playback failed", "error");
     }
-  }, [playingId, addToast]);
+  }, [player, addToast, closePlayer]);
+
+  const togglePlayPause = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) {
+      void a.play();
+      setPlayerPlaying(true);
+    } else {
+      a.pause();
+      setPlayerPlaying(false);
+    }
+  }, []);
+
+  const seekTo = useCallback((fraction: number) => {
+    const a = audioRef.current;
+    if (!a || !isFinite(a.duration)) return;
+    a.currentTime = fraction * a.duration;
+    setPlayerTime(a.currentTime);
+  }, []);
+
+  // Playback speed — persisted so every recording (and session) reuses it
+  const [playbackRate, setPlaybackRate] = useState(() => {
+    const v = parseFloat(localStorage.getItem(storageKey("playbackRate")) || "");
+    return Number.isFinite(v) && v > 0 ? v : 1;
+  });
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+    localStorage.setItem(storageKey("playbackRate"), String(playbackRate));
+  }, [playbackRate]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = playbackRate;
+  }, [player, playbackRate]);
 
   const retranscribe = useCallback(async (entry: HistoryEntry) => {
     if (!entry.recording_path) return;
@@ -184,11 +282,11 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
       <SectionCard className="card-enter">
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: "Dictations", value: stats[0] },
-            { label: "Words", value: stats[1] },
+            { label: "Dictations", value: String(stats[0]) },
+            { label: "Words", value: String(stats[1]) },
             { label: "Avg Words", value: stats[2].toFixed(1) },
             {
-              label: "Typing time saved",
+              label: "Time saved",
               value: timeSavedSec >= 3600
                 ? `${Math.floor(timeSavedSec / 3600)}h ${Math.floor((timeSavedSec % 3600) / 60)}m`
                 : timeSavedSec >= 60
@@ -198,19 +296,19 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
           ].map((s) => (
             <div
               key={s.label}
-              title={s.label === "Time Saved @60wpm" ? "Estimated at 60 WPM typing speed" : undefined}
-              className="bg-elevated/30 rounded-lg px-2 py-2.5 text-center min-w-0"
+              title={s.label === "Time saved" ? "Estimated at 60 WPM typing speed" : undefined}
+              className="bg-elevated/40 rounded-xl px-3 py-3 text-center min-w-0"
             >
-              <div className="text-lg font-bold font-mono text-accent tabular-nums truncate">{s.value}</div>
-              <div className="text-[9px] sm:text-[10px] font-mono text-muted mt-0.5 tracking-wider uppercase truncate">{s.label}</div>
+              <div className="text-xl font-bold font-mono text-accent tabular-nums truncate leading-none">{s.value}</div>
+              <div className="text-[9px] font-mono text-muted mt-1.5 tracking-[0.12em] uppercase truncate">{s.label}</div>
             </div>
           ))}
         </div>
       </SectionCard>
 
-      <SectionCard className="card-enter flex-1 min-h-0 flex flex-col">
+      <SectionCard className="card-enter flex flex-col h-[457px]">
         <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase shrink-0">Recent</h2>
+          <h2 className="label-soft shrink-0">Recent</h2>
           <div className="relative flex-1 min-w-0">
             <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
             <input
@@ -220,31 +318,36 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
               className="w-full bg-elevated/50 rounded-md pl-8 pr-3 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all"
             />
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted">
-              <span>Keep recordings</span>
-              <Switch label="Keep recordings" checked={settings.keep_recordings}
-                onChange={(v) => onSave("keep_recordings", v)}
-              />
-            </div>
-            {history.length > 0 && (
-              <button
-                onClick={() => setShowClearConfirm(true)}
-                className="text-[11px] font-mono text-recording/70 hover:text-recording transition-colors"
-              >
-                Clear all
-              </button>
-            )}
-            <button
-              onClick={() => {
-                onRefresh();
-                addToast("History refreshed", "success");
-              }}
-              className="text-[11px] font-mono text-accent hover:text-accent-dim transition-colors"
-            >
-              Refresh
-            </button>
+          <div
+            className="flex items-center gap-2 shrink-0"
+            title="Keep audio recordings for re-transcription"
+          >
+            <span className="text-[10px] font-mono text-muted whitespace-nowrap">Recordings</span>
+            <Switch label="Keep recordings" checked={settings.keep_recordings}
+              onChange={(v) => onSave("keep_recordings", v)}
+            />
           </div>
+          {history.length > 0 && (
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="shrink-0 p-1.5 rounded-md text-recording/60 hover:text-recording transition-colors"
+              title="Clear all history"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" />
+              </svg>
+            </button>
+          )}
+          <button
+            onClick={() => {
+              onRefresh();
+              addToast("History refreshed", "success");
+            }}
+            className="shrink-0 p-1.5 rounded-md text-muted hover:text-accent transition-colors"
+            title="Refresh"
+          >
+            <IconRetry className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {selectedIds.size > 0 && (
@@ -293,13 +396,13 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
             )}
           </div>
         ) : (
-          <div className="max-h-[calc(100vh-18rem)] overflow-y-auto custom-scrollbar pr-0.5 space-y-1.5">
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-0.5 space-y-1.5">
             {filteredHistory.map((entry) => (
               <HistoryItem
                 key={entry.id}
                 entry={entry}
                 selected={selectedIds.has(entry.id)}
-                playing={playingId === entry.id}
+                playerOpen={player?.id === entry.id}
                 retranscribing={retranscribingId === entry.id}
                 copied={copiedId === entry.id}
                 editing={editingId === entry.id}
@@ -317,9 +420,36 @@ export function HistoryTab({ history, stats, settings, onSave, onRefresh }: Hist
                 onEditFormattedChange={setEditFormatted}
               />
             ))}
+
+            {/* Pager: older entries beyond what's loaded */}
+            {!query && history.length < historyTotal && (
+              <button
+                onClick={onLoadOlder}
+                disabled={loadingOlder}
+                className="w-full py-2 text-[11px] font-mono text-accent/80 hover:text-accent hover:bg-elevated/40 rounded-lg transition-colors"
+              >
+                {loadingOlder
+                  ? "Loading…"
+                  : `Load 50 older (${history.length} of ${historyTotal})`}
+              </button>
+            )}
           </div>
         )}
       </SectionCard>
+
+      {player && (
+        <AudioPlayerPopover
+          peaks={peaks}
+          playing={playerPlaying}
+          time={playerTime}
+          duration={playerDur}
+          speed={playbackRate}
+          onSpeedChange={setPlaybackRate}
+          onToggle={togglePlayPause}
+          onSeek={seekTo}
+          onClose={closePlayer}
+        />
+      )}
 
       {showClearConfirm && (
         <ConfirmModal
