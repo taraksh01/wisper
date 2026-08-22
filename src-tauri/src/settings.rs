@@ -48,6 +48,8 @@ pub struct AppSettings {
     pub paste_tool: String,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
+    pub noise_suppression_enabled: bool,
+    pub noise_suppression_level: f32,
     pub language: String,
     pub keep_recordings: bool,
     pub launch_to_tray: bool,
@@ -110,10 +112,12 @@ impl Default for AppSettings {
             words_enabled: true,
             hotkey: "F9".into(),
             hotkey_mode: "push-to-talk".into(),
-            paste_method: "Ctrl+V".into(),
+            paste_method: "Direct Typing".into(),
             paste_tool: "auto".into(),
             vad_enabled: true,
             vad_threshold: 0.01,
+            noise_suppression_enabled: false,
+            noise_suppression_level: 0.5,
             language: "auto".into(),
             keep_recordings: false,
             launch_to_tray: false,
@@ -201,6 +205,14 @@ pub fn sync_runtime(settings: &AppSettings) {
         settings.vad_threshold.to_bits(),
         std::sync::atomic::Ordering::Relaxed,
     );
+    crate::coordinator::NOISE_SUPPRESSION_ENABLED.store(
+        settings.noise_suppression_enabled,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::coordinator::NOISE_SUPPRESSION_LEVEL.store(
+        settings.noise_suppression_level.to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     if let Ok(mut v) = crate::coordinator::PROCESS_BASE_URL.lock() {
         *v = settings.process_base_url.clone();
     }
@@ -286,8 +298,10 @@ pub fn sync_runtime(settings: &AppSettings) {
 /// load → mutate → save → sync_runtime → tray refresh → notify frontend.
 /// Every settings change must go through here.
 pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> usize {
-    let prev_max = AppSettings::load().max_history_entries;
-    let prev_mode = AppSettings::load().history_retention_mode.clone();
+    let prev = AppSettings::load();
+    let prev_max = prev.max_history_entries;
+    let prev_mode = prev.history_retention_mode.clone();
+    let prev_hotkey = prev.hotkey.clone();
     let mut s = AppSettings::load();
     mutate(&mut s);
     // Clamp retention limit to sane range (0 = unlimited)
@@ -297,6 +311,11 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     let do_trim = s.max_history_entries != prev_max || s.history_retention_mode != prev_mode;
     let _ = s.save();
     sync_runtime(&s);
+    // If the hotkey changed via save_settings (e.g. tab reset), re-register it at the OS level.
+    // set_hotkey does this, but save_settings is the path used by Reset.
+    if s.hotkey != prev_hotkey {
+        let _ = crate::whisper_keys::register(&s.hotkey);
+    }
 
     let trimmed = if do_trim && s.max_history_entries > 0 {
         let mode = if s.keep_recordings && s.history_retention_mode == "recordings_only" {

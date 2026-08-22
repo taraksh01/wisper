@@ -1,4 +1,4 @@
-use crate::audio::{trim_silence, AudioRecorder};
+use crate::audio::{suppress_noise, trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -13,6 +13,9 @@ pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static VAD_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
+pub static NOISE_SUPPRESSION_ENABLED: AtomicBool = AtomicBool::new(false);
+pub static NOISE_SUPPRESSION_LEVEL: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0.5_f32.to_bits());
 pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> =
     std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
@@ -163,13 +166,19 @@ impl TranscriptionCoordinator {
             None
         };
 
-        // VAD trimming: when enabled, the silence energy cutoff is the user's
-        // vad_threshold; when disabled, keep the full captured audio.
-        let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
-            let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
-            trim_silence(&resampled, 1600, thresh)
+        // Noise suppression (optional, before VAD so VAD sees cleaner audio) and
+        // VAD trimming: VAD uses the user's vad_threshold; when disabled, keep full.
+        let denoised = if NOISE_SUPPRESSION_ENABLED.load(Ordering::Relaxed) {
+            let lvl = f32::from_bits(NOISE_SUPPRESSION_LEVEL.load(Ordering::Relaxed));
+            suppress_noise(&resampled, 16000, lvl)
         } else {
             resampled.clone()
+        };
+        let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
+            let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
+            trim_silence(&denoised, 1600, thresh)
+        } else {
+            denoised
         };
 
         if !trimmed.is_empty() {

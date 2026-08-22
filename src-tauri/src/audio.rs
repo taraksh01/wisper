@@ -330,6 +330,92 @@ pub fn load_wav(filename: &str) -> Result<(Vec<f32>, u32), String> {
     Ok((samples, sample_rate))
 }
 
+/// Lightweight noise suppression: high-pass at ~85 Hz plus spectral gate.
+/// `strength` 0.0 = mild, 1.0 = aggressive. Attenuates stationary background.
+pub fn suppress_noise(samples: &[f32], sample_rate: u32, strength: f32) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    // One-pole high-pass — removes DC and low-frequency rumble.
+    let rc = 1.0 / (2.0 * std::f32::consts::PI * 85.0);
+    let dt = 1.0 / sample_rate as f32;
+    let alpha = rc / (rc + dt);
+    let mut hp = Vec::with_capacity(samples.len());
+    let mut prev_in = 0.0_f32;
+    let mut prev_out = 0.0_f32;
+    for &s in samples {
+        let out = alpha * (prev_out + s - prev_in);
+        hp.push(out);
+        prev_in = s;
+        prev_out = out;
+    }
+
+    // Estimate noise floor from the quietest 10% of 20 ms windows.
+    let win = (sample_rate as usize / 50).max(1);
+    let mut energies: Vec<f32> = hp
+        .chunks(win)
+        .map(|w| (w.iter().map(|&s| s * s).sum::<f32>() / w.len() as f32).sqrt())
+        .collect();
+    energies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let noise_floor = energies[energies.len() / 10].max(0.002);
+    let s = strength.clamp(0.0, 1.0);
+    // strength 0 → mild (high threshold, gentle attenuation), 1 → aggressive
+    let gate_thresh = noise_floor * (3.0 - s * 1.6); // 3.0 → 1.4
+    let floor_gain = 0.6 - s * 0.45; // 0.6 → 0.15
+    let exponent = 0.8 + s * 1.2; // 0.8 → 2.0
+
+    // Gate: attenuate windows below threshold, keep speech at full gain.
+    let mut out = Vec::with_capacity(hp.len());
+    for window in hp.chunks(win) {
+        let rms = (window.iter().map(|&s| s * s).sum::<f32>() / window.len() as f32).sqrt();
+        let gain = if rms < gate_thresh {
+            (rms / gate_thresh).powf(exponent) * floor_gain
+        } else {
+            1.0
+        };
+        for &s in window {
+            out.push(s * gain);
+        }
+    }
+    out
+}
+
+/// Encode f32 mono samples to 16-bit WAV bytes in memory (for playback).
+pub fn wav_bytes_from_samples(samples: &[f32], sample_rate: u32) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    let mut raw = Vec::with_capacity(samples.len() * 2);
+    for &s in samples {
+        raw.extend_from_slice(&((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).to_le_bytes());
+    }
+    let data_size = raw.len() as u32;
+    let file_size = 36 + data_size;
+    let mut buf = Vec::with_capacity((44 + data_size) as usize);
+    buf.write_all(b"RIFF").map_err(|e| e.to_string())?;
+    buf.write_all(&file_size.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(b"WAVE").map_err(|e| e.to_string())?;
+    buf.write_all(b"fmt ").map_err(|e| e.to_string())?;
+    buf.write_all(&16u32.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&1u16.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&1u16.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&sample_rate.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&(sample_rate * 2u32).to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&2u16.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&16u16.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(b"data").map_err(|e| e.to_string())?;
+    buf.write_all(&data_size.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+    buf.write_all(&raw).map_err(|e| e.to_string())?;
+    Ok(buf)
+}
+
 /// Trims leading and trailing silence based on RMS energy windowing.
 pub fn trim_silence(samples: &[f32], window_size: usize, threshold: f32) -> Vec<f32> {
     if samples.is_empty() {

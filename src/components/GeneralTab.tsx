@@ -1,4 +1,4 @@
-import { IconGeneral } from "./ui/icons";
+import { IconGeneral, IconKeyboard } from "./ui/icons";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
@@ -186,46 +186,49 @@ function codeToToken(code: string): string | null {
 }
 
 function SupportedKeysModal({ onClose }: { onClose: () => void }) {
-  const rows: [string, string][] = [
-    ["F9, F13, F1–F12", "Single key — works in every app, best for push-to-talk"],
-    ["ScrollLock, Pause", "Single key — almost never used by apps"],
-    ["CtrlRight+Space", "Modifier + key (side-specific modifiers work)"],
-    ["AltLeft+K", "Any Mod+Key combo"],
+  const pretty: Record<string, string> = {
+    CtrlRight: "Ctrl R", AltLeft: "Alt L", SuperLeft: "Meta L",
+  };
+  const rows: { keys: string[]; desc: string }[] = [
+    { keys: ["F9"], desc: "Single key — works in every app, best for push-to-talk. Try F9, F13, or any F-key." },
+    { keys: ["ScrollLock"], desc: "Rarely used by apps, so it never conflicts." },
+    { keys: ["CtrlRight", "Space"], desc: "Modifier + key — side-specific modifiers work." },
+    { keys: ["AltLeft", "K"], desc: "Any modifier plus any key." },
   ];
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div className="bg-surface border border-stroke rounded-xl p-5 max-w-sm w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-sm font-bold font-mono text-ink">Example hotkeys</h3>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="flex items-center justify-center w-6 h-6 rounded-md text-muted hover:text-ink hover:bg-elevated ring-1 ring-stroke hover:ring-accent/30 transition-all"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-base/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-surface border border-stroke rounded-2xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-col items-center text-center mb-6">
+          <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mb-3">
+            <IconKeyboard className="w-6 h-6 text-accent" />
+          </div>
+          <h3 className="text-base font-bold font-mono text-ink">Example hotkeys</h3>
+          <p className="text-[11px] font-mono text-muted mt-1 leading-relaxed">Anything your keyboard can send works — these are just ideas.</p>
         </div>
-        <p className="text-[10px] font-mono text-muted/70 mb-3 leading-relaxed">
-          Anything your keyboard can send works — these are just a few ideas.
-        </p>
-        <ul className="space-y-2">
-          {rows.map(([k, desc]) => (
-            <li key={k} className="flex items-start gap-3">
-              <code className="shrink-0 px-2 py-1 text-[10px] font-mono text-ink bg-elevated rounded-md ring-1 ring-stroke">{k}</code>
-              <span className="text-[10px] font-mono text-muted leading-relaxed">{desc}</span>
-            </li>
+
+        <div className="space-y-2 mb-6">
+          {rows.map((r) => (
+            <div key={r.keys.join("+")} className="flex items-center gap-3 bg-elevated/40 rounded-xl px-3 py-3 ring-1 ring-stroke">
+              <div className="shrink-0 flex items-center gap-1">
+                {r.keys.map((k, i) => (
+                  <span key={k} className="flex items-center gap-1">
+                    {i > 0 && <span className="text-muted/40 text-[10px]">+</span>}
+                    <Keycap>{pretty[k] ?? k}</Keycap>
+                  </span>
+                ))}
+              </div>
+              <span className="flex-1 text-[11px] font-mono text-muted leading-relaxed">{r.desc}</span>
+            </div>
           ))}
-        </ul>
-        <p className="mt-3 text-[10px] font-mono text-muted/70 leading-relaxed">
-          A bare modifier alone (e.g. RightAlt with no other key) isn't supported.
-        </p>
-        <div className="flex justify-end mt-4">
-          <button onClick={onClose} className="px-3 py-1.5 text-xs font-mono text-white bg-accent rounded-md hover:bg-accent-dim transition-all">
-            Got it
-          </button>
         </div>
+
+        <p className="text-[10px] font-mono text-muted/60 text-center leading-relaxed mb-6">
+          A bare modifier alone (e.g. RightAlt) isn't supported.
+        </p>
+
+        <button onClick={onClose} className="w-full px-4 py-3 text-xs font-mono font-semibold text-white bg-accent rounded-xl hover:bg-accent-dim transition-colors">
+          Got it
+        </button>
       </div>
     </div>,
     document.body
@@ -333,6 +336,13 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
   useEffect(() => {
     setPendingMax(settings.max_history_entries);
   }, [settings.max_history_entries]);
+
+  // If the hotkey changes externally (e.g. via Reset), cancel any active capture
+  // and clear stale modifier state so the next capture starts clean.
+  useEffect(() => {
+    setListening(false);
+    pendingModsRef.current.clear();
+  }, [settings.hotkey]);
 
   useEffect(() => {
     return () => clearTimeout(timerRef.current);
@@ -474,10 +484,35 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
       <SectionCard title="Audio Processing">
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted">Reduce background noise</span>
+            <Switch label="Reduce background noise" checked={settings.noise_suppression_enabled} onChange={(v) => onSave("noise_suppression_enabled", v)} />
+          </div>
+          <p className="text-[10px] font-mono text-muted/60 leading-relaxed -mt-1">High-pass plus spectral gate for fan and hum.</p>
+          {settings.noise_suppression_enabled && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-muted">Mild</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings.noise_suppression_level}
+                onChange={(e) => onSave("noise_suppression_level", parseFloat(e.target.value))}
+                className="flex-1 accent-accent"
+                aria-label="Noise suppression strength"
+              />
+              <span className="text-[10px] font-mono text-muted">Aggressive</span>
+              <span className="text-xs font-mono text-muted w-8 text-right">{Math.round(settings.noise_suppression_level * 100)}%</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
             <span className="text-xs text-muted">Trim silence</span>
             <Switch label="Trim silence" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
           </div>
           {settings.vad_enabled && <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />}
+          <p className="text-[10px] font-mono text-muted/50 leading-relaxed">
+            Defaults suit most setups. If you hear background noise or speech is clipped, adjust the sliders above and use Test microphone level.
+          </p>
         </div>
       </SectionCard>
 

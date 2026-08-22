@@ -71,6 +71,8 @@ export interface AppSettings {
   paste_tool: string;
   vad_enabled: boolean;
   vad_threshold: number;
+  noise_suppression_enabled: boolean;
+  noise_suppression_level: number;
   language: string;
   keep_recordings: boolean;
   launch_to_tray: boolean;

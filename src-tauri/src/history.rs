@@ -382,7 +382,19 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
     }
 
     let provider = crate::engine::create_local_engine(model_path);
-    let trimmed = crate::audio::trim_silence(&samples, 1600, 0.01);
+
+    // Respect the same audio pipeline as live transcription: optional
+    // noise suppression, then VAD trimming with the user's threshold.
+    let denoised = if settings.noise_suppression_enabled {
+        crate::audio::suppress_noise(&samples, sample_rate, settings.noise_suppression_level)
+    } else {
+        samples.clone()
+    };
+    let trimmed = if settings.vad_enabled {
+        crate::audio::trim_silence(&denoised, 1600, settings.vad_threshold)
+    } else {
+        denoised
+    };
     if trimmed.is_empty() {
         return Err("No speech detected in recording".to_string());
     }
@@ -419,5 +431,11 @@ pub fn clear_history() -> Result<(), String> {
 #[tauri::command]
 pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
     let validated = validate_recording_path(&recording_path)?;
-    std::fs::read(&validated).map_err(|e| format!("Failed to read recording: {}", e))
+    let settings = crate::settings::AppSettings::load();
+    if !settings.noise_suppression_enabled {
+        return std::fs::read(&validated).map_err(|e| format!("Failed to read recording: {}", e));
+    }
+    let (samples, sr) = crate::audio::load_wav(validated.to_str().unwrap_or(&recording_path))?;
+    let denoised = crate::audio::suppress_noise(&samples, sr, settings.noise_suppression_level);
+    crate::audio::wav_bytes_from_samples(&denoised, sr)
 }
