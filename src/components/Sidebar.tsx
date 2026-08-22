@@ -69,13 +69,28 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
           {currentModelName && settings && (
             <div className="mt-4 px-1">
               {settings.engine_mode === "local" ? (
-                <div className="group flex items-center gap-2 px-2.5 py-2 rounded-xl bg-elevated border border-stroke">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={onOpenEngineTab}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenEngineTab();
+                    }
+                  }}
+                  className="group cursor-pointer flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 transition-colors"
+                >
                   <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 animate-pulse" />
                   <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
                     {currentModelName}
                   </span>
+                  <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
                   <button
-                    onClick={onUnloadModel}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUnloadModel();
+                    }}
                     className="shrink-0 w-5 h-5 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 opacity-0 group-hover:opacity-100 transition-all transition-transform duration-150 active:scale-[0.98]"
                     title="Unload model"
                   >
@@ -85,7 +100,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
               ) : (
                 <button
                   onClick={onOpenEngineTab}
-                  className="transition-transform duration-150 active:scale-[0.98] flex items-center gap-2 px-2.5 py-2 rounded-xl bg-elevated border border-stroke hover:border-accent/20 w-full text-left transition-colors group"
+                  className="transition-transform duration-150 active:scale-[0.98] flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 w-full text-left transition-colors group"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-ready shrink-0" />
                   <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
