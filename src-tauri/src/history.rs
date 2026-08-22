@@ -96,15 +96,15 @@ impl HistoryManager {
         Ok(())
     }
 
-    pub fn get_history(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
+    pub fn get_history(&self, limit: i64, offset: i64) -> SqlResult<Vec<HistoryEntry>> {
         let conn = Self::conn();
         let mut stmt = conn.prepare(
             "SELECT id, raw_text, formatted_text, agent_name, duration_ms, word_count, created_at, recording_path
-             FROM history ORDER BY id DESC LIMIT ?1",
+             FROM history ORDER BY id DESC LIMIT ?1 OFFSET ?2",
         )?;
 
         let entries = stmt
-            .query_map(params![limit], |row| {
+            .query_map(params![limit, offset], |row| {
                 Ok(HistoryEntry {
                     id: row.get(0)?,
                     raw_text: row.get(1)?,
@@ -261,11 +261,20 @@ fn wav_from_samples(
 }
 
 #[tauri::command]
-pub fn get_history_entries(limit: i64) -> Result<Vec<HistoryEntry>, String> {
+pub fn get_history_entries(limit: i64, offset: i64) -> Result<Vec<HistoryEntry>, String> {
     let manager = HistoryManager::new();
     manager
-        .get_history(limit)
+        .get_history(limit, offset)
         .map_err(|e| format!("Failed to get history: {}", e))
+}
+
+#[tauri::command]
+pub fn get_history_count() -> Result<i64, String> {
+    let manager = HistoryManager::new();
+    manager
+        .get_stats()
+        .map(|s| s.0)
+        .map_err(|e| format!("Failed to count history: {}", e))
 }
 
 #[tauri::command]
@@ -326,7 +335,7 @@ pub fn clear_history() -> Result<(), String> {
 
     // Collect all recording paths before deleting
     let entries = manager
-        .get_history(i64::MAX)
+        .get_history(i64::MAX, 0)
         .map_err(|e| format!("Failed to get history: {}", e))?;
 
     // Delete recording files (only inside recordings dir)

@@ -489,6 +489,7 @@ pub fn run() {
             words::unignore_word_term,
             words::add_ignored_to_dictionary,
             history::get_history_entries,
+            history::get_history_count,
             history::get_history_stats,
             history::delete_history_entry,
             history::update_history_entry,

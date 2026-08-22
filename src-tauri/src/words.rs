@@ -413,7 +413,7 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
     let known = WordsManager::new().known_terms();
     let ignored = WordsManager::new().ignored_terms();
     let history = crate::history::HistoryManager::new()
-        .get_history(300)
+        .get_history(300, 0)
         .map_err(|e| e.to_string())?;
 
     let mut counts: HashMap<String, u32> = HashMap::new();
