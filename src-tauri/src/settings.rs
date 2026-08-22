@@ -58,6 +58,19 @@ pub struct AppSettings {
     pub input_device: String,
     /// Cumulative seconds saved by speaking instead of typing (estimated).
     pub time_saved_sec: i32,
+    /// Maximum history entries to retain (0 = unlimited).
+    #[serde(default = "default_max_history")]
+    pub max_history_entries: i32,
+    /// What to delete when trimming: "both" or "recordings_only".
+    #[serde(default = "default_retention_mode")]
+    pub history_retention_mode: String,
+}
+
+fn default_max_history() -> i32 {
+    500
+}
+fn default_retention_mode() -> String {
+    "both".into()
 }
 
 impl Default for AppSettings {
@@ -109,6 +122,8 @@ impl Default for AppSettings {
             overlay_position: "bottom".into(),
             input_device: String::new(),
             time_saved_sec: 0,
+            max_history_entries: default_max_history(),
+            history_retention_mode: default_retention_mode(),
         }
     }
 }
@@ -270,11 +285,31 @@ pub fn sync_runtime(settings: &AppSettings) {
 /// The ONLY mutation funnel for settings:
 /// load → mutate → save → sync_runtime → tray refresh → notify frontend.
 /// Every settings change must go through here.
-pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) {
+pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> usize {
+    let prev_max = AppSettings::load().max_history_entries;
+    let prev_mode = AppSettings::load().history_retention_mode.clone();
     let mut s = AppSettings::load();
     mutate(&mut s);
+    // Clamp retention limit to sane range (0 = unlimited)
+    if s.max_history_entries < 0 {
+        s.max_history_entries = 0;
+    }
+    let do_trim = s.max_history_entries != prev_max || s.history_retention_mode != prev_mode;
     let _ = s.save();
     sync_runtime(&s);
+
+    let trimmed = if do_trim && s.max_history_entries > 0 {
+        let mode = if s.keep_recordings && s.history_retention_mode == "recordings_only" {
+            "recordings_only"
+        } else {
+            "both"
+        };
+        crate::history::HistoryManager::new()
+            .trim_history(s.max_history_entries as i64, mode)
+            .unwrap_or(0)
+    } else {
+        0
+    };
 
     if s.autostart {
         let _ = app.autolaunch().enable();
@@ -284,6 +319,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) {
 
     crate::tray::refresh();
     let _ = app.emit("wisper:settings-changed", &s);
+    trimmed
 }
 
 // ── Shared engine operations ────────────────────────────────────────────────
@@ -334,13 +370,13 @@ pub fn switch_engine_mode(app: &tauri::AppHandle) {
 }
 
 #[tauri::command]
-pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
+pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<usize, String> {
     let prev_mode = AppSettings::load().engine_mode;
-    apply(&app, |s| {
+    let trimmed = apply(&app, |s| {
         *s = settings;
         apply_engine_transition(s, &prev_mode);
     });
-    Ok(())
+    Ok(trimmed)
 }
 
 #[tauri::command]

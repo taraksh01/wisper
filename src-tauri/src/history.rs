@@ -143,6 +143,67 @@ impl HistoryManager {
         Ok(())
     }
 
+    /// Trim oldest entries when total exceeds `max_entries`.
+    /// `mode` is "both" (delete rows + recordings) or "recordings_only" (keep rows, delete files).
+    /// Returns number of entries affected.
+    pub fn trim_history(&self, max_entries: i64, mode: &str) -> SqlResult<usize> {
+        if max_entries <= 0 {
+            return Ok(0);
+        }
+        let conn = Self::conn();
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))?;
+        if total <= max_entries {
+            return Ok(0);
+        }
+        let excess = total - max_entries;
+        // Oldest entries beyond limit
+        let mut stmt =
+            conn.prepare("SELECT id, recording_path FROM history ORDER BY id ASC LIMIT ?1")?;
+        let oldest: Vec<(i64, Option<String>)> = stmt
+            .query_map(params![excess], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        drop(stmt);
+
+        if mode == "recordings_only" {
+            let mut cleared = 0;
+            for (id, path) in oldest {
+                if let Some(ref p) = path {
+                    if !p.is_empty() {
+                        if let Ok(canonical) = validate_recording_path(p) {
+                            let _ = std::fs::remove_file(canonical);
+                        }
+                        conn.execute(
+                            "UPDATE history SET recording_path = NULL WHERE id = ?1",
+                            params![id],
+                        )?;
+                        cleared += 1;
+                    }
+                }
+            }
+            Ok(cleared)
+        } else {
+            // "both": delete recording files then rows
+            for (_, path) in &oldest {
+                if let Some(ref p) = path {
+                    if let Ok(canonical) = validate_recording_path(p) {
+                        let _ = std::fs::remove_file(canonical);
+                    }
+                }
+            }
+            let ids: Vec<i64> = oldest.into_iter().map(|(id, _)| id).collect();
+            if ids.is_empty() {
+                return Ok(0);
+            }
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("DELETE FROM history WHERE id IN ({})", placeholders);
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::ToSql> =
+                ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+            let deleted = stmt.execute(params.as_slice())?;
+            Ok(deleted)
+        }
+    }
+
     pub fn get_recording_dir() -> PathBuf {
         let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
         path.push(crate::app_info::data_dir_name());

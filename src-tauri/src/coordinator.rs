@@ -316,6 +316,22 @@ impl TranscriptionCoordinator {
                         recording_path.as_deref(),
                     ) {
                         eprintln!("Failed to log history: {}", e);
+                    } else {
+                        // Enforce retention limit after each insert
+                        let s = crate::settings::AppSettings::load();
+                        if s.max_history_entries > 0 {
+                            let mode = if s.keep_recordings
+                                && s.history_retention_mode == "recordings_only"
+                            {
+                                "recordings_only"
+                            } else {
+                                "both"
+                            };
+                            if let Err(e) = history.trim_history(s.max_history_entries as i64, mode)
+                            {
+                                eprintln!("Failed to trim history: {}", e);
+                            }
+                        }
                     }
 
                     // Accumulate estimated time saved (typing time minus speaking time).

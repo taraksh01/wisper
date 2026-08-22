@@ -379,6 +379,16 @@ pub fn run() {
     let saved_settings = settings::AppSettings::load();
     settings::sync_runtime(&saved_settings);
     crate::tray::refresh();
+    // Enforce history retention limit on startup
+    if saved_settings.max_history_entries > 0 {
+        let mode = if saved_settings.keep_recordings && saved_settings.history_retention_mode == "recordings_only" {
+            "recordings_only"
+        } else {
+            "both"
+        };
+        let _ = crate::history::HistoryManager::new()
+            .trim_history(saved_settings.max_history_entries as i64, mode);
+    }
 
             if saved_settings.autostart {
                 let _ = app.autolaunch().enable();

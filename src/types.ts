@@ -79,6 +79,8 @@ export interface AppSettings {
   overlay_position: string;
   input_device: string;
   time_saved_sec: number;
+  max_history_entries: number;
+  history_retention_mode: string;
 }
 
 export interface ModelInfo {
