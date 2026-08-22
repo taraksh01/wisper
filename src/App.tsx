@@ -79,11 +79,23 @@ function AppShell() {
     const unlistenTabPromise = listen<string>("wisper:open-tab", (event) => {
       if (alive) setActiveTab(event.payload);
     });
+    const unlistenSettingsPromise = listen<AppSettings>("wisper:settings-changed", (event) => {
+      if (alive) {
+        setSettings(event.payload);
+        // Single source: settings.local_model_file — refresh display name
+        if (!event.payload.local_model_file) {
+          setCurrentModelName("");
+        } else {
+          invoke<string>("get_current_model").then((v) => alive && setCurrentModelName(v)).catch(() => {});
+        }
+      }
+    });
 
     return () => {
       alive = false;
       unlistenStatePromise.then((fn) => fn()).catch(() => {});
       unlistenTabPromise.then((fn) => fn()).catch(() => {});
+      unlistenSettingsPromise.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
@@ -175,6 +187,9 @@ function AppShell() {
   const unloadModel = async () => {
     try {
       await invoke("unload_model");
+      // Single source is settings.local_model_file — clear it locally too
+      setSettings((prev) => (prev ? { ...prev, local_model_file: "" } : prev));
+      setCurrentModelName("");
       refreshCurrentModel();
     } catch (e) {
       console.error(e);

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tauri::Emitter;
 use tauri_plugin_autostart::ManagerExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +16,10 @@ pub struct AppSettings {
     pub voice_api_key_custom: String,
     pub engine_model: String,
     pub local_model_file: String,
+    /// Last local model that was loaded; used by "Load last model" in the tray.
+    /// Persisted so it survives restarts — there is no separate in-memory copy.
+    #[serde(default)]
+    pub last_local_model_file: String,
     pub process_enabled: bool,
     pub process_provider: String,
     pub process_base_url: String,
@@ -67,6 +72,7 @@ impl Default for AppSettings {
             voice_api_key_custom: String::new(),
             engine_model: String::new(),
             local_model_file: String::new(),
+            last_local_model_file: String::new(),
             process_enabled: false,
             process_provider: String::new(),
             process_base_url: String::new(),
@@ -156,33 +162,10 @@ pub fn load_settings() -> AppSettings {
     AppSettings::load()
 }
 
-pub fn update_display_name(settings: &AppSettings) {
-    if let Ok(mut mode) = crate::coordinator::ENGINE_MODE.lock() {
-        *mode = settings.engine_mode.clone();
-    }
-    if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
-        if settings.engine_mode == "cloud" {
-            let provider_label = match settings.engine_provider.as_str() {
-                "openai" => "OpenAI",
-                "groq" => "Groq",
-                _ => "Custom",
-            };
-            *name = format!("{} · {}", provider_label, settings.engine_model);
-        } else {
-            let model_dir = crate::models::get_models_dir();
-            let model_path = model_dir.join(&settings.local_model_file);
-            if model_path.exists() {
-                *name = crate::coordinator::model_display_name(&model_path);
-            } else {
-                name.clear();
-            }
-        }
-    }
-}
-
-#[tauri::command]
-pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
-    // Debug logging removed to avoid spamming stderr on every toggle
+/// Derive ALL runtime state from settings. This is the single place where
+/// mirrors of `AppSettings` are written — never set those statics elsewhere.
+pub fn sync_runtime(settings: &AppSettings) {
+    // Hotkey / recording behaviour
     crate::coordinator::HOTKEY_MODE.store(
         settings.hotkey_mode != "toggle",
         std::sync::atomic::Ordering::Relaxed,
@@ -225,6 +208,11 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     if let Ok(mut tool) = crate::coordinator::PASTE_TOOL.lock() {
         *tool = settings.paste_tool.clone();
     }
+    if let Ok(mut v) = crate::coordinator::INPUT_DEVICE.lock() {
+        *v = settings.input_device.clone();
+    }
+
+    // Cloud engine
     if let Ok(mut v) = crate::coordinator::CLOUD_PROVIDER.lock() {
         *v = settings.engine_provider.clone();
     }
@@ -237,23 +225,36 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
     if let Ok(mut v) = crate::coordinator::CLOUD_MODEL.lock() {
         *v = settings.engine_model.clone();
     }
-    if let Ok(mut v) = crate::coordinator::INPUT_DEVICE.lock() {
-        *v = settings.input_device.clone();
-    }
 
-    // Update current model path
+    // Engine mode + current local model path (derived, not stored twice)
+    if let Ok(mut mode) = crate::coordinator::ENGINE_MODE.lock() {
+        *mode = settings.engine_mode.clone();
+    }
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
+    let model_exists = model_path.exists();
     if let Ok(mut current) = crate::coordinator::CURRENT_MODEL.lock() {
-        *current = if model_path.exists() {
-            Some(model_path.clone())
-        } else {
-            None
-        };
+        *current = if model_exists { Some(model_path) } else { None };
     }
 
-    update_display_name(&settings);
+    // Display name (derived from mode + model)
+    if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
+        if settings.engine_mode == "cloud" {
+            let provider_label = match settings.engine_provider.as_str() {
+                "openai" => "OpenAI",
+                "groq" => "Groq",
+                _ => "Custom",
+            };
+            *name = format!("{} · {}", provider_label, settings.engine_model);
+        } else if model_exists {
+            *name =
+                crate::coordinator::model_display_name(&model_dir.join(&settings.local_model_file));
+        } else {
+            name.clear();
+        }
+    }
 
+    // Overlay
     if let Ok(mut en) = crate::OVERLAY_ENABLED.lock() {
         *en = settings.overlay_enabled;
     }
@@ -264,16 +265,82 @@ pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(),
             "bottom".into()
         };
     }
+}
 
-    if settings.autostart {
+/// The ONLY mutation funnel for settings:
+/// load → mutate → save → sync_runtime → tray refresh → notify frontend.
+/// Every settings change must go through here.
+pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) {
+    let mut s = AppSettings::load();
+    mutate(&mut s);
+    let _ = s.save();
+    sync_runtime(&s);
+
+    if s.autostart {
         let _ = app.autolaunch().enable();
     } else {
         let _ = app.autolaunch().disable();
     }
 
-    crate::update_tray_menu_text();
+    crate::tray::refresh();
+    let _ = app.emit("wisper:settings-changed", &s);
+}
 
-    settings.save()
+// ── Shared engine operations ────────────────────────────────────────────────
+// Used by BOTH the tray menu handlers and the tauri commands so the logic
+// exists in exactly one place.
+
+/// Keep model state consistent across an engine-mode change:
+/// going to cloud automatically unloads the local model (remembering it),
+/// coming back to local automatically reloads the last used model.
+fn apply_engine_transition(s: &mut AppSettings, prev_mode: &str) {
+    if s.engine_mode == prev_mode {
+        return;
+    }
+    if s.engine_mode == "cloud" {
+        if !s.local_model_file.is_empty() {
+            s.last_local_model_file = std::mem::take(&mut s.local_model_file);
+        }
+    } else if s.local_model_file.is_empty() && !s.last_local_model_file.is_empty() {
+        s.local_model_file = s.last_local_model_file.clone();
+    }
+}
+
+pub fn unload_local_model(app: &tauri::AppHandle) {
+    apply(app, |s| {
+        s.last_local_model_file = std::mem::take(&mut s.local_model_file);
+    });
+}
+
+pub fn reload_last_model(app: &tauri::AppHandle) {
+    apply(app, |s| {
+        if s.local_model_file.is_empty() && !s.last_local_model_file.is_empty() {
+            s.local_model_file = s.last_local_model_file.clone();
+        }
+    });
+}
+
+pub fn switch_engine_mode(app: &tauri::AppHandle) {
+    let prev_mode = AppSettings::load().engine_mode;
+    apply(app, |s| {
+        s.engine_mode = if prev_mode == "cloud" {
+            "local"
+        } else {
+            "cloud"
+        }
+        .into();
+        apply_engine_transition(s, &prev_mode);
+    });
+}
+
+#[tauri::command]
+pub fn save_settings(app: tauri::AppHandle, settings: AppSettings) -> Result<(), String> {
+    let prev_mode = AppSettings::load().engine_mode;
+    apply(&app, |s| {
+        *s = settings;
+        apply_engine_transition(s, &prev_mode);
+    });
+    Ok(())
 }
 
 #[tauri::command]

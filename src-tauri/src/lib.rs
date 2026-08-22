@@ -8,6 +8,7 @@ pub mod models;
 pub mod paste;
 pub mod process;
 pub mod settings;
+pub mod tray;
 pub mod words;
 pub mod whisper_keys;
 
@@ -54,24 +55,17 @@ where
     result
 }
 
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent,
-};
+use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
-static UNLOAD_ITEM: once_cell::sync::Lazy<std::sync::Mutex<Option<MenuItem<tauri::Wry>>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
-
-static APP_HANDLE: once_cell::sync::Lazy<std::sync::Mutex<Option<tauri::AppHandle>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
-
-static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
+use crate::tray::STATE_LOCK;
 
 type HotkeySender = Arc<Mutex<mpsc::Sender<hotkey::HotkeyEvent>>>;
 static HOTKEY_SENDER: once_cell::sync::Lazy<Mutex<Option<HotkeySender>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+/// Handle for overlay-window operations (owned by lib, not tray).
+static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
@@ -142,7 +136,11 @@ fn get_current_state() -> String {
 
 #[tauri::command]
 fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
-    whisper_keys::register(&key)
+    let res = whisper_keys::register(&key);
+    if res.is_ok() {
+        settings::apply(&_app, |s| s.hotkey = key);
+    }
+    res
 }
 
 #[tauri::command]
@@ -151,24 +149,16 @@ fn get_current_model() -> String {
 }
 
 #[tauri::command]
-fn unload_model(_app: tauri::AppHandle) {
+fn unload_model(app: tauri::AppHandle) {
     let mode = coordinator::ENGINE_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if mode == "cloud" {
-        if let Some(win) = _app.get_webview_window("main") {
+        if let Some(win) = app.get_webview_window("main") {
             let _ = win.show();
             let _ = win.set_focus();
         }
-        let _ = _app.emit("wisper:open-tab", "engine");
+        let _ = app.emit("wisper:open-tab", "engine");
     } else {
-        {
-            let mut current = coordinator::CURRENT_MODEL.lock().unwrap_or_else(|e| e.into_inner());
-            *current = None;
-        }
-        {
-            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner());
-            name.clear();
-        }
-        update_tray_menu_text();
+        settings::unload_local_model(&app);
     }
 }
 
@@ -341,41 +331,6 @@ pub fn show_overlay_error() {
     });
 }
 
-pub fn update_tray_menu_text() {
-    if let Some(item) = UNLOAD_ITEM.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let mode = coordinator::ENGINE_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let text = if name.is_empty() {
-            "No model loaded".into()
-        } else if mode == "cloud" {
-            name.clone()
-        } else {
-            format!("✕  {}", name.clone())
-        };
-        let _ = item.set_text(&text);
-
-        // Update tooltip too
-        if let Some(handle) = APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            if let Some(tray) = handle.tray_by_id("main") {
-                let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-                let dn = crate::app_info::display_name();
-                let label = match *state {
-                    CoordinatorState::Idle => {
-                        if name.is_empty() {
-                            format!("{} - Idle", dn)
-                        } else {
-                            format!("{} - Idle [{}]", dn, name)
-                        }
-                    }
-                    CoordinatorState::Recording => format!("{} - Recording...", dn),
-                    CoordinatorState::Processing => format!("{} - Processing...", dn),
-                };
-                let _ = tray.set_tooltip(Some(&label));
-            }
-        }
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Dev desktop file is written in setup (needs app resource path), but we also
@@ -398,104 +353,7 @@ pub fn run() {
                 *guard = Some(app_handle.clone());
             }
 
-            let quit_i = MenuItem::with_id(app, "quit", &format!("Quit {}", crate::app_info::display_name()), true, None::<&str>)?;
-            let settings_i =
-                MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-            let unload_i =
-                MenuItem::with_id(app, "unload", "Unload Model", true, None::<&str>)?;
-            {
-                let mut guard = UNLOAD_ITEM.lock().unwrap_or_else(|e| e.into_inner());
-                *guard = Some(unload_i.clone());
-            }
-            // Set initial text if model is loaded
-            {
-                let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner());
-                if !name.is_empty() {
-                    let _ = unload_i.set_text(&format!("✕  {}", name));
-                }
-            }
-            let menu = Menu::with_items(app, &[&settings_i, &unload_i, &quit_i])?;
-
-            let dev_icon: Option<tauri::image::Image<'static>> = if crate::app_info::is_dev() {
-                let bytes = include_bytes!("../icons/dev/icon.png");
-                match tauri::image::Image::from_bytes(bytes) {
-                    Ok(icon) => Some(icon),
-                    Err(e) => {
-                        eprintln!("[dev] Image::from_bytes failed: {}", e);
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-            // Dev: set window icon so GNOME taskbar/dock shows violet, not orange.
-            // Must set on the WebviewWindow — default_window_icon is baked into the binary
-            // from tauri.conf.json's icon list, so dev needs an explicit override.
-            if let Some(dev_icon) = dev_icon.clone() {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.set_icon(dev_icon.clone());
-                }
-            }
-            let tray_icon = dev_icon.or_else(|| app.default_window_icon().cloned()).unwrap_or_else(|| {
-                eprintln!("no tray icon available, using fallback");
-                tauri::image::Image::new(&[0, 0, 0, 0], 1, 1)
-            });
-            let tray_builder = TrayIconBuilder::with_id("main")
-                .icon(tray_icon)
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .tooltip(&format!("{} - Idle", crate::app_info::display_name()))
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    "settings" => {
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                    }
-                    "unload" => {
-                        let mode = coordinator::ENGINE_MODE.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                        if mode == "cloud" {
-                            if let Some(win) = app.get_webview_window("main") {
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
-                            let _ = app.emit("wisper:open-tab", "engine");
-                        } else {
-                            {
-                                let mut current = coordinator::CURRENT_MODEL.lock().unwrap_or_else(|e| e.into_inner());
-                                *current = None;
-                            }
-                            {
-                                let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap_or_else(|e| e.into_inner());
-                                name.clear();
-                            }
-                            update_tray_menu_text();
-                            if let Some(tray) = app.tray_by_id("main") {
-                                let _ = tray.set_tooltip(Some(format!("{} - No model loaded", crate::app_info::display_name())));
-                            }
-                        }
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                    }
-                });
-            // libayatana-appindicator prints a deprecation warning to C stderr
-            // during tray construction. Degrade gracefully if tray fails (e.g. no tray available).
-            let tray: Option<tauri::tray::TrayIcon> = match silence_stderr(|| tray_builder.build(app)) {
+            let tray: Option<tauri::tray::TrayIcon> = match crate::tray::build_tray(&app_handle.clone()) {
                 Ok(t) => Some(t),
                 Err(e) => {
                     eprintln!("Tray build failed (running without tray): {}", e);
@@ -517,68 +375,10 @@ pub fn run() {
                 }
             });
 
-    // Load saved settings
+    // Load saved settings and derive ALL runtime state from them (single source)
     let saved_settings = settings::AppSettings::load();
-    coordinator::HOTKEY_MODE.store(
-        saved_settings.hotkey_mode != "toggle",
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
-    coordinator::VAD_ENABLED.store(saved_settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
-    coordinator::VAD_THRESHOLD.store(saved_settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    coordinator::PROCESS_ENABLED.store(saved_settings.process_enabled, std::sync::atomic::Ordering::Relaxed);
-    coordinator::WORDS_ENABLED.store(saved_settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut v) = coordinator::INPUT_DEVICE.lock() {
-        *v = saved_settings.input_device.clone();
-    }
-    if let Ok(mut v) = coordinator::PROCESS_BASE_URL.lock() {
-        *v = saved_settings.process_base_url.clone();
-    }
-    if let Ok(mut v) = coordinator::PROCESS_API_KEY.lock() {
-        *v = saved_settings.process_api_key.clone();
-    }
-    if let Ok(mut v) = coordinator::PROCESS_MODEL.lock() {
-        *v = saved_settings.process_model.clone();
-    }
-    coordinator::PROCESS_MAX_TOKENS.store(saved_settings.process_max_tokens, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut method) = coordinator::PASTE_METHOD.lock() {
-        *method = saved_settings.paste_method.clone();
-    }
-    if let Ok(mut backend) = coordinator::PASTE_BACKEND.lock() {
-        *backend = paste::resolve_paste_backend(&saved_settings.paste_tool);
-    }
-    if let Ok(mut tool) = coordinator::PASTE_TOOL.lock() {
-        *tool = saved_settings.paste_tool.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_PROVIDER.lock() {
-        *v = saved_settings.engine_provider.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_BASE_URL.lock() {
-        *v = saved_settings.engine_base_url.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_API_KEY.lock() {
-        *v = saved_settings.voice_api_key.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_MODEL.lock() {
-        *v = saved_settings.engine_model.clone();
-    }
-
-    // Load current model path and update display name
-    {
-        let model_dir = models::get_models_dir();
-        let model_path = model_dir.join(&saved_settings.local_model_file);
-        if let Ok(mut current) = coordinator::CURRENT_MODEL.lock() {
-            *current = if model_path.exists() { Some(model_path.clone()) } else { None };
-        }
-    }
-    settings::update_display_name(&saved_settings);
-
-            {
-                let mut en = OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner());
-                *en = saved_settings.overlay_enabled;
-                let mut pos = OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner());
-                *pos = if saved_settings.overlay_position == "top" { "top".into() } else { "bottom".into() };
-            }
+    settings::sync_runtime(&saved_settings);
+    crate::tray::refresh();
 
             if saved_settings.autostart {
                 let _ = app.autolaunch().enable();
@@ -642,7 +442,7 @@ pub fn run() {
                         CoordinatorState::Recording => format!("{} - Recording...", dn),
                         CoordinatorState::Processing => format!("{} - Processing...", dn),
                     };
-                    if let Some(tray) = &tray {
+                    if let Some(tray) = tray.as_ref() {
                         let _ = tray.set_tooltip(Some(&tooltip));
                     }
                     {
