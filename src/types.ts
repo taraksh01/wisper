@@ -65,6 +65,7 @@ export interface AppSettings {
   process_agent_name: string;
   process_agent_prompt: string;
   words_enabled: boolean;
+  words_auto_scan: boolean;
   hotkey: string;
   hotkey_mode: string;
   paste_method: string;

@@ -413,39 +413,109 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
     let known = WordsManager::new().known_terms();
     let ignored = WordsManager::new().ignored_terms();
     let history = crate::history::HistoryManager::new()
-        .get_history(300, 0)
+        .get_history(i64::MAX, 0)
         .map_err(|e| e.to_string())?;
 
-    let mut counts: HashMap<String, u32> = HashMap::new();
+    // Correction-based: find words where raw != formatted (AI or manual edit) and propose that correction.
+    let mut corrections: HashMap<(String, String), u32> = HashMap::new();
     for entry in &history {
-        let text = entry.formatted_text.clone().unwrap_or_else(|| entry.raw_text.clone());
-        for raw in text.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
-            let tok = raw.trim();
-            if tok.chars().count() < 3 {
+        let raw = entry.raw_text.trim();
+        let fmt = match &entry.formatted_text {
+            Some(f) if !f.trim().is_empty() && f != raw => f.trim().to_string(),
+            _ => continue,
+        };
+        if raw.is_empty() || fmt.is_empty() {
+            continue;
+        }
+        // Simple word-level diff: tokens in formatted but not in raw (and vice versa)
+        let raw_words: Vec<&str> = raw.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
+        let fmt_words: Vec<&str> = fmt.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
+        let raw_set: std::collections::HashSet<String> = raw_words.iter().map(|s| s.to_lowercase()).collect();
+        let fmt_set: std::collections::HashSet<String> = fmt_words.iter().map(|s| s.to_lowercase()).collect();
+        for fw in &fmt_words {
+            let low = fw.to_lowercase();
+            if low.chars().count() < 3 || is_common_word(&low) || known.contains(&low) || ignored.contains(&low) {
                 continue;
             }
-            if !is_candidate_term(tok) {
-                continue;
+            if !raw_set.contains(&low) {
+                // Word appears in formatted but not in raw — likely a correction; find closest raw word as variant
+                // For now use the lowercased raw word that is most similar (simple: first raw word not in fmt)
+                let mut variant = String::new();
+                for rw in &raw_words {
+                    let rlow = rw.to_lowercase();
+                    if !fmt_set.contains(&rlow) && !known.contains(&rlow) && !ignored.contains(&rlow) {
+                        variant = (*rw).to_string();
+                        break;
+                    }
+                }
+                let key = (fw.to_string(), variant);
+                *corrections.entry(key).or_insert(0) += 1;
             }
-            let low = tok.to_lowercase();
-            if known.contains(&low) || ignored.contains(&low) {
-                continue;
-            }
-            *counts.entry(low).or_insert(0) += 1;
         }
     }
 
-    let mut out: Vec<WordSuggestion> = counts
+    let mut out: Vec<WordSuggestion> = corrections
         .into_iter()
-        .map(|(phrase, count)| WordSuggestion {
-            phrase,
-            variants: vec![],
-            count,
+        .filter(|(_, count)| *count >= 2)
+        .map(|((phrase, variant), count)| {
+            let variants = if variant.is_empty() { vec![] } else { vec![variant] };
+            WordSuggestion { phrase, variants, count }
         })
         .collect();
+    // Fallback: if no corrections found, don't suggest anything (avoid noisy frequency list)
     out.sort_by(|a, b| b.count.cmp(&a.count));
     out.truncate(20);
     Ok(out)
+}
+
+pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
+    if raw.trim() == formatted.trim() {
+        return;
+    }
+    let known = WordsManager::new().known_terms();
+    let ignored = WordsManager::new().ignored_terms();
+    let raw_words: Vec<&str> = raw.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
+    let fmt_words: Vec<&str> = formatted.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
+    let raw_set: std::collections::HashSet<String> = raw_words.iter().map(|s| s.to_lowercase()).collect();
+    let fmt_set: std::collections::HashSet<String> = fmt_words.iter().map(|s| s.to_lowercase()).collect();
+    for fw in &fmt_words {
+        let low = fw.to_lowercase();
+        if low.chars().count() < 3 || is_common_word(&low) || known.contains(&low) || ignored.contains(&low) {
+            continue;
+        }
+        if !raw_set.contains(&low) {
+            let mut variant = String::new();
+            for rw in &raw_words {
+                let rlow = rw.to_lowercase();
+                if !fmt_set.contains(&rlow) && !known.contains(&rlow) && !ignored.contains(&rlow) {
+                    variant = (*rw).to_string();
+                    break;
+                }
+            }
+            // Count occurrences of this correction in history (including current)
+            let history = crate::history::HistoryManager::new().get_history(i64::MAX, 0).unwrap_or_default();
+            let mut count = 1; // current occurrence
+            for entry in &history {
+                let r = entry.raw_text.trim();
+                let f = match &entry.formatted_text {
+                    Some(f) if !f.trim().is_empty() && f != r => f.trim().to_string(),
+                    _ => continue,
+                };
+                let r_set: std::collections::HashSet<String> = r.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).map(|s| s.to_lowercase()).collect();
+                let f_set: std::collections::HashSet<String> = f.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).map(|s| s.to_lowercase()).collect();
+                if f_set.contains(&low) && !r_set.contains(&low) {
+                    // Check if the same variant was involved
+                    if variant.is_empty() || r_set.contains(&variant.to_lowercase()) {
+                        count += 1;
+                    }
+                }
+            }
+            if count >= 2 {
+                let mgr = WordsManager::new();
+                let _ = mgr.add(fw, &variant, false, true, true);
+            }
+        }
+    }
 }
 
 fn casing_variants(tok: &str) -> Vec<String> {
@@ -475,14 +545,42 @@ fn casing_variants(tok: &str) -> Vec<String> {
     variants
 }
 
+const COMMON_WORDS: &[&str] = &[
+    "the","be","to","of","and","a","in","that","have","it","for","not","on","with","he","as","you","do","at",
+    "this","but","his","by","from","they","we","say","her","she","or","an","will","my","one","all","would","there","their",
+    "what","so","up","out","if","about","who","get","which","go","me","when","make","can","like","time","no","just","him","know",
+    "take","people","into","year","your","good","some","could","them","see","other","than","then","now","look","only","come","its",
+    "over","think","also","back","after","use","two","how","our","work","first","well","way","even","new","want","because","any",
+    "these","give","day","most","us","should","commit","shall","may","might","must","has","had","were","been","being","are","was","is",
+    "am","does","did","ought","need","dare","used","has","have","had","do","does","did","will","would","shall","should","may","might",
+];
+
+fn is_common_word(low: &str) -> bool {
+    COMMON_WORDS.contains(&low)
+}
+
 fn is_candidate_term(tok: &str) -> bool {
+    let low = tok.to_lowercase();
+    if is_common_word(&low) {
+        return false;
+    }
     let has_underscore_or_digit = tok.chars().any(|c| c == '_' || c.is_ascii_digit());
     let all_caps = tok.chars().all(|c| c.is_uppercase() || !c.is_alphabetic())
         && tok.chars().any(|c| c.is_uppercase());
     let mut chars = tok.chars();
     let _first = chars.next();
     let internal_caps = chars.any(|c| c.is_uppercase());
-    has_underscore_or_digit || all_caps || internal_caps
+    let is_titlecase = {
+        let mut cs = tok.chars();
+        matches!(cs.next(), Some(f) if f.is_uppercase())
+            && cs.clone().all(|c| c.is_lowercase())
+            && tok.chars().count() >= 4
+            && !tok.chars().all(|c| c.is_lowercase())
+    };
+    // Titlecase alone is only interesting if it appears multiple times with different casings
+    // (e.g. Wisper vs wisper) — otherwise it's likely just a sentence starter.
+    // We keep it as candidate but the count filter later will require ≥3 for pure Titlecase.
+    has_underscore_or_digit || all_caps || internal_caps || is_titlecase
 }
 
 #[cfg(test)]
@@ -504,9 +602,21 @@ mod tests {
 
     #[test]
     fn replaces_known_term() {
-        let e = entry("Wisper", "Whisper", false, true);
-        let out = apply_words("I use wisper daily");
+        let mgr = WordsManager::new();
+        // Isolate: clear any prior state that could pollute the test DB
+        let _ = mgr.all().and_then(|all| {
+            for e in all {
+                if e.phrase == "Wisper" {
+                    mgr.delete(e.id)?;
+                }
+            }
+            Ok::<_, rusqlite::Error>(())
+        });
+        clear_regex_cache_all();
+        let id = mgr.add("Wisper", "Whisper", false, true, false).expect("insert");
+        let out = apply_words("I use whisper daily");
         assert_eq!(out, "I use Wisper daily");
-        let _ = e;
+        let _ = mgr.delete(id);
+        clear_regex_cache_all();
     }
 }

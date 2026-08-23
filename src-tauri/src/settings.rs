@@ -42,6 +42,8 @@ pub struct AppSettings {
     pub process_agent_name: String,
     pub process_agent_prompt: String,
     pub words_enabled: bool,
+    #[serde(default = "default_true")]
+    pub words_auto_scan: bool,
     pub hotkey: String,
     pub hotkey_mode: String,
     pub paste_method: String,
@@ -73,6 +75,9 @@ fn default_max_history() -> i32 {
 }
 fn default_retention_mode() -> String {
     "both".into()
+}
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -110,6 +115,7 @@ impl Default for AppSettings {
             process_agent_name: "Auto-Format".into(),
             process_agent_prompt: String::new(),
             words_enabled: true,
+            words_auto_scan: true,
             hotkey: "F9".into(),
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Direct Typing".into(),
@@ -199,6 +205,10 @@ pub fn sync_runtime(settings: &AppSettings) {
     );
     crate::coordinator::WORDS_ENABLED
         .store(settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::WORDS_AUTO_SCAN.store(
+        settings.words_auto_scan,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     crate::coordinator::VAD_ENABLED
         .store(settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::VAD_THRESHOLD.store(
@@ -302,6 +312,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     let prev_max = prev.max_history_entries;
     let prev_mode = prev.history_retention_mode.clone();
     let prev_hotkey = prev.hotkey.clone();
+    let prev_words_enabled = prev.words_enabled;
     let mut s = AppSettings::load();
     mutate(&mut s);
     // Clamp retention limit to sane range (0 = unlimited)
@@ -311,6 +322,15 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     let do_trim = s.max_history_entries != prev_max || s.history_retention_mode != prev_mode;
     let _ = s.save();
     sync_runtime(&s);
+    // Seed built-in dictionary entry only the first time the user enables it.
+    if !prev_words_enabled && s.words_enabled {
+        let mgr = crate::words::WordsManager::new();
+        if let Ok(all) = mgr.all() {
+            if !all.iter().any(|e| e.phrase.to_lowercase() == "wisper") {
+                let _ = mgr.add("Wisper", "whisper, wispr", false, true, false);
+            }
+        }
+    }
     // If the hotkey changed via save_settings (e.g. tab reset), re-register it at the OS level.
     // set_hotkey does this, but save_settings is the path used by Reset.
     if s.hotkey != prev_hotkey {

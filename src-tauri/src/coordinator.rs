@@ -26,6 +26,7 @@ pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
 pub static PROCESS_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static WORDS_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static WORDS_AUTO_SCAN: AtomicBool = AtomicBool::new(true);
 pub static PROCESS_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static PROCESS_API_KEY: Mutex<String> = Mutex::new(String::new());
 pub static PROCESS_MODEL: Mutex<String> = Mutex::new(String::new());
@@ -326,6 +327,12 @@ impl TranscriptionCoordinator {
                     ) {
                         eprintln!("Failed to log history: {}", e);
                     } else {
+                        if WORDS_ENABLED.load(Ordering::Relaxed)
+                            && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
+                            && text != final_text
+                        {
+                            crate::words::maybe_auto_add_corrections(&text, &final_text);
+                        }
                         // Enforce retention limit after each insert
                         let s = crate::settings::AppSettings::load();
                         if s.max_history_entries > 0 {

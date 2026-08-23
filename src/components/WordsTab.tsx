@@ -3,8 +3,6 @@ import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, WordSuggestion } from "../types";
 import { ResetButton } from "./ResetButton";
-import { SectionCard } from "./SectionCard";
-import { Switch } from "./Switch";
 import { WordsManager } from "./WordsManager";
 import { useToast } from "./ToastContext";
 
@@ -38,7 +36,7 @@ export function WordsTab({ settings, onSave, onReset }: WordsTabProps) {
   }, [toast]);
 
   return (
-    <div className="w-full space-y-4 card-enter">
+    <div className="w-full space-y-3 card-enter">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <IconWords className="w-5 h-5 text-accent" />
@@ -47,27 +45,17 @@ export function WordsTab({ settings, onSave, onReset }: WordsTabProps) {
         <ResetButton onClick={onReset} />
       </div>
 
-      <SectionCard className="card-enter">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-[10px] font-mono text-muted tracking-[0.12em] uppercase">Your Dictionary</h2>
-            <p className="text-[11px] text-muted mt-1 leading-relaxed">Make sure names and jargon are always spelled your way.</p>
-          </div>
-          <Switch label="Your dictionary" checked={settings.words_enabled}
-            onChange={(v) => onSave("words_enabled", v)}
-          />
-        </div>
-      </SectionCard>
-
-      {settings.words_enabled && (
-        <WordsManager
-          suggestions={suggestions}
-          scanning={scanning}
-          scanMsg={scanMsg}
-          onScan={onScan}
-          setSuggestions={setSuggestions}
-        />
-      )}
+      <WordsManager
+        wordsEnabled={settings.words_enabled}
+        onToggle={(v: boolean) => onSave("words_enabled", v)}
+        wordsAutoScan={settings.words_auto_scan}
+        onToggleAutoScan={(v: boolean) => onSave("words_auto_scan", v)}
+        suggestions={suggestions}
+        scanning={scanning}
+        scanMsg={scanMsg}
+        onScan={onScan}
+        setSuggestions={setSuggestions}
+      />
     </div>
   );
 }
