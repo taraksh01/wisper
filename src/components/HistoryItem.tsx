@@ -1,6 +1,7 @@
 import { useRef, useEffect } from "react";
 import { HistoryEntry } from "../types";
 import { IconCopy, IconEdit, IconTrash, IconPlay, IconStop, IconRetry } from "./ui/icons";
+import { Textarea } from "./ui/Textarea";
 
 /** SQLite stores UTC ("YYYY-MM-DD HH:MM:SS"); show it as a human date in local time. */
 function formatTimestamp(stored: string): string {
@@ -71,19 +72,19 @@ export function HistoryItem({
     return (
       <div className="rounded-xl px-3 py-2.5 bg-accent/8">
         <div className="space-y-2">
-          <textarea
+          <Textarea
             ref={inputRef}
             value={editRaw}
             onChange={(e) => onEditRawChange(e.target.value)}
-            className="w-full bg-base rounded-lg px-2 py-1.5 text-xs font-mono text-ink outline-none ring-1 ring-stroke focus:ring-accent/40 resize-none"
             rows={2}
+            className="!bg-base"
           />
-          <textarea
+          <Textarea
             value={editFormatted}
             onChange={(e) => onEditFormattedChange(e.target.value)}
             placeholder="Formatted (optional)"
-            className="w-full bg-base rounded-lg px-2 py-1.5 text-xs font-mono text-ink outline-none ring-1 ring-stroke focus:ring-accent/40 resize-none"
             rows={2}
+            className="!bg-base"
           />
           <div className="flex gap-3">
             <button

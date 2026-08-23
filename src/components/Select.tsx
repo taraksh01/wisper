@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId } from "react";
 import { createPortal } from "react-dom";
 import { IconChevronDown } from "./ui/icons";
+import { Input } from "./ui/Input";
 
 export function Select({
   value,
@@ -196,16 +197,14 @@ export function Select({
           >
             {searchable && (
               <div className="shrink-0 bg-surface p-1 pb-2 border-b border-stroke/60">
-                <input
+                <Input
                   ref={searchRef}
-                  type="text"
                   value={query}
-                  onChange={(e) => {
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                     setQuery(e.target.value);
-                    // Reset active index to first match
                     activeIndexRef.current = 0;
                   }}
-                  onKeyDown={(e) => {
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
                       moveActive(1);
@@ -225,7 +224,8 @@ export function Select({
                     }
                   }}
                   placeholder="Search languages…"
-                  className="w-full bg-surface border border-stroke rounded-lg px-3 py-2 text-xs font-medium text-ink placeholder:text-muted/50 outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 transition-[border-color,box-shadow] duration-150"
+                  variant="surface"
+                  className="w-full"
                 />
               </div>
             )}

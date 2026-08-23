@@ -8,6 +8,7 @@ import { Switch } from "./Switch";
 import { ConfirmModal } from "./ConfirmModal";
 import { HistoryItem } from "./HistoryItem";
 import { AudioPlayerPopover } from "./AudioPlayerPopover";
+import { Input } from "./ui/Input";
 import { useToast } from "./ToastContext";
 
 interface HistoryTabProps {
@@ -311,11 +312,11 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
           <h2 className="label-soft shrink-0">Recent</h2>
           <div className="relative flex-1 min-w-0">
             <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
-            <input
+            <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search history…"
-              className="w-full bg-elevated/50 rounded-md pl-8 pr-3 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all"
+              className="w-full pl-8 pr-3"
             />
           </div>
           <div

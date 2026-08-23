@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useEffect } from "react";
+import { Input } from "./ui/Input";
 
 interface ModelCardProps {
   modelKey: string;
@@ -101,13 +102,13 @@ function ModelCard({
                   <IconClose className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <input
-                type="text"
+              <Input
                 value={langQuery}
-                onChange={(e) => setLangQuery(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLangQuery(e.target.value)}
                 placeholder="Search languages…"
                 autoFocus
-                className="mt-3 w-full bg-surface border border-stroke rounded-xl px-3.5 py-2.5 text-xs font-medium text-ink placeholder:text-muted/50 outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150"
+                variant="surface"
+                className="mt-3"
               />
             </div>
             <div className="max-h-[280px] overflow-y-auto custom-scrollbar p-2">

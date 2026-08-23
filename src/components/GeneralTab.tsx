@@ -9,6 +9,7 @@ import { ResetButton } from "./ResetButton";
 import { Switch } from "./Switch";
 import { SectionCard } from "./SectionCard";
 import { ConfirmModal } from "./ConfirmModal";
+import { Input } from "./ui/Input";
 
 interface GeneralTabProps {
   settings: AppSettings;
@@ -545,12 +546,12 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
           <div>
             <label className="label-soft block mb-2">Maximum history entries</label>
             <div className="flex items-center gap-3">
-              <input
+              <Input
                 type="number"
                 min={0}
                 step={1}
                 value={pendingMax}
-                onChange={(e) => {
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   const v = parseInt(e.target.value, 10);
                   setPendingMax(Number.isFinite(v) ? Math.max(0, v) : 0);
                 }}
@@ -564,11 +565,12 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
                     onSave("max_history_entries", v);
                   }
                 }}
-                onKeyDown={(e) => {
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                   if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   if (e.key === "Escape") setPendingMax(settings.max_history_entries);
                 }}
-                className="w-28 bg-surface border border-stroke rounded-xl px-3 py-2 text-xs font-mono text-ink placeholder:text-muted/50 outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 transition-[border-color,box-shadow] duration-150"
+                variant="surface"
+                className="w-28"
                 placeholder="500"
               />
               <span className="text-[10px] font-mono text-muted">entries · 0 means unlimited</span>

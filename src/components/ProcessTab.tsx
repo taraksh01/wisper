@@ -6,6 +6,8 @@ import { Field } from "./Field";
 import { ResetButton } from "./ResetButton";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
+import { Input } from "./ui/Input";
+import { Textarea } from "./ui/Textarea";
 
 interface ProcessTabProps {
   settings: AppSettings;
@@ -158,12 +160,11 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
                         onChange={handleModelChange}
                       />
                       {(!modelInList || settings.process_model === "") && (
-                        <input
-                          type="text"
+                        <Input
                           value={settings.process_model}
-                          onChange={(e) => handleModelInput(e.target.value)}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleModelInput(e.target.value)}
                           placeholder="Type a model name..."
-                          className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
+                          className="w-full"
                         />
                       )}
                     </>
@@ -182,16 +183,16 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
 
             <div>
               <label className="text-[11px] font-mono text-muted block mb-1 tracking-wider">Response length limit</label>
-              <input
+              <Input
                 type="number"
                 min={0}
                 value={settings.process_max_tokens === 0 ? "" : settings.process_max_tokens}
-                onChange={(e) => {
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   const n = parseInt(e.target.value, 10);
                   onSave("process_max_tokens", Number.isFinite(n) && n > 0 ? n : 0);
                 }}
                 placeholder="Auto (model default)"
-                className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
+                className="w-full"
               />
               <p className="text-[10px] text-muted mt-1 leading-relaxed">
                 Leave empty to let the AI decide. Raise it only if long dictations get cut off.
@@ -262,13 +263,13 @@ function AutoTextarea({ value, onChange, placeholder }: { value: string; onChang
   }, [value]);
 
   return (
-    <textarea
+    <Textarea
       ref={ref}
       readOnly={!onChange}
       value={value}
       placeholder={placeholder}
-      onChange={onChange ? (e) => onChange(e.target.value) : undefined}
-      className="w-full bg-elevated/50 rounded-md px-2.5 py-1.5 text-xs text-muted leading-relaxed resize-none outline-none ring-1 ring-stroke min-h-[60px] focus:ring-accent/50 focus:text-ink transition-all"
+      onChange={onChange ? (e: React.ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value) : undefined}
+      className="min-h-[60px] text-muted focus:text-ink"
     />
   );
 }

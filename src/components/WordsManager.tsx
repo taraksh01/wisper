@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { WordEntry, WordSuggestion } from "../types";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
+import { Input } from "./ui/Input";
+import { Textarea } from "./ui/Textarea";
 import { useToast } from "./ToastContext";
 
 interface WordsManagerProps {
@@ -230,15 +232,17 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                       key={i}
                       className="flex items-center gap-2 bg-elevated/30 rounded-lg px-2.5 py-2 ring-1 ring-stroke/60"
                     >
-                      <input
+                      <Input
+                        variant="ghost"
                         value={s.phrase}
                         onChange={(e) => updateSuggestion(i, { phrase: e.target.value })}
                         placeholder="Correct spelling"
                         title="Correct spelling to use"
-                        className="text-xs font-mono text-ink bg-transparent outline-none w-28 shrink-0 placeholder:text-muted/50"
+                        className="w-28 shrink-0"
                       />
                       <span className="text-[10px] font-mono text-muted/60 shrink-0" title="will be replaced by the correct spelling">←</span>
-                      <input
+                      <Input
+                        variant="ghost"
                         value={s.variants.join(", ")}
                         onChange={(e) =>
                           updateSuggestion(i, {
@@ -247,7 +251,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                         }
                         placeholder="misheard, forms"
                         title="Comma-separated misheard forms"
-                        className="text-[10px] font-mono text-muted bg-transparent outline-none flex-1 min-w-0 placeholder:text-muted/40"
+                        className="flex-1 min-w-0 text-[10px] text-muted placeholder:text-muted/40"
                       />
                       <div className="ml-auto flex items-center gap-2 shrink-0">
                         <span className="text-[9px] font-mono text-muted/70" title={`Seen ${s.count} times in your recent dictations`}>seen {s.count}×</span>
@@ -280,21 +284,19 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
             </div>
 
             <div className="space-y-1.5">
-              <input
-                type="text"
+              <Input
                 value={phrase}
                 onChange={(e) => setPhrase(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addEntry()}
                 placeholder="The correct spelling (e.g. Wisper)"
-                className="w-full bg-elevated/50 rounded-lg px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
+                className="w-full"
               />
-              <input
-                type="text"
+              <Input
                 value={variants}
                 onChange={(e) => setVariants(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addEntry()}
                 placeholder="Ways it might be misheard, separated by commas (e.g. whisper, wispr)"
-                className="w-full bg-elevated/50 rounded-lg px-2.5 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/50 transition-all"
+                className="w-full"
               />
               <div className="flex items-center gap-2">
                 <button
@@ -325,11 +327,11 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
               <div className="space-y-2">
                 <div className="relative">
                   <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}><circle cx="11" cy="11" r="6" /><path d="m15 15 3 3" strokeLinecap="round" /></svg>
-                  <input
+                  <Input
                     value={dictQuery}
                     onChange={(e) => setDictQuery(e.target.value)}
                     placeholder="Search dictionary…"
-                    className="w-full bg-elevated/50 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all"
+                    className="w-full pl-8 pr-3"
                   />
                 </div>
                 <div className="space-y-1 max-h-64 overflow-y-auto custom-scrollbar pr-0.5">
@@ -440,12 +442,11 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
           Paste one term per line. Format: <span className="text-ink font-mono">correct_spelling</span> or <span className="text-ink font-mono">correct|misheard1,misheard2</span>
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <textarea
+          <Textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value)}
             rows={8}
             placeholder="Wisper|whisper, wispr&#10;PostgreSQL|postgres, postgre&#10;Kubernetes|k8s, kube"
-            className="w-full bg-elevated/50 rounded-md px-2.5 py-2 text-xs font-mono text-ink placeholder:text-muted/50 outline-none ring-1 ring-stroke focus:ring-accent/40 resize-none transition-all"
           />
           <div className="flex items-center justify-between text-[10px] font-mono text-muted">
             <span>{count} term{count !== 1 ? "s" : ""} ready</span>

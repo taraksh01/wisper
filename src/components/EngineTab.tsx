@@ -8,6 +8,7 @@ import { Select } from "./Select";
 import { Field } from "./Field";
 import { SectionCard } from "./SectionCard";
 import { ConfirmModal } from "./ConfirmModal";
+import { Input } from "./ui/Input";
 import { useToast } from "./ToastContext";
 
 interface EngineTabProps {
@@ -246,11 +247,12 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
             <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
                 <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
-                <input
+                <Input
                   value={modelSearchQuery}
-                  onChange={(e) => setModelSearchQuery(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setModelSearchQuery(e.target.value)}
                   placeholder="Search models…"
-                  className="w-full bg-surface border border-stroke rounded-xl pl-9 pr-3.5 py-2.5 text-xs font-mono text-ink placeholder:text-muted/50 outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150"
+                  variant="surface"
+                  className="pl-9 pr-3.5"
                 />
               </div>
               <Select
