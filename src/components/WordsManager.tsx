@@ -230,29 +230,32 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                   {suggestions.map((s, i) => (
                     <div
                       key={i}
-                      className="flex items-center gap-2 bg-elevated/30 rounded-lg px-2.5 py-2 ring-1 ring-stroke/60"
+                      className="flex items-center gap-2 bg-elevated/30 rounded-lg px-2.5 py-2 ring-1 ring-stroke/60 min-w-0"
                     >
-                      <Input
-                        variant="ghost"
-                        value={s.phrase}
-                        onChange={(e) => updateSuggestion(i, { phrase: e.target.value })}
-                        placeholder="Correct spelling"
-                        title="Correct spelling to use"
-                        className="w-28 shrink-0"
-                      />
+                      <div className="w-28 shrink-0">
+                        <Input
+                          variant="ghost"
+                          value={s.phrase}
+                          onChange={(e) => updateSuggestion(i, { phrase: e.target.value })}
+                          placeholder="Correct spelling"
+                          title="Correct spelling to use"
+                        />
+                      </div>
                       <span className="text-[10px] font-mono text-muted/60 shrink-0" title="will be replaced by the correct spelling">←</span>
-                      <Input
-                        variant="ghost"
-                        value={s.variants.join(", ")}
-                        onChange={(e) =>
-                          updateSuggestion(i, {
-                            variants: e.target.value.split(",").map((v) => v.trim()).filter(Boolean),
-                          })
-                        }
-                        placeholder="misheard, forms"
-                        title="Comma-separated misheard forms"
-                        className="flex-1 min-w-0 text-[10px] text-muted placeholder:text-muted/40"
-                      />
+                      <div className="flex-1 min-w-0">
+                        <Input
+                          variant="ghost"
+                          value={s.variants.join(", ")}
+                          onChange={(e) =>
+                            updateSuggestion(i, {
+                              variants: e.target.value.split(",").map((v) => v.trim()).filter(Boolean),
+                            })
+                          }
+                          placeholder="misheard, forms"
+                          title="Comma-separated misheard forms"
+                          className="text-[10px] text-muted placeholder:text-muted/40"
+                        />
+                      </div>
                       <div className="ml-auto flex items-center gap-2 shrink-0">
                         <span className="text-[9px] font-mono text-muted/70" title={`Seen ${s.count} times in your recent dictations`}>seen {s.count}×</span>
                         <button
