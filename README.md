@@ -9,7 +9,7 @@ Wisper is a lightweight, privacy-first desktop dictation app for Linux. Press a 
 - **Speak instead of type** — press a global hotkey (hold for push-to-talk or tap for toggle mode), say what you want, and the text lands wherever your cursor is.
 - **Stays on your device** — transcription runs locally with ONNX models; nothing leaves your computer unless you choose a cloud provider.
 - **Pick your microphone** — choose a specific input device, or let the system default handle it.
-- **Cleans up as it goes** — optional AI step reformats and polishes the transcript (multiple saved agent profiles, e.g. Email / Code / Formal), plus silence trimming so filler pauses don't get transcribed.
+- **Cleans up as it goes** — optional AI step reformats and polishes the transcript (6 Writing Styles: Auto, Clean-up, Email, Developer, Messaging, Formal + Custom; 6 providers: OpenAI, Anthropic, Groq, OpenRouter, Ollama, OpenCode Go + Custom with endpoint-aware `/chat/completions` `/responses` `/messages` and Test connection), compact deduplicated output with typo/filler fixes, plus silence trimming.
 - **Your words, your way** — custom vocabulary turns shortcuts into proper terms (say "gpt", get "GPT").
 - **Look back** — searchable history lets you replay the recording, re-transcribe, or edit any past dictation, and shows how much typing time you've saved.
 - **Out of the way** — lives in the system tray; close the window and it keeps running, ready for the next hotkey.
@@ -27,35 +27,22 @@ You speak, Wisper records locally, transcribes your voice to text, optionally re
 
 Wisper inserts text by simulating a paste/keystroke into whatever app is focused. How well this works depends on your display server and which paste helper is installed:
 
-- **ydotool (recommended on Wayland)** — injects keystrokes through a kernel `uinput` virtual device, so it works on **both X11 and Wayland with no permission prompt**. It needs the `ydotoold` daemon running and your user in the `input` group.
+- **ydotool ≥1.0.4 (recommended on Wayland)** — injects keystrokes through a kernel `uinput` virtual device, so it works on **both X11 and Wayland with no permission prompt**. It needs the `ydotoold` daemon running and your user in the `input` group. **1.0.4 is required** — older distro packages (e.g. Ubuntu 22.04 ships 0.x) lack the `-d`/`-H` timing flags Wisper uses for lightning-fast direct typing (`-d 0 -H 0`) and will be noticeably slower or may error.
 - **wtype** — a zero-config Wayland tool, but it only works on compositors that implement the Wayland `virtual-keyboard` protocol. On compositors that don't (you'll see `Compositor does not support the virtual keyboard protocol`), wtype fails entirely.
-- **enigo** — types fast, but on native Wayland it goes through the desktop **RemoteDesktop portal**, so the system pops a **"remote desktop / input capture" permission prompt** (usually one-time if you let the compositor remember it).
+- **enigo (built-in fallback)** — no install needed. Wisper now uses it with `linux_delay: 0` for fastest typing, but on native Wayland it goes through the desktop **RemoteDesktop portal**, so the system pops a **"remote desktop / input capture" permission prompt** (usually one-time if you let the compositor remember it).
 
-### Setting up ydotool (no prompts)
+### Setting up ydotool ≥1.0.4 (no prompts)
+
+> **Why 1.0.4?** See [`docs/ydotool-setup.md`](docs/ydotool-setup.md) — Wisper runs `ydotool type -d 0 -H 0` for lightning typing; older versions ignore `-H` and fall back to `20ms` (≈2s/100 chars vs ≈50ms).
+
+Quick setup — full guide in [`docs/ydotool-setup.md`](docs/ydotool-setup.md):
 
 ```bash
-# 1. Install
-# Debian / Ubuntu
-sudo apt install ydotool
-# Fedora
-sudo dnf install ydotool
-# Arch
-sudo pacman -S ydotool
-
-# 2. Start the daemon (and enable it to run at login)
+# Ubuntu 26.04 already ships 1.0.4; older distros: build from source
+# https://github.com/ReimuNotMoe/ydotool#building-from-source
 sudo systemctl enable --now ydotoold.service
-#   ...or, if your distro ships it as a user service:
-# systemctl --user enable --now ydotoold.service
-
-# 3. Let your user inject input (uinput needs the input group)
-sudo usermod -aG input $USER
-# then log out and back in for the group to apply
-```
-
-After that, set **General → Output → Paste Tool** to `ydotool` (or leave it on `auto` — Wisper prefers ydotool when both helpers are present, since it pastes without prompting). Verify with:
-
-```bash
-ydotool type "hello world"   # should print "hello world" into the focused window, exit 0
+sudo usermod -aG input $USER  # then relogin
+ydotool type -d 0 -H 0 "hello world"   # should appear instantly
 ```
 
 ### About the RemoteDesktop portal prompt (enigo / wtype)
@@ -72,12 +59,12 @@ By default Wisper auto-detects the best available tool, but you can pick a speci
 
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
 - **Backend:** Tauri v2 (Rust)
-- **STT:** local ONNX models + optional cloud APIs
-- **Platform:** Linux (X11 and Wayland), distributed as an AppImage
+- **STT:** local ONNX models + optional cloud APIs (OpenAI-compatible)
+- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm
 
 ## Development
 
-Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https://nodejs.org/), and [pnpm](https://pnpm.io/), plus the [Tauri Linux system dependencies](https://tauri.app/start/prerequisites/).
+Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https://nodejs.org/), and [pnpm](https://pnpm.io/), plus the [Tauri Linux system dependencies](https://tauri.app/start/prerequisites/). For paste testing, `ydotool ≥1.0.4` is recommended (see Requirements — older versions lack `-d 0 -H 0` and will be slower).
 
 ```bash
 # install JS dependencies
