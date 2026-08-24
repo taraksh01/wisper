@@ -134,7 +134,13 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     let temp_archive =
         std::env::temp_dir().join(format!("wisper_{}_{}.{}", &model_name, nanos, ext));
 
-    let client = reqwest::Client::new();
+    // Connect timeout + no overall read timeout: large downloads stream slowly,
+    // but a dead connection must fail fast instead of hanging the progress UI.
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let total = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
@@ -322,7 +328,11 @@ pub async fn fetch_indic_assets(
     model_name: &str,
 ) -> Result<(), String> {
     let url = download_url(model_name).ok_or_else(|| format!("Unknown model: {}", model_name))?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
     let mut saved = false;
     let mut last_status = String::from("no attempts");
 

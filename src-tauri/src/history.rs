@@ -2,6 +2,7 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
@@ -24,6 +25,8 @@ static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync:
         );
         Connection::open_in_memory().expect("in-memory DB")
     });
+    let _ = conn.busy_timeout(Duration::from_millis(5000));
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     if let Err(e) = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,39 +153,59 @@ impl HistoryManager {
         if max_entries <= 0 {
             return Ok(0);
         }
-        let conn = Self::conn();
-        let total: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))?;
+        let total: i64 = {
+            let conn = Self::conn();
+            conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get(0))?
+        };
         if total <= max_entries {
             return Ok(0);
         }
         let excess = total - max_entries;
-        // Oldest entries beyond limit
-        let mut stmt =
-            conn.prepare("SELECT id, recording_path FROM history ORDER BY id ASC LIMIT ?1")?;
-        let oldest: Vec<(i64, Option<String>)> = stmt
-            .query_map(params![excess], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        drop(stmt);
+        // Collect oldest entries' paths without holding lock across I/O
+        let oldest: Vec<(i64, Option<String>)> = {
+            let conn = Self::conn();
+            let mut stmt =
+                conn.prepare("SELECT id, recording_path FROM history ORDER BY id ASC LIMIT ?1")?;
+            let rows = stmt
+                .query_map(params![excess], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            rows
+        };
 
         if mode == "recordings_only" {
-            let mut cleared = 0;
-            for (id, path) in oldest {
+            // Remove files first (no lock), then update rows — never abort the
+            // sweep mid-way; a failed row keeps its path and fails gracefully
+            // in get_recording_data later.
+            for (_, path) in &oldest {
                 if let Some(ref p) = path {
                     if !p.is_empty() {
                         if let Ok(canonical) = validate_recording_path(p) {
                             let _ = std::fs::remove_file(canonical);
                         }
-                        conn.execute(
+                    }
+                }
+            }
+            let conn = Self::conn();
+            let mut cleared = 0;
+            for (id, path) in oldest {
+                if let Some(ref p) = path {
+                    if !p.is_empty() {
+                        match conn.execute(
                             "UPDATE history SET recording_path = NULL WHERE id = ?1",
                             params![id],
-                        )?;
-                        cleared += 1;
+                        ) {
+                            Ok(_) => cleared += 1,
+                            Err(e) => eprintln!(
+                                "[history] failed to clear recording_path for id {}: {}",
+                                id, e
+                            ),
+                        }
                     }
                 }
             }
             Ok(cleared)
         } else {
-            // "both": delete recording files then rows
+            // "both": delete files first, then rows via single subquery (no IN variable limit)
             for (_, path) in &oldest {
                 if let Some(ref p) = path {
                     if let Ok(canonical) = validate_recording_path(p) {
@@ -190,16 +213,11 @@ impl HistoryManager {
                     }
                 }
             }
-            let ids: Vec<i64> = oldest.into_iter().map(|(id, _)| id).collect();
-            if ids.is_empty() {
-                return Ok(0);
-            }
-            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-            let sql = format!("DELETE FROM history WHERE id IN ({})", placeholders);
-            let mut stmt = conn.prepare(&sql)?;
-            let params: Vec<&dyn rusqlite::ToSql> =
-                ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
-            let deleted = stmt.execute(params.as_slice())?;
+            let conn = Self::conn();
+            let deleted = conn.execute(
+                "DELETE FROM history WHERE id IN (SELECT id FROM history ORDER BY id ASC LIMIT ?1)",
+                params![excess],
+            )?;
             Ok(deleted)
         }
     }
@@ -383,12 +401,17 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
 
     let provider = crate::engine::create_local_engine(model_path);
 
-    // Respect the same audio pipeline as live transcription: optional
-    // noise suppression, then VAD trimming with the user's threshold.
-    let denoised = if settings.noise_suppression_enabled {
-        crate::audio::suppress_noise(&samples, sample_rate, settings.noise_suppression_level)
+    // Respect the same audio pipeline as live transcription: resample to 16kHz, optional
+    // noise suppression, then VAD trimming with the user's threshold (1600 = 100ms @16kHz).
+    let resampled = if sample_rate != 16000 {
+        crate::engine::resample(&samples, sample_rate, 16000)
     } else {
         samples.clone()
+    };
+    let denoised = if settings.noise_suppression_enabled {
+        crate::audio::suppress_noise(&resampled, 16000, settings.noise_suppression_level)
+    } else {
+        resampled
     };
     let trimmed = if settings.vad_enabled {
         crate::audio::trim_silence(&denoised, 1600, settings.vad_threshold)
@@ -399,7 +422,7 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
         return Err("No speech detected in recording".to_string());
     }
 
-    provider.transcribe(&trimmed, sample_rate)
+    provider.transcribe(&trimmed, 16000)
 }
 
 #[tauri::command]
@@ -431,6 +454,12 @@ pub fn clear_history() -> Result<(), String> {
 #[tauri::command]
 pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
     let validated = validate_recording_path(&recording_path)?;
+    // Cap at 50MB to avoid OOM for very long recordings
+    if let Ok(meta) = std::fs::metadata(&validated) {
+        if meta.len() > 50 * 1024 * 1024 {
+            return Err("Recording too large (>50MB)".into());
+        }
+    }
     let settings = crate::settings::AppSettings::load();
     if !settings.noise_suppression_enabled {
         return std::fs::read(&validated).map_err(|e| format!("Failed to read recording: {}", e));

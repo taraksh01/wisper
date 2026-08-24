@@ -164,7 +164,11 @@ impl EngineProvider for CloudEngineProvider {
         let file_bytes = std::fs::read(&wav_path)
             .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
 
-        let client = Client::new();
+        let client = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
         let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
             .file_name("audio.wav")
             .mime_str("audio/wav")

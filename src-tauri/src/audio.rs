@@ -85,6 +85,7 @@ fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
 pub struct AudioRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
     stream: Arc<Mutex<Option<Stream>>>,
+    preview_stream: Arc<Mutex<Option<Stream>>>,
     sample_rate: Arc<Mutex<u32>>,
     /// Latest input RMS amplitude (f32 bits), updated live in the audio callback.
     level: Arc<AtomicU32>,
@@ -95,6 +96,7 @@ impl AudioRecorder {
         Self {
             buffer: Arc::new(Mutex::new(Vec::new())),
             stream: Arc::new(Mutex::new(None)),
+            preview_stream: Arc::new(Mutex::new(None)),
             sample_rate: Arc::new(Mutex::new(16000)),
             level: Arc::new(AtomicU32::new(0)),
         }
@@ -106,6 +108,11 @@ impl AudioRecorder {
     }
 
     pub fn start_recording(&self, device: Option<String>) -> Result<(), String> {
+        // Stop preview if active — don't hold two streams
+        *self
+            .preview_stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         let device = resolve_device(device.as_deref())?;
 
         let config = device
@@ -157,14 +164,21 @@ impl AudioRecorder {
         self.level.store(0, Ordering::Relaxed);
 
         let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
-        let final_buffer = buffer.clone();
-        buffer.clear();
-        final_buffer
+        std::mem::take(&mut *buffer)
     }
 
     /// Open the input stream to feed the live level meter without recording
     /// or transcribing. Used by the mic-test preview in settings.
     pub fn start_preview(&self, device: Option<String>) -> Result<(), String> {
+        if self
+            .preview_stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return Ok(());
+        }
+        // Don't start preview if already recording — use separate slot
         if self
             .stream
             .lock()
@@ -200,12 +214,18 @@ impl AudioRecorder {
         stream
             .play()
             .map_err(|e| format!("Failed to play stream: {}", e))?;
-        *self.stream.lock().unwrap_or_else(|e| e.into_inner()) = Some(stream);
+        *self
+            .preview_stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(stream);
         Ok(())
     }
 
     pub fn stop_preview(&self) {
-        *self.stream.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .preview_stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         self.level.store(0, Ordering::Relaxed);
     }
 
@@ -281,29 +301,38 @@ pub fn save_wav(
     sample_rate: u32,
 ) -> Result<(), hound::Error> {
     let path = filename.as_ref();
-    // Create with 0600 first so the wav is never world-readable, even briefly
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let _ = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path);
-    }
     let spec = hound::WavSpec {
         channels: 1,
         sample_rate,
         bits_per_sample: 32,
         sample_format: hound::SampleFormat::Float,
     };
-    let mut writer = hound::WavWriter::create(path, spec)?;
-    for &sample in data {
-        writer.write_sample(sample)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Open with 0600 so recordings are never world-readable, even briefly
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        let mut writer = hound::WavWriter::new(std::io::BufWriter::new(file), spec)?;
+        for &sample in data {
+            writer.write_sample(sample)?;
+        }
+        writer.finalize()?;
+        Ok(())
     }
-    writer.finalize()?;
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let mut writer = hound::WavWriter::create(path, spec)?;
+        for &sample in data {
+            writer.write_sample(sample)?;
+        }
+        writer.finalize()?;
+        Ok(())
+    }
 }
 
 pub fn load_wav(filename: &str) -> Result<(Vec<f32>, u32), String> {
@@ -424,14 +453,19 @@ pub fn trim_silence(samples: &[f32], window_size: usize, threshold: f32) -> Vec<
 
     let mut start_idx = 0;
     let mut end_idx = samples.len();
+    let mut found = false;
 
     // Find start of speech
     for (i, window) in samples.chunks(window_size).enumerate() {
         let rms: f32 = (window.iter().map(|&s| s * s).sum::<f32>() / window.len() as f32).sqrt();
         if rms > threshold {
             start_idx = i * window_size;
+            found = true;
             break;
         }
+    }
+    if !found {
+        return Vec::new();
     }
 
     // Find end of speech
