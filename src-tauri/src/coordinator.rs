@@ -31,6 +31,7 @@ pub static PROCESS_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static PROCESS_API_KEY: Mutex<String> = Mutex::new(String::new());
 pub static PROCESS_MODEL: Mutex<String> = Mutex::new(String::new());
 pub static PROCESS_MAX_TOKENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static PROCESS_ENDPOINT: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -265,6 +266,10 @@ impl TranscriptionCoordinator {
                             .unwrap_or_else(|e| e.into_inner())
                             .clone();
                         let process_max_tokens = PROCESS_MAX_TOKENS.load(Ordering::Relaxed);
+                        let process_endpoint = PROCESS_ENDPOINT
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
                         let mut agent = {
                             let settings = crate::settings::AppSettings::load();
                             crate::process::SmartAgent::resolve(
@@ -285,6 +290,11 @@ impl TranscriptionCoordinator {
                             process_api_key,
                             process_model,
                             process_max_tokens,
+                            if process_endpoint.is_empty() {
+                                "/chat/completions".to_string()
+                            } else {
+                                process_endpoint
+                            },
                         );
                         match client.process(&text, &agent) {
                             Ok(formatted) => {

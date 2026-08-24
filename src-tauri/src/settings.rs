@@ -35,8 +35,11 @@ pub struct AppSettings {
     pub process_api_key_glm: String,
     pub process_api_key_openrouter: String,
     pub process_api_key_ollama: String,
+    pub process_api_key_opencode_go: String,
     pub process_api_key_custom: String,
     pub process_model: String,
+    #[serde(default = "default_endpoint")]
+    pub process_endpoint: String,
     pub process_max_tokens: u32,
     pub process_agent_profile: String,
     pub process_agent_name: String,
@@ -79,6 +82,9 @@ fn default_retention_mode() -> String {
 fn default_true() -> bool {
     true
 }
+fn default_endpoint() -> String {
+    "/chat/completions".into()
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -108,8 +114,10 @@ impl Default for AppSettings {
             process_api_key_glm: String::new(),
             process_api_key_openrouter: String::new(),
             process_api_key_ollama: String::new(),
+            process_api_key_opencode_go: String::new(),
             process_api_key_custom: String::new(),
             process_model: String::new(),
+            process_endpoint: "/chat/completions".into(),
             process_max_tokens: 0,
             process_agent_profile: "auto".into(),
             process_agent_name: "Auto-Format".into(),
@@ -236,6 +244,9 @@ pub fn sync_runtime(settings: &AppSettings) {
         settings.process_max_tokens,
         std::sync::atomic::Ordering::Relaxed,
     );
+    if let Ok(mut v) = crate::coordinator::PROCESS_ENDPOINT.lock() {
+        *v = settings.process_endpoint.clone();
+    }
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
     }
