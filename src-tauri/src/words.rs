@@ -477,7 +477,15 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
         .map_err(|e| e.to_string())?;
 
     // Correction-based: find words where raw != formatted (AI or manual edit) and propose that correction.
-    let mut corrections: HashMap<(String, String), u32> = HashMap::new();
+    // Aggregated per LOWERCASED word so casing differences and multiple misheard
+    // forms collapse into ONE suggestion row.
+    #[derive(Default)]
+    struct WordAgg {
+        casings: HashMap<String, usize>,
+        variants: HashMap<String, usize>,
+        total: usize,
+    }
+    let mut corrections: HashMap<String, WordAgg> = HashMap::new();
     for entry in &history {
         let raw = entry.raw_text.trim();
         let fmt = match &entry.formatted_text {
@@ -523,25 +531,34 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
                         break;
                     }
                 }
-                let key = (fw.to_string(), variant);
-                *corrections.entry(key).or_insert(0) += 1;
+                let agg = corrections.entry(low.clone()).or_default();
+                agg.total += 1;
+                *agg.casings.entry(fw.to_string()).or_insert(0) += 1;
+                if !variant.is_empty() && variant.to_lowercase() != low {
+                    *agg.variants.entry(variant).or_insert(0) += 1;
+                }
             }
         }
     }
 
     let mut out: Vec<WordSuggestion> = corrections
         .into_iter()
-        .filter(|(_, count)| *count >= 2)
-        .map(|((phrase, variant), count)| {
-            let variants = if variant.is_empty() {
-                vec![]
-            } else {
-                vec![variant]
-            };
+        .filter(|(_, agg)| agg.total >= 2)
+        .map(|(low, agg)| {
+            // Display the casing the user actually wrote most often
+            let phrase = agg
+                .casings
+                .into_iter()
+                .max_by_key(|(_, c)| *c)
+                .map(|(k, _)| k)
+                .unwrap_or_else(|| low.clone());
+            // Most frequent misheard forms first
+            let mut variants: Vec<(String, usize)> = agg.variants.into_iter().collect();
+            variants.sort_by(|a, b| b.1.cmp(&a.1));
             WordSuggestion {
                 phrase,
-                variants,
-                count,
+                variants: variants.into_iter().map(|(v, _)| v).collect(),
+                count: agg.total as u32,
             }
         })
         .collect();
