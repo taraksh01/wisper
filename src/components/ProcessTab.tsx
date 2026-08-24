@@ -9,6 +9,8 @@ import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
 import { Input } from "./ui/Input";
 import { Textarea } from "./ui/Textarea";
+import { Button } from "./ui/Button";
+import { CostEstimatorModal } from "./CostEstimatorModal";
 
 interface ProcessTabProps {
   settings: AppSettings;
@@ -29,6 +31,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
   const [showPrompt, setShowPrompt] = useState(false);
   const [testState, setTestState] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [testMsg, setTestMsg] = useState("");
+  const [showCostModal, setShowCostModal] = useState(false);
 
   const isOpenRouter = settings.process_provider === "openrouter";
   const modelOptionsBase = isOpenRouter && freeModels
@@ -195,14 +198,15 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
             ) : (
               selectedProfile && selectedProfile.system_prompt && (
                 <div className="rounded-lg bg-elevated/40 border border-stroke overflow-hidden">
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
                     onClick={() => setShowPrompt((v) => !v)}
-                    className="w-full flex items-center justify-between px-2.5 py-1.5 text-[10px] font-mono text-muted hover:text-ink transition-colors"
+                    className="w-full px-2.5 py-1.5 text-[10px] font-mono text-muted hover:text-ink justify-between gap-2"
+                    aria-expanded={showPrompt}
                   >
                     <span>{showPrompt ? "Hide prompt" : "View prompt"}</span>
                     <IconChevronDown className={`w-3 h-3 transition-transform ${showPrompt ? "rotate-180" : ""}`} />
-                  </button>
+                  </Button>
                   {showPrompt && (
                     <div className="px-2 pb-2 pt-0">
                       <AutoTextarea value={selectedProfile.system_prompt} />
@@ -226,12 +230,13 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
               <div>
                 <label className="label-soft block mb-1.5">Model</label>
                 {isOpenRouter && freeModels === null && !fetching && (
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={fetchOpenRouterFreeModels}
-                    className="w-full bg-elevated/50 rounded-lg px-2.5 py-2 text-xs font-mono text-accent outline-none ring-1 ring-stroke hover:ring-accent/40 transition-all cursor-pointer text-left"
+                    className="w-full bg-elevated/50 rounded-lg px-2.5 py-2 text-xs font-mono text-accent ring-1 ring-stroke hover:ring-accent/40 text-left justify-start"
                   >
                     Fetch free models
-                  </button>
+                  </Button>
                 )}
                 {isOpenRouter && fetching && (
                   <div className="text-xs font-mono text-muted px-2.5 py-2 bg-elevated/50 rounded-lg">Fetching free models...</div>
@@ -311,11 +316,12 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
             </div>
 
             <div className="pt-1">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={handleTest}
                 disabled={!canTest || testState === "loading"}
-                className={`w-full rounded-lg px-3 py-2 text-xs font-medium transition-colors border ${
+                aria-busy={testState === "loading"}
+                className={`w-full rounded-lg px-3 py-2 text-xs font-medium border ${
                   !canTest || testState === "loading"
                     ? "bg-elevated/30 text-muted border-stroke cursor-not-allowed"
                     : testState === "success"
@@ -326,7 +332,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
                 }`}
               >
                 {testState === "loading" ? "Testing…" : testState === "success" ? "✓ Connected" : testState === "error" ? "Retry test" : "Test connection"}
-              </button>
+              </Button>
               {testMsg && (
                 <p className={`text-[11px] font-mono leading-relaxed mt-1.5 px-1 ${testState === "error" ? "text-red-500" : testState === "success" ? "text-emerald-600" : "text-muted"}`}>
                   {testMsg}
@@ -336,7 +342,16 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
                 <p className="text-[10px] font-mono text-muted/50 mt-1 px-1">Enter Base URL, API key and model to test.</p>
               )}
             </div>
+
+            <Button
+              variant="ghost"
+              onClick={() => setShowCostModal(true)}
+              className="w-full rounded-lg px-3 py-2 text-[11px] font-mono text-muted hover:text-accent border border-stroke hover:border-accent/30"
+            >
+              Estimate monthly AI cost
+            </Button>
           </SectionCard>
+          {showCostModal && <CostEstimatorModal onClose={() => setShowCostModal(false)} />}
         </>
       )}
     </div>
