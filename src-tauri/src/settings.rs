@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::Emitter;
 use tauri_plugin_autostart::ManagerExt;
+
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -40,6 +43,9 @@ pub struct AppSettings {
     pub process_model: String,
     #[serde(default = "default_endpoint")]
     pub process_endpoint: String,
+    /// Seconds to wait for AI refining before falling back to raw text (3–120).
+    #[serde(default = "default_process_timeout")]
+    pub process_timeout_secs: u32,
     pub process_max_tokens: u32,
     pub process_agent_profile: String,
     pub process_agent_name: String,
@@ -64,7 +70,7 @@ pub struct AppSettings {
     /// Selected input device name; empty string = system default.
     pub input_device: String,
     /// Cumulative seconds saved by speaking instead of typing (estimated).
-    pub time_saved_sec: i32,
+    pub time_saved_sec: i64,
     /// Maximum history entries to retain (0 = unlimited).
     #[serde(default = "default_max_history")]
     pub max_history_entries: i32,
@@ -84,6 +90,9 @@ fn default_true() -> bool {
 }
 fn default_endpoint() -> String {
     "/chat/completions".into()
+}
+fn default_process_timeout() -> u32 {
+    15
 }
 
 impl Default for AppSettings {
@@ -118,6 +127,7 @@ impl Default for AppSettings {
             process_api_key_custom: String::new(),
             process_model: String::new(),
             process_endpoint: "/chat/completions".into(),
+            process_timeout_secs: default_process_timeout(),
             process_max_tokens: 0,
             process_agent_profile: "auto".into(),
             process_agent_name: "Auto-Format".into(),
@@ -207,10 +217,6 @@ pub fn sync_runtime(settings: &AppSettings) {
         settings.keep_recordings,
         std::sync::atomic::Ordering::Relaxed,
     );
-    crate::coordinator::PROCESS_ENABLED.store(
-        settings.process_enabled,
-        std::sync::atomic::Ordering::Relaxed,
-    );
     crate::coordinator::WORDS_ENABLED
         .store(settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
     crate::coordinator::WORDS_AUTO_SCAN.store(
@@ -231,27 +237,10 @@ pub fn sync_runtime(settings: &AppSettings) {
         settings.noise_suppression_level.to_bits(),
         std::sync::atomic::Ordering::Relaxed,
     );
-    if let Ok(mut v) = crate::coordinator::PROCESS_BASE_URL.lock() {
-        *v = settings.process_base_url.clone();
-    }
-    if let Ok(mut v) = crate::coordinator::PROCESS_API_KEY.lock() {
-        *v = settings.process_api_key.clone();
-    }
-    if let Ok(mut v) = crate::coordinator::PROCESS_MODEL.lock() {
-        *v = settings.process_model.clone();
-    }
-    crate::coordinator::PROCESS_MAX_TOKENS.store(
-        settings.process_max_tokens,
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    if let Ok(mut v) = crate::coordinator::PROCESS_ENDPOINT.lock() {
-        *v = settings.process_endpoint.clone();
-    }
+    // Process settings are read per-dictation from AppSettings::load() in the
+    // coordinator — no mirrors needed (single source of truth).
     if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
         *method = settings.paste_method.clone();
-    }
-    if let Ok(mut backend) = crate::coordinator::PASTE_BACKEND.lock() {
-        *backend = crate::paste::resolve_paste_backend(&settings.paste_tool);
     }
     if let Ok(mut tool) = crate::coordinator::PASTE_TOOL.lock() {
         *tool = settings.paste_tool.clone();
@@ -319,6 +308,7 @@ pub fn sync_runtime(settings: &AppSettings) {
 /// load → mutate → save → sync_runtime → tray refresh → notify frontend.
 /// Every settings change must go through here.
 pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> usize {
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let prev = AppSettings::load();
     let prev_max = prev.max_history_entries;
     let prev_mode = prev.history_retention_mode.clone();
@@ -370,6 +360,16 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     crate::tray::refresh();
     let _ = app.emit("wisper:settings-changed", &s);
     trimmed
+}
+
+pub fn add_time_saved(delta: i64) {
+    if delta <= 0 {
+        return;
+    }
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut s = AppSettings::load();
+    s.time_saved_sec = s.time_saved_sec.saturating_add(delta);
+    let _ = s.save();
 }
 
 // ── Shared engine operations ────────────────────────────────────────────────

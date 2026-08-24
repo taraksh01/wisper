@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 static REGEX_CACHE: OnceLock<Mutex<HashMap<i64, Vec<(Regex, String)>>>> = OnceLock::new();
 
@@ -72,6 +73,8 @@ static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::L
         );
         Connection::open_in_memory().expect("in-memory DB")
     });
+    let _ = conn.busy_timeout(Duration::from_millis(5000));
+    let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     if let Err(e) = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -283,8 +286,10 @@ pub fn apply_words(text: &str) -> String {
                 let mut vec = Vec::new();
                 for form in entry.match_forms() {
                     let escaped = regex::escape(&form);
+                    // Both delimiters captured so they survive replacement
+                    // (plain `regex` crate has no lookaround support)
                     let pattern = if entry.whole_word {
-                        format!(r"(?:\b|_){}(?:\b|_)", escaped)
+                        format!(r"(^|[^A-Za-z0-9_]){}($|[^A-Za-z0-9_])", escaped)
                     } else {
                         escaped
                     };
@@ -304,7 +309,14 @@ pub fn apply_words(text: &str) -> String {
         let mut matched = false;
         for (re, ph) in regexes {
             if re.is_match(&out) {
-                let replaced = re.replace_all(&out, NoExpand(ph.as_str())).into_owned();
+                let replaced = if entry.whole_word {
+                    // ${1}/${2} restore the captured delimiters; escape $ in phrase
+                    let safe_ph = ph.replace('$', "$$");
+                    re.replace_all(&out, format!("${{1}}{}${{2}}", safe_ph))
+                        .into_owned()
+                } else {
+                    re.replace_all(&out, NoExpand(ph.as_str())).into_owned()
+                };
                 if replaced != out {
                     out = replaced;
                     matched = true;
@@ -318,15 +330,20 @@ pub fn apply_words(text: &str) -> String {
     out
 }
 
-pub fn words_prompt_hint() -> String {
+/// Builds the dictionary hint containing ONLY entries whose spoken forms
+/// actually appear in this transcript — keeps input tokens near-zero no matter
+/// how large the dictionary is. (The deterministic `apply_words` post-pass
+/// still enforces every entry after the AI, so nothing is lost by filtering.)
+pub fn words_prompt_hint(text: &str) -> String {
     let mgr = WordsManager::new();
     let entries = match mgr.all() {
         Ok(e) if !e.is_empty() => e,
         _ => return String::new(),
     };
+    let lower = text.to_lowercase();
 
     let mut lines = Vec::new();
-    for e in entries.iter().take(60) {
+    for e in entries.iter() {
         let phrase = e.phrase.trim();
         if phrase.is_empty() {
             continue;
@@ -337,12 +354,31 @@ pub fn words_prompt_hint() -> String {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .collect();
+
+        // Relevance check: any canonical form present in this transcript?
+        let mut relevant = lower.contains(&phrase.to_lowercase());
+        if !relevant {
+            for v in &variants {
+                if lower.contains(&v.to_lowercase()) {
+                    relevant = true;
+                    break;
+                }
+            }
+        }
+        if !relevant {
+            continue;
+        }
+
         if variants.is_empty() {
             lines.push(format!("- \"{}\"", phrase));
         } else {
             for v in variants {
                 lines.push(format!("- \"{}\" → \"{}\"", v, phrase));
             }
+        }
+        // Hard cap for pathological transcripts that match many entries
+        if lines.len() >= 30 {
+            break;
         }
     }
     if lines.is_empty() {
@@ -519,7 +555,7 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
     if raw.trim() == formatted.trim() {
         return;
     }
-    let known = WordsManager::new().known_terms();
+    let mut known = WordsManager::new().known_terms();
     let ignored = WordsManager::new().ignored_terms();
     let raw_words: Vec<&str> = raw
         .split(|c: char| !(c.is_alphanumeric() || c == '_'))
@@ -533,6 +569,10 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
         raw_words.iter().map(|s| s.to_lowercase()).collect();
     let fmt_set: std::collections::HashSet<String> =
         fmt_words.iter().map(|s| s.to_lowercase()).collect();
+    // Load history once — not per-word (was N+1)
+    let history = crate::history::HistoryManager::new()
+        .get_history(500, 0)
+        .unwrap_or_default();
     for fw in &fmt_words {
         let low = fw.to_lowercase();
         if low.chars().count() < 3
@@ -552,9 +592,6 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
                 }
             }
             // Count occurrences of this correction in history (including current)
-            let history = crate::history::HistoryManager::new()
-                .get_history(i64::MAX, 0)
-                .unwrap_or_default();
             let mut count = 1; // current occurrence
             for entry in &history {
                 let r = entry.raw_text.trim();
@@ -582,6 +619,7 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
             if count >= 2 {
                 let mgr = WordsManager::new();
                 let _ = mgr.add(fw, &variant, false, true, true);
+                known.insert(low.clone());
             }
         }
     }
@@ -632,46 +670,9 @@ fn is_common_word(low: &str) -> bool {
     COMMON_WORDS.contains(&low)
 }
 
-fn is_candidate_term(tok: &str) -> bool {
-    let low = tok.to_lowercase();
-    if is_common_word(&low) {
-        return false;
-    }
-    let has_underscore_or_digit = tok.chars().any(|c| c == '_' || c.is_ascii_digit());
-    let all_caps = tok.chars().all(|c| c.is_uppercase() || !c.is_alphabetic())
-        && tok.chars().any(|c| c.is_uppercase());
-    let mut chars = tok.chars();
-    let _first = chars.next();
-    let internal_caps = chars.any(|c| c.is_uppercase());
-    let is_titlecase = {
-        let mut cs = tok.chars();
-        matches!(cs.next(), Some(f) if f.is_uppercase())
-            && cs.clone().all(|c| c.is_lowercase())
-            && tok.chars().count() >= 4
-            && !tok.chars().all(|c| c.is_lowercase())
-    };
-    // Titlecase alone is only interesting if it appears multiple times with different casings
-    // (e.g. Wisper vs wisper) — otherwise it's likely just a sentence starter.
-    // We keep it as candidate but the count filter later will require ≥3 for pure Titlecase.
-    has_underscore_or_digit || all_caps || internal_caps || is_titlecase
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn entry(phrase: &str, variants: &str, cs: bool, ww: bool) -> WordEntry {
-        WordEntry {
-            id: 0,
-            phrase: phrase.to_string(),
-            variants: variants.to_string(),
-            case_sensitive: cs,
-            whole_word: ww,
-            auto: false,
-            hits: 0,
-            created_at: String::new(),
-        }
-    }
 
     #[test]
     fn replaces_known_term() {

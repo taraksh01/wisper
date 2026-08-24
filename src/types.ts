@@ -62,6 +62,7 @@ export interface AppSettings {
   process_api_key_custom: string;
   process_model: string;
   process_endpoint: string;
+  process_timeout_secs: number;
   process_max_tokens: number;
   process_agent_profile: string;
   process_agent_name: string;

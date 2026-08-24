@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::Duration;
 
 /// A resolved agent ready to run: a name plus the system prompt to send.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,15 +150,47 @@ pub fn builtin_profiles() -> Vec<AgentProfile> {
     ]
 }
 
+static PROCESS_CLIENT: once_cell::sync::Lazy<reqwest::blocking::Client> =
+    once_cell::sync::Lazy::new(|| {
+        reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .expect("failed to build process client")
+    });
+
+fn normalize_endpoint(raw: &str) -> String {
+    let t = raw.trim();
+    if t.is_empty() {
+        return "/chat/completions".to_string();
+    }
+    if t.starts_with('/') {
+        t.to_string()
+    } else {
+        format!("/{}", t)
+    }
+}
+
+fn resolved_endpoint_for(base_url: &str, model: &str, raw: &str) -> String {
+    let ep = normalize_endpoint(raw);
+    if base_url.contains("opencode.ai/zen/go") && ep == "/chat/completions" {
+        let m = model.to_lowercase();
+        if m.contains("muse-spark") || m.contains("grok") || m.contains("gpt-5") {
+            return "/responses".to_string();
+        }
+    }
+    ep
+}
+
 /// Lightweight heuristic to auto-pick a profile id from the transcribed text.
 fn classify_text(text: &str) -> &'static str {
     let lower = text.to_lowercase();
 
-    // Developer / code cues
+    // Developer / code cues — check without trailing spaces for robustness (e.g. "const" at EOL)
     let dev_terms = [
         "function",
-        "const ",
-        "let ",
+        "const",
+        "let",
         "variable",
         "commit",
         "merge",
@@ -169,18 +202,18 @@ fn classify_text(text: &str) -> &'static str {
         "database",
         "compile",
         "deploy",
-        "npm ",
-        "cargo ",
-        "git ",
-        "class ",
-        "import ",
-        "return ",
+        "npm",
+        "cargo",
+        "git",
+        "class",
+        "import",
+        "return",
         "async",
         "null",
         "boolean",
         "error",
         "config",
-        "test ",
+        "test",
         "stack",
         "handler",
     ];
@@ -314,29 +347,25 @@ impl ProcessClient {
     }
 
     fn resolved_endpoint(&self) -> String {
-        let ep = self.endpoint.trim();
-        let ep = if ep.is_empty() {
-            "/chat/completions"
-        } else {
-            ep
-        };
-        // Auto-correct OpenCode Go muse-spark/grok to /responses when user left default
-        if self.base_url.contains("opencode.ai/zen/go") && ep == "/chat/completions" {
-            let m = self.model.to_lowercase();
-            if m.contains("muse-spark") || m.contains("grok") || m.contains("gpt-5") {
-                return "/responses".to_string();
-            }
-        }
-        ep.to_string()
+        resolved_endpoint_for(&self.base_url, &self.model, &self.endpoint)
     }
 
     pub fn process(&self, text: &str, agent: &SmartAgent) -> Result<String, String> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+        self.process_with_timeout(text, agent, Duration::from_secs(30))
+    }
+
+    /// Like [`Self::process`], but hard-aborts the HTTP request after `timeout` —
+    /// the connection is closed so the model stops streaming and no further
+    /// tokens are billed for this request.
+    pub fn process_with_timeout(
+        &self,
+        text: &str,
+        agent: &SmartAgent,
+        timeout: Duration,
+    ) -> Result<String, String> {
         let endpoint_path = self.resolved_endpoint();
         let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), endpoint_path);
+        let client = &*PROCESS_CLIENT;
 
         let user_msg = format!("<transcript>\n{}\n</transcript>", text);
 
@@ -380,7 +409,7 @@ impl ProcessClient {
             (b, false, false)
         };
 
-        let mut req = client.post(&endpoint).json(&body);
+        let mut req = client.post(&endpoint).json(&body).timeout(timeout);
         if is_anthropic {
             req = req
                 .header("x-api-key", &self.api_key)
@@ -417,7 +446,6 @@ impl ProcessClient {
         } else if is_anthropic {
             json["content"][0]["text"]
                 .as_str()
-                .or_else(|| json["content"][0]["text"].as_str())
                 .unwrap_or("")
                 .trim()
                 .to_string()
@@ -458,7 +486,21 @@ pub fn get_agent_profiles() -> Vec<AgentProfile> {
 }
 
 #[tauri::command]
-pub fn test_process_connection(
+pub async fn test_process_connection(
+    base_url: String,
+    api_key: String,
+    model: String,
+    endpoint: Option<String>,
+) -> Result<String, String> {
+    // Run on a blocking thread — never freeze the UI thread on network I/O.
+    tauri::async_runtime::spawn_blocking(move || {
+        test_process_connection_blocking(base_url, api_key, model, endpoint)
+    })
+    .await
+    .map_err(|e| format!("Test failed to run: {}", e))?
+}
+
+fn test_process_connection_blocking(
     base_url: String,
     api_key: String,
     model: String,
@@ -473,30 +515,13 @@ pub fn test_process_connection(
     if model.trim().is_empty() {
         return Err("Model is empty".into());
     }
-    let ep_raw = endpoint.unwrap_or_else(|| "/chat/completions".to_string());
-    let ep = if ep_raw.trim().is_empty() {
-        "/chat/completions"
-    } else if ep_raw.starts_with('/') {
-        ep_raw.as_str()
-    } else {
-        // allow "chat/completions" without leading slash
-        Box::leak(format!("/{}", ep_raw).into_boxed_str())
-    };
-    // auto-correct OpenCode Go muse/grok/gpt-5 to /responses when left on default
-    let ep = if base_url.contains("opencode.ai/zen/go") && ep == "/chat/completions" {
-        let m = model.to_lowercase();
-        if m.contains("muse-spark") || m.contains("grok") || m.contains("gpt-5") {
-            "/responses"
-        } else {
-            ep
-        }
-    } else {
-        ep
-    };
+    let ep = resolved_endpoint_for(&base_url, &model, &endpoint.unwrap_or_default());
     let is_anthropic = ep == "/messages";
     let is_responses = ep == "/responses";
+    // Short-lived client with a tight timeout — fast feedback for the Test button
     let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     let url = format!("{}{}", base_url.trim_end_matches('/'), ep);

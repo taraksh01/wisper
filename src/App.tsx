@@ -39,10 +39,25 @@ function useSystemTheme() {
   return dark;
 }
 
+function safeStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function safeStorageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable (private mode) */
+  }
+}
+
 function AppShell() {
   const dark = useSystemTheme();
   const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem(storageKey("active-tab"));
+    const saved = safeStorageGet(storageKey("active-tab"));
     return saved && tabs.some((t) => t.id === saved) ? saved : "general";
   });
   const [appState, setAppState] = useState("idle");
@@ -54,14 +69,14 @@ function AppShell() {
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const [currentModelName, setCurrentModelName] = useState("");
   const [onboarded, setOnboarded] = useState(
-    () => localStorage.getItem(storageKey("onboarded")) === "1"
+    () => safeStorageGet(storageKey("onboarded")) === "1"
   );
   const [pasteEnv, setPasteEnv] = useState<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean } | null>(null);
 
   const toast = useToast();
 
   useEffect(() => {
-    localStorage.setItem(storageKey("active-tab"), activeTab);
+    safeStorageSet(storageKey("active-tab"), activeTab);
   }, [activeTab]);
 
   useEffect(() => {
@@ -239,10 +254,10 @@ function AppShell() {
   };
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
-    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "noise_suppression_enabled", "noise_suppression_level", "overlay_enabled", "overlay_position", "input_device", "max_history_entries", "history_retention_mode"],
+    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "noise_suppression_enabled", "noise_suppression_level", "overlay_enabled", "overlay_position", "input_device", "max_history_entries", "history_retention_mode", "keep_recordings"],
     engine: ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"],
-    process: ["process_enabled", "process_provider", "process_base_url", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
-    words: ["words_enabled"],
+    process: ["process_enabled", "process_provider", "process_base_url", "process_endpoint", "process_timeout_secs", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_opencode_go", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
+    words: ["words_enabled", "words_auto_scan"],
   };
 
   const resetTab = async (tab: string) => {

@@ -22,16 +22,9 @@ pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static ENGINE_MODE: Mutex<String> = Mutex::new(String::new());
 pub static INPUT_DEVICE: Mutex<String> = Mutex::new(String::new()); // empty = system default
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
-pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static WORDS_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static WORDS_AUTO_SCAN: AtomicBool = AtomicBool::new(true);
-pub static PROCESS_BASE_URL: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_API_KEY: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_MODEL: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_MAX_TOKENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-pub static PROCESS_ENDPOINT: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -96,12 +89,6 @@ impl TranscriptionCoordinator {
 
     pub fn run(mut self) {
         while let Ok(command) = self.rx.recv() {
-            // Drop ghost presses queued while we were transcribing ( Processing is synchronous )
-            if self.state == CoordinatorState::Processing {
-                // Drain any burst that arrived while busy
-                while self.rx.try_recv().is_ok() {}
-                continue;
-            }
             match command {
                 CoordinatorCommand::Hotkey(HotkeyEvent::Pressed) => {
                     let is_push_to_talk = HOTKEY_MODE.load(Ordering::Relaxed);
@@ -154,18 +141,19 @@ impl TranscriptionCoordinator {
         let samples = self.audio_recorder.stop_recording();
         let device_sr = self.audio_recorder.sample_rate();
 
-        // Resample to 16kHz once, then work with 16kHz audio everywhere
-        let resampled = if device_sr != 16000 {
-            crate::engine::resample(&samples, device_sr, 16000)
-        } else {
-            samples.clone()
-        };
-
         // Save recording to disk if enabled (at original sample rate for playback)
         let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
             crate::history::save_recording_to_disk(&samples, device_sr)
         } else {
             None
+        };
+
+        // Resample to 16kHz once, then work with 16kHz audio everywhere
+        let samples_len = samples.len();
+        let resampled = if device_sr != 16000 {
+            crate::engine::resample(&samples, device_sr, 16000)
+        } else {
+            samples
         };
 
         // Noise suppression (optional, before VAD so VAD sees cleaner audio) and
@@ -174,7 +162,7 @@ impl TranscriptionCoordinator {
             let lvl = f32::from_bits(NOISE_SUPPRESSION_LEVEL.load(Ordering::Relaxed));
             suppress_noise(&resampled, 16000, lvl)
         } else {
-            resampled.clone()
+            resampled
         };
         let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
             let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
@@ -251,36 +239,24 @@ impl TranscriptionCoordinator {
                     println!("Transcription: {}", text);
                     let mut final_text = text.clone();
                     let mut agent_name = None;
-                    let words_enabled = WORDS_ENABLED.load(Ordering::Relaxed);
-                    if PROCESS_ENABLED.load(Ordering::Relaxed) {
-                        let process_base_url = PROCESS_BASE_URL
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clone();
-                        let process_api_key = PROCESS_API_KEY
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clone();
-                        let process_model = PROCESS_MODEL
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clone();
-                        let process_max_tokens = PROCESS_MAX_TOKENS.load(Ordering::Relaxed);
-                        let process_endpoint = PROCESS_ENDPOINT
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .clone();
-                        let mut agent = {
-                            let settings = crate::settings::AppSettings::load();
-                            crate::process::SmartAgent::resolve(
-                                &settings.process_agent_profile,
-                                &settings.process_agent_prompt,
-                                &text,
-                            )
-                        };
-                        // Bias the AI toward the user's canonical spellings — prepend so the model sees the critical dictionary first.
+                    // Snapshot settings once — avoids stale mix of statics vs file and races
+                    let settings_snapshot = crate::settings::AppSettings::load();
+                    let words_enabled = settings_snapshot.words_enabled;
+                    if settings_snapshot.process_enabled {
+                        let process_base_url = settings_snapshot.process_base_url.clone();
+                        let process_api_key = settings_snapshot.process_api_key.clone();
+                        let process_model = settings_snapshot.process_model.clone();
+                        let process_max_tokens = settings_snapshot.process_max_tokens;
+                        let process_endpoint = settings_snapshot.process_endpoint.clone();
+                        let mut agent = crate::process::SmartAgent::resolve(
+                            &settings_snapshot.process_agent_profile,
+                            &settings_snapshot.process_agent_prompt,
+                            &text,
+                        );
+                        // Bias the AI toward the user's canonical spellings — only entries
+                        // relevant to this transcript are sent (near-zero token cost).
                         if words_enabled {
-                            let hint = crate::words::words_prompt_hint();
+                            let hint = crate::words::words_prompt_hint(&text);
                             if !hint.is_empty() {
                                 agent.system_prompt = format!("{}{}", hint, agent.system_prompt);
                             }
@@ -296,13 +272,37 @@ impl TranscriptionCoordinator {
                                 process_endpoint
                             },
                         );
-                        match client.process(&text, &agent) {
-                            Ok(formatted) => {
+                        // Run AI processing on a worker thread with a hard timeout —
+                        // if it exceeds the user's budget, fall back to raw text immediately.
+                        let timeout_secs =
+                            settings_snapshot.process_timeout_secs.clamp(3, 120) as u64;
+                        let ai_timeout = std::time::Duration::from_secs(timeout_secs);
+                        let agent_name_snapshot = agent.name.clone();
+                        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+                        let text_for_ai = text.clone();
+                        std::thread::spawn(move || {
+                            // Per-request timeout: reqwest closes the connection at the
+                            // deadline, so generation stops instead of burning credits.
+                            let _ = tx.send(client.process_with_timeout(
+                                &text_for_ai,
+                                &agent,
+                                ai_timeout,
+                            ));
+                        });
+                        // +2s grace so the request-level timeout error arrives before we give up waiting
+                        match rx.recv_timeout(ai_timeout + std::time::Duration::from_secs(2)) {
+                            Ok(Ok(formatted)) => {
                                 final_text = formatted;
-                                agent_name = Some(agent.name);
+                                agent_name = Some(agent_name_snapshot);
                             }
-                            Err(e) => {
+                            Ok(Err(e)) => {
                                 eprintln!("AI processing skipped ({}), using raw text", e);
+                            }
+                            Err(_) => {
+                                eprintln!(
+                                    "AI processing timed out after {}s, using raw text",
+                                    timeout_secs
+                                );
                             }
                         }
                     }
@@ -323,7 +323,7 @@ impl TranscriptionCoordinator {
                         eprintln!("Paste failed: {}", e);
                     }
                     let duration_ms = if device_sr > 0 {
-                        (samples.len() as i64 * 1000) / device_sr as i64
+                        (samples_len as i64 * 1000) / device_sr as i64
                     } else {
                         0
                     };
@@ -364,11 +364,9 @@ impl TranscriptionCoordinator {
                     let words = text.split_whitespace().count() as f64;
                     let typing_sec = words / 1.0; // ~60 WPM
                     let speak_sec = duration_ms as f64 / 1000.0;
-                    let saved = (typing_sec - speak_sec).max(0.0) as i32;
+                    let saved = (typing_sec - speak_sec).max(0.0) as i64;
                     if saved > 0 {
-                        let mut settings = crate::settings::AppSettings::load();
-                        settings.time_saved_sec += saved;
-                        let _ = settings.save();
+                        crate::settings::add_time_saved(saved);
                     }
                 }
                 Err(e) => {
@@ -404,9 +402,8 @@ mod tests {
     fn test_coordinator_state_changes() {
         let recorder = AudioRecorder::new();
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (state_tx, state_rx) = mpsc::channel();
 
-        let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
+        let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, None);
 
         std::thread::spawn(move || {
             coordinator.run();

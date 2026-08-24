@@ -295,6 +295,20 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
                 )}
               </p>
             </div>
+            <div className="w-full">
+              <Field
+                label="AI timeout (seconds)"
+                type="number"
+                value={String(settings.process_timeout_secs ?? 15)}
+                onChange={(v) => {
+                  const n = parseInt(v, 10);
+                  onSave("process_timeout_secs", Number.isFinite(n) ? Math.min(120, Math.max(3, n)) : 15);
+                }}
+                placeholder="15"
+                onClear={settings.process_timeout_secs !== 15 ? () => onSave("process_timeout_secs", 15) : undefined}
+              />
+              <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-1.5">Give up on AI refining after this many seconds and paste the raw transcript instead (3–120).</p>
+            </div>
 
             <div className="pt-1">
               <button
