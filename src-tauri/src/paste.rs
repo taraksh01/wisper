@@ -7,13 +7,37 @@ use std::time::Duration;
 
 /// Returns true if the given command is available on PATH.
 fn command_exists(tool: &str) -> bool {
-    Command::new("sh")
-        .args(["-c", &format!("command -v {}", tool)])
+    // Use `which`-style lookup without shell to avoid injection
+    if tool.contains('/') || tool.contains(';') || tool.contains('&') || tool.contains('|') {
+        return false;
+    }
+    Command::new("which")
+        .arg(tool)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
+        .unwrap_or_else(|_| {
+            // Fallback: try `command -v` via direct PATH search
+            std::env::var_os("PATH").map_or(false, |paths| {
+                std::env::split_paths(&paths).any(|dir| {
+                    let full = dir.join(tool);
+                    full.is_file() && is_executable(&full)
+                })
+            })
+        })
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
+}
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// Detects the current display server session: "wayland", "x11", or "unknown".
@@ -113,16 +137,11 @@ fn active_backend() -> String {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let backend = if preference.is_empty() {
-        // Fall back to the cached backend if no preference has been set yet.
-        crate::coordinator::PASTE_BACKEND
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+    if preference.is_empty() || preference == "auto" {
+        detect_paste_backend()
     } else {
         resolve_paste_backend(&preference)
-    };
-    backend
+    }
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
@@ -149,7 +168,15 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
         return Err(format!("Failed to set clipboard text: {}", e));
     }
 
-    thread::sleep(Duration::from_millis(50));
+    // Poll until clipboard claims the new text (Wayland may be async) — 200ms max
+    for _ in 0..20 {
+        if let Ok(cur) = clipboard.get_text() {
+            if cur == expected {
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 
     let paste_result = simulate_key_combo(method);
 
@@ -175,12 +202,48 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
 
 fn simulate_key_combo(method: &str) -> Result<(), String> {
     let backend = active_backend();
-    let r = match backend.as_str() {
-        "wtype" => wtype_paste(method),
-        "ydotool" => ydotool_paste(method),
-        _ => enigo_paste(method),
+    // Try preferred backend first, then fall back through the chain
+    let mut last_err = String::new();
+    let order: Vec<&str> = match backend.as_str() {
+        "wtype" => vec!["wtype", "ydotool", "enigo"],
+        "ydotool" => vec!["ydotool", "wtype", "enigo"],
+        _ => vec!["enigo", "wtype", "ydotool"],
     };
-    r
+    for b in order {
+        let r = match b {
+            "wtype" => wtype_paste(method),
+            "ydotool" => ydotool_paste(method),
+            _ => enigo_paste(method),
+        };
+        match r {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                last_err = e;
+                // try next backend
+            }
+        }
+    }
+    Err(last_err)
+}
+
+fn run_with_timeout(
+    mut cmd: Command,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, String> {
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn: {}", e))?;
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(s) => return Ok(s),
+            None if start.elapsed() > timeout => {
+                let _ = child.kill();
+                // Reap the child so it doesn't linger as a zombie
+                let _ = child.wait();
+                return Err("Command timed out".into());
+            }
+            None => thread::sleep(Duration::from_millis(10)),
+        }
+    }
 }
 
 fn wtype_paste(method: &str) -> Result<(), String> {
@@ -192,10 +255,9 @@ fn wtype_paste(method: &str) -> Result<(), String> {
         _ => vec!["-M", "ctrl", "-k", "v", "-m", "ctrl"],
     };
 
-    let status = Command::new("wtype")
-        .args(args)
-        .stderr(Stdio::null())
-        .status()
+    let mut cmd = Command::new("wtype");
+    cmd.args(args).stderr(Stdio::null());
+    let status = run_with_timeout(cmd, Duration::from_secs(5))
         .map_err(|e| format!("Failed to run wtype: {}", e))?;
 
     if status.success() {
@@ -212,11 +274,9 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
         _ => vec!["29:1", "47:1", "47:0", "29:0"],
     };
 
-    let status = Command::new("ydotool")
-        .arg("key")
-        .args(args)
-        .stderr(Stdio::null())
-        .status()
+    let mut cmd = Command::new("ydotool");
+    cmd.arg("key").args(args).stderr(Stdio::null());
+    let status = run_with_timeout(cmd, Duration::from_secs(5))
         .map_err(|e| format!("Failed to run ydotool: {}", e))?;
 
     if status.success() {
@@ -243,13 +303,7 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                 .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
             enigo
                 .key(Key::Unicode('v'), Direction::Click)
-                .map_err(|e| format!("Enigo V failed: {:?}", e))?;
-            enigo
-                .key(Key::Shift, Direction::Release)
-                .map_err(|e| format!("Enigo Shift release failed: {:?}", e))?;
-            enigo
-                .key(Key::Control, Direction::Release)
-                .map_err(|e| format!("Enigo Ctrl release failed: {:?}", e))
+                .map_err(|e| format!("Enigo V failed: {:?}", e))
         }
         "Shift+Insert" => {
             enigo
@@ -257,10 +311,7 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                 .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
             enigo
                 .key(Key::Insert, Direction::Click)
-                .map_err(|e| format!("Enigo Insert failed: {:?}", e))?;
-            enigo
-                .key(Key::Shift, Direction::Release)
-                .map_err(|e| format!("Enigo Shift release failed: {:?}", e))
+                .map_err(|e| format!("Enigo Insert failed: {:?}", e))
         }
         _ => {
             enigo
@@ -268,12 +319,13 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                 .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
             enigo
                 .key(Key::Unicode('v'), Direction::Click)
-                .map_err(|e| format!("Enigo V failed: {:?}", e))?;
-            enigo
-                .key(Key::Control, Direction::Release)
-                .map_err(|e| format!("Enigo Ctrl release failed: {:?}", e))
+                .map_err(|e| format!("Enigo V failed: {:?}", e))
         }
     };
+    // Always release modifiers — never leave Ctrl/Shift stuck on partial failure.
+    // Releasing a non-pressed key is harmless.
+    let _ = enigo.key(Key::Shift, Direction::Release);
+    let _ = enigo.key(Key::Control, Direction::Release);
     res
 }
 
@@ -281,20 +333,19 @@ fn type_text_directly(text: &str) -> Result<(), String> {
     let backend = active_backend();
     match backend.as_str() {
         "wtype" => {
-            let status = Command::new("wtype")
-                .args(["-d", "0", text])
-                .stderr(Stdio::null())
-                .status()
+            let mut cmd = Command::new("wtype");
+            cmd.args(["-d", "0", text]).stderr(Stdio::null());
+            let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run wtype: {}", e))?;
             if status.success() {
                 return Ok(());
             }
         }
         "ydotool" => {
-            let status = Command::new("ydotool")
-                .args(["type", "-d", "0", "-H", "0", text])
-                .stderr(Stdio::null())
-                .status()
+            let mut cmd = Command::new("ydotool");
+            cmd.args(["type", "-d", "0", "-H", "0", text])
+                .stderr(Stdio::null());
+            let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
             if status.success() {
                 return Ok(());
