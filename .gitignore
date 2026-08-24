@@ -48,3 +48,7 @@ bun.lockb
 *.dmg
 *.exe
 .superpowers/
+
+# Local verification harnesses (homelab URL/key, not for CI)
+scripts/test_process_*.mjs
+scripts/test_process_*.results.json
