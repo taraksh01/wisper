@@ -278,11 +278,11 @@ impl TranscriptionCoordinator {
                                 &text,
                             )
                         };
-                        // Bias the AI toward the user's canonical spellings.
+                        // Bias the AI toward the user's canonical spellings — prepend so the model sees the critical dictionary first.
                         if words_enabled {
                             let hint = crate::words::words_prompt_hint();
                             if !hint.is_empty() {
-                                agent.system_prompt.push_str(&hint);
+                                agent.system_prompt = format!("{}{}", hint, agent.system_prompt);
                             }
                         }
                         let client = crate::process::ProcessClient::new(
@@ -318,7 +318,7 @@ impl TranscriptionCoordinator {
                     // Drop overlay focus so synthetic keystrokes land in the
                     // target app, not the (invisible) overlay window.
                     crate::hide_overlay();
-                    thread::sleep(std::time::Duration::from_millis(80));
+                    thread::sleep(std::time::Duration::from_millis(20));
                     if let Err(e) = paste_text(&final_text, &paste_method) {
                         eprintln!("Paste failed: {}", e);
                     }

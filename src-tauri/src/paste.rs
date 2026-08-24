@@ -227,8 +227,11 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
 }
 
 fn enigo_paste(method: &str) -> Result<(), String> {
-    let mut enigo =
-        Enigo::new(&Settings::default()).map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
+    let mut enigo = Enigo::new(&Settings {
+        linux_delay: 1,
+        ..Default::default()
+    })
+    .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
 
     let res: Result<(), String> = match method {
         "Ctrl+Shift+V" => {
@@ -279,7 +282,7 @@ fn type_text_directly(text: &str) -> Result<(), String> {
     match backend.as_str() {
         "wtype" => {
             let status = Command::new("wtype")
-                .arg(text)
+                .args(["-d", "0", text])
                 .stderr(Stdio::null())
                 .status()
                 .map_err(|e| format!("Failed to run wtype: {}", e))?;
@@ -289,7 +292,7 @@ fn type_text_directly(text: &str) -> Result<(), String> {
         }
         "ydotool" => {
             let status = Command::new("ydotool")
-                .args(["type", "-d", "0", text])
+                .args(["type", "-d", "0", "-H", "0", text])
                 .stderr(Stdio::null())
                 .status()
                 .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
@@ -300,8 +303,11 @@ fn type_text_directly(text: &str) -> Result<(), String> {
         _ => {}
     }
 
-    let mut enigo =
-        Enigo::new(&Settings::default()).map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
+    let mut enigo = Enigo::new(&Settings {
+        linux_delay: 0,
+        ..Default::default()
+    })
+    .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
 
     enigo
         .text(text)

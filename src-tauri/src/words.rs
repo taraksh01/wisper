@@ -49,7 +49,7 @@ impl WordEntry {
             .collect();
         let phrase = self.phrase.trim().to_string();
         if !phrase.is_empty() && !forms.iter().any(|f| f == &phrase) {
-            forms.push(phrase);
+            forms.push(phrase.clone());
         }
         forms.sort_by(|a, b| b.len().cmp(&a.len()));
         forms
@@ -338,16 +338,18 @@ pub fn words_prompt_hint() -> String {
             .filter(|s| !s.is_empty())
             .collect();
         if variants.is_empty() {
-            lines.push(format!("- {}", phrase));
+            lines.push(format!("- \"{}\"", phrase));
         } else {
-            lines.push(format!("- {} (not: {})", phrase, variants.join(", ")));
+            for v in variants {
+                lines.push(format!("- \"{}\" → \"{}\"", v, phrase));
+            }
         }
     }
     if lines.is_empty() {
         return String::new();
     }
     format!(
-        "\n\nPreferred spellings — when a term below (or a close misspelling of it) appears, always output the exact canonical form shown:\n{}",
+        "\n\nCRITICAL — User dictionary — you MUST replace any spoken form below (including misspellings, spaced or cased variants) with the exact canonical form shown. Never output the variants:\n{}",
         lines.join("\n")
     )
 }
