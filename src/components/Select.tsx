@@ -10,6 +10,7 @@ export function Select({
   label,
   className,
   searchable = false,
+  compact = false,
 }: {
   value: string;
   options: { value: string; label: string }[];
@@ -18,6 +19,7 @@ export function Select({
   className?: string;
   /** Show a search input inside the dropdown (for long lists) */
   searchable?: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -173,7 +175,7 @@ export function Select({
               setQuery("");
             }
           }}
-          className="w-full bg-surface border border-stroke rounded-xl px-3.5 py-2.5 text-xs font-medium text-ink text-left outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150 cursor-pointer flex items-center justify-between gap-2"
+          className={`w-full bg-surface border border-stroke rounded-xl text-xs font-medium text-ink text-left outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150 cursor-pointer flex items-center justify-between gap-2 ${compact ? "px-3 py-2 text-[11px]" : "px-3.5 py-2.5"}`}
         >
           <span className="truncate">{selected?.label ?? value}</span>
           <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-elevated border border-stroke">

@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
 // Per-model cancel flags — allows concurrent downloads without canceling others.
-static ACTIVE_CANCEL: once_cell::sync::Lazy<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
+static ACTIVE_CANCEL: once_cell::sync::Lazy<
+    Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
+> = once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
 
 pub fn get_models_dir() -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -89,7 +90,10 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
 struct ClearGuard(String);
 impl Drop for ClearGuard {
     fn drop(&mut self) {
-        ACTIVE_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.0);
+        ACTIVE_CANCEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
     }
 }
 
@@ -102,20 +106,24 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         .insert(model_name.clone(), cancel.clone());
     let _clear_guard = ClearGuard(model_name.clone());
 
-    let url = download_url(&model_name).ok_or_else(|| {
-        format!("Unknown model: {}.", model_name)
-    })?;
+    let url = download_url(&model_name).ok_or_else(|| format!("Unknown model: {}.", model_name))?;
 
     let models_dir = get_models_dir();
 
     let dir_name = onnx_dir_name(&model_name).ok_or("Missing directory name for ONNX model")?;
     let target_dir = models_dir.join(&dir_name);
     if target_dir.exists() {
-        ACTIVE_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).remove(&model_name);
+        ACTIVE_CANCEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&model_name);
         return Ok(target_dir.to_string_lossy().to_string());
     }
 
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     let ext = if url.ends_with(".onnx") {
         "onnx"
     } else if url.ends_with(".tar.gz") {
@@ -123,7 +131,8 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     } else {
         "bin"
     };
-    let temp_archive = std::env::temp_dir().join(format!("wisper_{}_{}.{}", &model_name, nanos, ext));
+    let temp_archive =
+        std::env::temp_dir().join(format!("wisper_{}_{}.{}", &model_name, nanos, ext));
 
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -155,8 +164,14 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     while let Some(chunk_result) = stream.next().await {
         if cancel.load(Ordering::Relaxed) {
             let _ = fs::remove_file(&temp_archive);
-            ACTIVE_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).remove(&model_name);
-            let _ = app_handle.emit("download-canceled", serde_json::json!({ "model": &model_name }));
+            ACTIVE_CANCEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&model_name);
+            let _ = app_handle.emit(
+                "download-canceled",
+                serde_json::json!({ "model": &model_name }),
+            );
             return Err("Download canceled".into());
         }
         let chunk = chunk_result.map_err(|e| e.to_string())?;
@@ -164,28 +179,38 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         downloaded += chunk.len() as u64;
 
         let elapsed = start.elapsed().as_secs_f64();
-        let speed_bps = if elapsed > 0.0 { downloaded as f64 / elapsed } else { 0.0 };
+        let speed_bps = if elapsed > 0.0 {
+            downloaded as f64 / elapsed
+        } else {
+            0.0
+        };
         if total > 0 {
             let pct = (downloaded as f64 / total as f64 * 100.0) as u32;
             if pct >= last_emitted + 1 || pct == 100 {
                 last_emitted = pct;
-                let _ = app_handle.emit("download-progress", serde_json::json!({
-                    "model": &model_name,
-                    "progress": pct,
-                    "speed_bps": speed_bps as u64,
-                    "downloaded": downloaded,
-                    "total": total,
-                }));
+                let _ = app_handle.emit(
+                    "download-progress",
+                    serde_json::json!({
+                        "model": &model_name,
+                        "progress": pct,
+                        "speed_bps": speed_bps as u64,
+                        "downloaded": downloaded,
+                        "total": total,
+                    }),
+                );
             }
         } else if downloaded % (512 * 1024) < 8192 {
             // For unknown total, emit periodically
-            let _ = app_handle.emit("download-progress", serde_json::json!({
-                "model": &model_name,
-                "progress": 0,
-                "speed_bps": speed_bps as u64,
-                "downloaded": downloaded,
-                "total": total,
-            }));
+            let _ = app_handle.emit(
+                "download-progress",
+                serde_json::json!({
+                    "model": &model_name,
+                    "progress": 0,
+                    "speed_bps": speed_bps as u64,
+                    "downloaded": downloaded,
+                    "total": total,
+                }),
+            );
         }
     }
 
@@ -210,13 +235,20 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         // Extract archive with path traversal validation
         let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
-        for entry in archive.entries().map_err(|e| format!("Failed to read archive: {}", e))? {
+        for entry in archive
+            .entries()
+            .map_err(|e| format!("Failed to read archive: {}", e))?
+        {
             let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
             if matches!(entry.link_name(), Ok(Some(_))) {
                 return Err("Archive contains symlink".into());
             }
             let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
-            if path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
                 return Err("Archive contains invalid path".into());
             }
             let dest = models_dir.join(&path);
@@ -227,8 +259,14 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         // Re-open and unpack after validation (entries consumed above)
         let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
-        archive.unpack(&models_dir).map_err(|e| format!("Failed to extract model: {}", e))?;
-        if !models_dir.canonicalize().unwrap_or_else(|_| models_dir.clone()).exists() {
+        archive
+            .unpack(&models_dir)
+            .map_err(|e| format!("Failed to extract model: {}", e))?;
+        if !models_dir
+            .canonicalize()
+            .unwrap_or_else(|_| models_dir.clone())
+            .exists()
+        {
             return Err("Models dir missing after unpack".into());
         }
         let _ = fs::remove_file(&temp_archive);
@@ -239,7 +277,11 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
 
 #[tauri::command]
 pub fn cancel_download(model_name: String) {
-    if let Some(flag) = ACTIVE_CANCEL.lock().unwrap_or_else(|e| e.into_inner()).get(&model_name) {
+    if let Some(flag) = ACTIVE_CANCEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&model_name)
+    {
         flag.store(true, Ordering::Relaxed);
     }
 }
@@ -275,7 +317,10 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
 /// Fetch tokens.txt for an IndicConformer model into its directory.
 /// parismita repo: shared tokens.txt at repo root (all Indic languages).
 /// sulabhkatiyar fallback: vocab.json next to the model, converted by the engine.
-pub async fn fetch_indic_assets(target_dir: &std::path::Path, model_name: &str) -> Result<(), String> {
+pub async fn fetch_indic_assets(
+    target_dir: &std::path::Path,
+    model_name: &str,
+) -> Result<(), String> {
     let url = download_url(model_name).ok_or_else(|| format!("Unknown model: {}", model_name))?;
     let client = reqwest::Client::new();
     let mut saved = false;
@@ -306,7 +351,8 @@ pub async fn fetch_indic_assets(target_dir: &std::path::Path, model_name: &str) 
                     .await
                     .map_err(|e| format!("failed to read {}: {}", fname, e))?;
                 let dest = target_dir.join(&fname);
-                std::fs::write(&dest, &bytes).map_err(|e| format!("failed to write {}: {}", fname, e))?;
+                std::fs::write(&dest, &bytes)
+                    .map_err(|e| format!("failed to write {}: {}", fname, e))?;
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;

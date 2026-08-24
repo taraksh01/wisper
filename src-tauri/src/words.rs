@@ -66,7 +66,10 @@ pub struct WordSuggestion {
 static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::Lazy::new(|| {
     let db_path = WordsManager::db_path();
     let conn = Connection::open(&db_path).unwrap_or_else(|e| {
-        eprintln!("[words] failed to open {}: {e} — using in-memory DB", db_path.display());
+        eprintln!(
+            "[words] failed to open {}: {e} — using in-memory DB",
+            db_path.display()
+        );
         Connection::open_in_memory().expect("in-memory DB")
     });
     if let Err(e) = conn.execute_batch(
@@ -144,7 +147,13 @@ impl WordsManager {
         conn.execute(
             "INSERT INTO words (phrase, variants, case_sensitive, whole_word, auto)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![phrase, variants, case_sensitive as i64, whole_word as i64, auto as i64],
+            params![
+                phrase,
+                variants,
+                case_sensitive as i64,
+                whole_word as i64,
+                auto as i64
+            ],
         )?;
         let id = conn.last_insert_rowid();
         drop(conn);
@@ -164,7 +173,13 @@ impl WordsManager {
         conn.execute(
             "UPDATE words SET phrase = ?1, variants = ?2, case_sensitive = ?3, whole_word = ?4
              WHERE id = ?5",
-            params![phrase, variants, case_sensitive as i64, whole_word as i64, id],
+            params![
+                phrase,
+                variants,
+                case_sensitive as i64,
+                whole_word as i64,
+                id
+            ],
         )?;
         drop(conn);
         clear_regex_cache_for(id);
@@ -181,7 +196,10 @@ impl WordsManager {
 
     fn bump_hits(&self, id: i64) {
         if let Ok(conn) = WORDS_CONN.lock() {
-            let _ = conn.execute("UPDATE words SET hits = hits + 1 WHERE id = ?1", params![id]);
+            let _ = conn.execute(
+                "UPDATE words SET hits = hits + 1 WHERE id = ?1",
+                params![id],
+            );
         }
     }
 
@@ -380,12 +398,16 @@ pub fn ignore_word_suggestion(term: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn get_ignored_terms() -> Result<Vec<String>, String> {
-    WordsManager::new().ignored_list().map_err(|e| e.to_string())
+    WordsManager::new()
+        .ignored_list()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn unignore_word_term(term: String) -> Result<(), String> {
-    WordsManager::new().remove_ignored(&term).map_err(|e| e.to_string())
+    WordsManager::new()
+        .remove_ignored(&term)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -428,13 +450,25 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
             continue;
         }
         // Simple word-level diff: tokens in formatted but not in raw (and vice versa)
-        let raw_words: Vec<&str> = raw.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
-        let fmt_words: Vec<&str> = fmt.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
-        let raw_set: std::collections::HashSet<String> = raw_words.iter().map(|s| s.to_lowercase()).collect();
-        let fmt_set: std::collections::HashSet<String> = fmt_words.iter().map(|s| s.to_lowercase()).collect();
+        let raw_words: Vec<&str> = raw
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        let fmt_words: Vec<&str> = fmt
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        let raw_set: std::collections::HashSet<String> =
+            raw_words.iter().map(|s| s.to_lowercase()).collect();
+        let fmt_set: std::collections::HashSet<String> =
+            fmt_words.iter().map(|s| s.to_lowercase()).collect();
         for fw in &fmt_words {
             let low = fw.to_lowercase();
-            if low.chars().count() < 3 || is_common_word(&low) || known.contains(&low) || ignored.contains(&low) {
+            if low.chars().count() < 3
+                || is_common_word(&low)
+                || known.contains(&low)
+                || ignored.contains(&low)
+            {
                 continue;
             }
             if !raw_set.contains(&low) {
@@ -443,7 +477,10 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
                 let mut variant = String::new();
                 for rw in &raw_words {
                     let rlow = rw.to_lowercase();
-                    if !fmt_set.contains(&rlow) && !known.contains(&rlow) && !ignored.contains(&rlow) {
+                    if !fmt_set.contains(&rlow)
+                        && !known.contains(&rlow)
+                        && !ignored.contains(&rlow)
+                    {
                         variant = (*rw).to_string();
                         break;
                     }
@@ -458,8 +495,16 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
         .into_iter()
         .filter(|(_, count)| *count >= 2)
         .map(|((phrase, variant), count)| {
-            let variants = if variant.is_empty() { vec![] } else { vec![variant] };
-            WordSuggestion { phrase, variants, count }
+            let variants = if variant.is_empty() {
+                vec![]
+            } else {
+                vec![variant]
+            };
+            WordSuggestion {
+                phrase,
+                variants,
+                count,
+            }
         })
         .collect();
     // Fallback: if no corrections found, don't suggest anything (avoid noisy frequency list)
@@ -474,13 +519,25 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
     }
     let known = WordsManager::new().known_terms();
     let ignored = WordsManager::new().ignored_terms();
-    let raw_words: Vec<&str> = raw.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
-    let fmt_words: Vec<&str> = formatted.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).collect();
-    let raw_set: std::collections::HashSet<String> = raw_words.iter().map(|s| s.to_lowercase()).collect();
-    let fmt_set: std::collections::HashSet<String> = fmt_words.iter().map(|s| s.to_lowercase()).collect();
+    let raw_words: Vec<&str> = raw
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    let fmt_words: Vec<&str> = formatted
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    let raw_set: std::collections::HashSet<String> =
+        raw_words.iter().map(|s| s.to_lowercase()).collect();
+    let fmt_set: std::collections::HashSet<String> =
+        fmt_words.iter().map(|s| s.to_lowercase()).collect();
     for fw in &fmt_words {
         let low = fw.to_lowercase();
-        if low.chars().count() < 3 || is_common_word(&low) || known.contains(&low) || ignored.contains(&low) {
+        if low.chars().count() < 3
+            || is_common_word(&low)
+            || known.contains(&low)
+            || ignored.contains(&low)
+        {
             continue;
         }
         if !raw_set.contains(&low) {
@@ -493,7 +550,9 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
                 }
             }
             // Count occurrences of this correction in history (including current)
-            let history = crate::history::HistoryManager::new().get_history(i64::MAX, 0).unwrap_or_default();
+            let history = crate::history::HistoryManager::new()
+                .get_history(i64::MAX, 0)
+                .unwrap_or_default();
             let mut count = 1; // current occurrence
             for entry in &history {
                 let r = entry.raw_text.trim();
@@ -501,8 +560,16 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
                     Some(f) if !f.trim().is_empty() && f != r => f.trim().to_string(),
                     _ => continue,
                 };
-                let r_set: std::collections::HashSet<String> = r.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).map(|s| s.to_lowercase()).collect();
-                let f_set: std::collections::HashSet<String> = f.split(|c: char| !(c.is_alphanumeric() || c == '_')).filter(|s| !s.trim().is_empty()).map(|s| s.to_lowercase()).collect();
+                let r_set: std::collections::HashSet<String> = r
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_lowercase())
+                    .collect();
+                let f_set: std::collections::HashSet<String> = f
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_lowercase())
+                    .collect();
                 if f_set.contains(&low) && !r_set.contains(&low) {
                     // Check if the same variant was involved
                     if variant.is_empty() || r_set.contains(&variant.to_lowercase()) {
@@ -546,13 +613,17 @@ fn casing_variants(tok: &str) -> Vec<String> {
 }
 
 const COMMON_WORDS: &[&str] = &[
-    "the","be","to","of","and","a","in","that","have","it","for","not","on","with","he","as","you","do","at",
-    "this","but","his","by","from","they","we","say","her","she","or","an","will","my","one","all","would","there","their",
-    "what","so","up","out","if","about","who","get","which","go","me","when","make","can","like","time","no","just","him","know",
-    "take","people","into","year","your","good","some","could","them","see","other","than","then","now","look","only","come","its",
-    "over","think","also","back","after","use","two","how","our","work","first","well","way","even","new","want","because","any",
-    "these","give","day","most","us","should","commit","shall","may","might","must","has","had","were","been","being","are","was","is",
-    "am","does","did","ought","need","dare","used","has","have","had","do","does","did","will","would","shall","should","may","might",
+    "the", "be", "to", "of", "and", "a", "in", "that", "have", "it", "for", "not", "on", "with",
+    "he", "as", "you", "do", "at", "this", "but", "his", "by", "from", "they", "we", "say", "her",
+    "she", "or", "an", "will", "my", "one", "all", "would", "there", "their", "what", "so", "up",
+    "out", "if", "about", "who", "get", "which", "go", "me", "when", "make", "can", "like", "time",
+    "no", "just", "him", "know", "take", "people", "into", "year", "your", "good", "some", "could",
+    "them", "see", "other", "than", "then", "now", "look", "only", "come", "its", "over", "think",
+    "also", "back", "after", "use", "two", "how", "our", "work", "first", "well", "way", "even",
+    "new", "want", "because", "any", "these", "give", "day", "most", "us", "should", "commit",
+    "shall", "may", "might", "must", "has", "had", "were", "been", "being", "are", "was", "is",
+    "am", "does", "did", "ought", "need", "dare", "used", "has", "have", "had", "do", "does",
+    "did", "will", "would", "shall", "should", "may", "might",
 ];
 
 fn is_common_word(low: &str) -> bool {
@@ -613,7 +684,9 @@ mod tests {
             Ok::<_, rusqlite::Error>(())
         });
         clear_regex_cache_all();
-        let id = mgr.add("Wisper", "Whisper", false, true, false).expect("insert");
+        let id = mgr
+            .add("Wisper", "Whisper", false, true, false)
+            .expect("insert");
         let out = apply_words("I use whisper daily");
         assert_eq!(out, "I use Wisper daily");
         let _ = mgr.delete(id);
