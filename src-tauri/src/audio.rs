@@ -1,8 +1,11 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample, Stream};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+static AUDIO_DROP_CTR: AtomicU32 = AtomicU32::new(0);
+static AUDIO_CAP_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// List available audio input devices as (stable id, display name) pairs.
 /// ALSA exposes the same physical microphone under many PCM nodes (hw/plughw/
@@ -252,10 +255,21 @@ impl AudioRecorder {
                 move |data: &[T], _: &_| {
                     let mut b = match buffer.try_lock() {
                         Ok(g) => g,
-                        Err(_) => return,
+                        Err(_) => {
+                            let c = AUDIO_DROP_CTR.fetch_add(1, Ordering::Relaxed);
+                            if c % 1000 == 0 {
+                                eprintln!("[audio] buffer contention: dropped {} frames", c + 1);
+                            }
+                            return;
+                        }
                     };
                     // Cap at ~5 minutes at 48kHz (~14M mono samples) to avoid OOM if hotkey stuck
                     if b.len() > 15_000_000 {
+                        if !AUDIO_CAP_WARNED.swap(true, Ordering::Relaxed) {
+                            eprintln!(
+                                "[audio] buffer cap reached (15M samples), dropping further input"
+                            );
+                        }
                         return;
                     }
                     let mut sum_sq: f32 = 0.0;

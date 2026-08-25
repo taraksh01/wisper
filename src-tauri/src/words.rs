@@ -6,9 +6,12 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-static REGEX_CACHE: OnceLock<Mutex<HashMap<i64, Vec<(Regex, String)>>>> = OnceLock::new();
+const DB_BUSY_TIMEOUT: Duration = Duration::from_millis(5000);
 
-fn regex_cache() -> &'static Mutex<HashMap<i64, Vec<(Regex, String)>>> {
+static REGEX_CACHE: OnceLock<Mutex<HashMap<i64, std::sync::Arc<Vec<(Regex, String)>>>>> =
+    OnceLock::new();
+
+fn regex_cache() -> &'static Mutex<HashMap<i64, std::sync::Arc<Vec<(Regex, String)>>>> {
     REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -71,9 +74,17 @@ static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::L
             "[words] failed to open {}: {e} — using in-memory DB",
             db_path.display()
         );
-        Connection::open_in_memory().expect("in-memory DB")
+        Connection::open_in_memory().unwrap_or_else(|e2| {
+            eprintln!("[words] in-memory fallback also failed: {e2}");
+            panic!("Failed to open words DB");
+        })
     });
-    let _ = conn.busy_timeout(Duration::from_millis(5000));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o600));
+    }
+    let _ = conn.busy_timeout(DB_BUSY_TIMEOUT);
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     if let Err(e) = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS words (
@@ -198,12 +209,11 @@ impl WordsManager {
     }
 
     fn bump_hits(&self, id: i64) {
-        if let Ok(conn) = WORDS_CONN.lock() {
-            let _ = conn.execute(
-                "UPDATE words SET hits = hits + 1 WHERE id = ?1",
-                params![id],
-            );
-        }
+        let conn = WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = conn.execute(
+            "UPDATE words SET hits = hits + 1 WHERE id = ?1",
+            params![id],
+        );
     }
 
     fn known_terms(&self) -> std::collections::HashSet<String> {
@@ -242,10 +252,7 @@ impl WordsManager {
 
     fn ignored_terms(&self) -> std::collections::HashSet<String> {
         let mut set = std::collections::HashSet::new();
-        let conn = match WORDS_CONN.lock() {
-            Ok(c) => c,
-            Err(_) => return set,
-        };
+        let conn = WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner());
         if let Ok(mut stmt) = conn.prepare("SELECT term FROM ignored_terms") {
             if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
                 for t in rows.flatten() {
@@ -277,11 +284,11 @@ pub fn apply_words(text: &str) -> String {
         if phrase.is_empty() {
             continue;
         }
-        // Get or build cached regexes for this entry
-        let regexes: Vec<(Regex, String)> = {
+        // Get or build cached regexes for this entry (Arc avoids cloning Regex per word)
+        let regexes: std::sync::Arc<Vec<(Regex, String)>> = {
             let mut cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
             if let Some(v) = cache.get(&entry.id) {
-                v.clone()
+                std::sync::Arc::clone(v)
             } else {
                 let mut vec = Vec::new();
                 for form in entry.match_forms() {
@@ -302,12 +309,13 @@ pub fn apply_words(text: &str) -> String {
                         vec.push((re, phrase.clone()));
                     }
                 }
-                cache.insert(entry.id, vec.clone());
-                vec
+                let arc = std::sync::Arc::new(vec);
+                cache.insert(entry.id, std::sync::Arc::clone(&arc));
+                arc
             }
         };
         let mut matched = false;
-        for (re, ph) in regexes {
+        for (re, ph) in regexes.iter() {
             if re.is_match(&out) {
                 let replaced = if entry.whole_word {
                     // ${1}/${2} restore the captured delimiters; escape $ in phrase
@@ -472,8 +480,14 @@ pub async fn suggest_words() -> Result<Vec<WordSuggestion>, String> {
 fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
     let known = WordsManager::new().known_terms();
     let ignored = WordsManager::new().ignored_terms();
+    let user_limit = crate::settings::AppSettings::load().max_history_entries;
+    let limit = if user_limit > 0 {
+        (user_limit as i64).clamp(50, 2000)
+    } else {
+        500
+    };
     let history = crate::history::HistoryManager::new()
-        .get_history(i64::MAX, 0)
+        .get_history(limit, 0)
         .map_err(|e| e.to_string())?;
 
     // Correction-based: find words where raw != formatted (AI or manual edit) and propose that correction.
@@ -586,9 +600,15 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
         raw_words.iter().map(|s| s.to_lowercase()).collect();
     let fmt_set: std::collections::HashSet<String> =
         fmt_words.iter().map(|s| s.to_lowercase()).collect();
-    // Load history once — not per-word (was N+1)
+    // Load history once — not per-word (was N+1); respect user's retention limit
+    let user_limit = crate::settings::AppSettings::load().max_history_entries;
+    let limit = if user_limit > 0 {
+        (user_limit as i64).clamp(50, 2000)
+    } else {
+        500
+    };
     let history = crate::history::HistoryManager::new()
-        .get_history(500, 0)
+        .get_history(limit, 0)
         .unwrap_or_default();
     for fw in &fmt_words {
         let low = fw.to_lowercase();

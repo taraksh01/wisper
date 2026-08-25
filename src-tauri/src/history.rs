@@ -1,8 +1,11 @@
 use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+
+const DB_BUSY_TIMEOUT: Duration = Duration::from_millis(5000);
+static RECORDING_DIR_CACHE: OnceLock<PathBuf> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
@@ -23,9 +26,17 @@ static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync:
             "[history] failed to open {}: {e} — using in-memory DB",
             db_path.display()
         );
-        Connection::open_in_memory().expect("in-memory DB")
+        Connection::open_in_memory().unwrap_or_else(|e2| {
+            eprintln!("[history] in-memory fallback also failed: {e2}");
+            panic!("Failed to open history DB");
+        })
     });
-    let _ = conn.busy_timeout(Duration::from_millis(5000));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o600));
+    }
+    let _ = conn.busy_timeout(DB_BUSY_TIMEOUT);
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     if let Err(e) = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS history (
@@ -173,9 +184,6 @@ impl HistoryManager {
         };
 
         if mode == "recordings_only" {
-            // Remove files first (no lock), then update rows — never abort the
-            // sweep mid-way; a failed row keeps its path and fails gracefully
-            // in get_recording_data later.
             for (_, path) in &oldest {
                 if let Some(ref p) = path {
                     if !p.is_empty() {
@@ -186,7 +194,9 @@ impl HistoryManager {
                 }
             }
             let conn = Self::conn();
+            conn.execute_batch("BEGIN IMMEDIATE")?;
             let mut cleared = 0;
+            let mut ok = true;
             for (id, path) in oldest {
                 if let Some(ref p) = path {
                     if !p.is_empty() {
@@ -195,17 +205,26 @@ impl HistoryManager {
                             params![id],
                         ) {
                             Ok(_) => cleared += 1,
-                            Err(e) => eprintln!(
-                                "[history] failed to clear recording_path for id {}: {}",
-                                id, e
-                            ),
+                            Err(e) => {
+                                eprintln!(
+                                    "[history] failed to clear recording_path for id {}: {}",
+                                    id, e
+                                );
+                                ok = false;
+                                break;
+                            }
                         }
                     }
                 }
             }
-            Ok(cleared)
+            if ok {
+                conn.execute_batch("COMMIT")?;
+                Ok(cleared)
+            } else {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(rusqlite::Error::ExecuteReturnedResults)
+            }
         } else {
-            // "both": delete files first, then rows via single subquery (no IN variable limit)
             for (_, path) in &oldest {
                 if let Some(ref p) = path {
                     if let Ok(canonical) = validate_recording_path(p) {
@@ -214,40 +233,71 @@ impl HistoryManager {
                 }
             }
             let conn = Self::conn();
-            let deleted = conn.execute(
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let res = conn.execute(
                 "DELETE FROM history WHERE id IN (SELECT id FROM history ORDER BY id ASC LIMIT ?1)",
                 params![excess],
-            )?;
-            Ok(deleted)
+            );
+            match res {
+                Ok(n) => {
+                    conn.execute_batch("COMMIT")?;
+                    Ok(n)
+                }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
+            }
         }
     }
 
     pub fn get_recording_dir() -> PathBuf {
-        let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push(crate::app_info::data_dir_name());
-        path.push("recordings");
-        let _ = std::fs::create_dir_all(&path);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
-        }
-        path
+        RECORDING_DIR_CACHE
+            .get_or_init(|| {
+                let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
+                path.push(crate::app_info::data_dir_name());
+                path.push("recordings");
+                let _ = std::fs::create_dir_all(&path);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+                }
+                path
+            })
+            .clone()
     }
 }
 
 fn validate_recording_path(path: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::PathBuf::from(path);
-    let canonical = p
-        .canonicalize()
-        .map_err(|_| "Invalid recording path".to_string())?;
-    let dir = HistoryManager::get_recording_dir()
-        .canonicalize()
-        .unwrap_or_else(|_| HistoryManager::get_recording_dir());
-    if !canonical.starts_with(&dir) {
-        return Err("Recording path outside allowed directory".into());
+    let dir = HistoryManager::get_recording_dir();
+    let dir_canonical = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+    if p.exists() {
+        let canonical = p
+            .canonicalize()
+            .map_err(|_| "Invalid recording path".to_string())?;
+        if !canonical.starts_with(&dir_canonical) {
+            return Err("Recording path outside allowed directory".into());
+        }
+        Ok(canonical)
+    } else {
+        // File already deleted — still verify it was inside the recordings dir
+        let p_abs = if p.is_absolute() {
+            p.clone()
+        } else {
+            dir.join(&p)
+        };
+        let parent = p_abs.parent().unwrap_or(&p_abs);
+        let parent_canonical = parent
+            .canonicalize()
+            .unwrap_or_else(|_| parent.to_path_buf());
+        if parent_canonical.starts_with(&dir_canonical) || p_abs.starts_with(&dir) {
+            Ok(p)
+        } else {
+            Err("Recording path outside allowed directory".into())
+        }
     }
-    Ok(canonical)
 }
 
 fn rand_suffix() -> u16 {
