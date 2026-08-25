@@ -316,19 +316,17 @@ pub fn apply_words(text: &str) -> String {
         };
         let mut matched = false;
         for (re, ph) in regexes.iter() {
-            if re.is_match(&out) {
-                let replaced = if entry.whole_word {
-                    // ${1}/${2} restore the captured delimiters; escape $ in phrase
-                    let safe_ph = ph.replace('$', "$$");
-                    re.replace_all(&out, format!("${{1}}{}${{2}}", safe_ph))
-                        .into_owned()
-                } else {
-                    re.replace_all(&out, NoExpand(ph.as_str())).into_owned()
-                };
-                if replaced != out {
-                    out = replaced;
-                    matched = true;
-                }
+            // Single pass: replace_all already returns borrowed if no match
+            let replaced = if entry.whole_word {
+                let safe_ph = ph.replace('$', "$$");
+                re.replace_all(&out, format!("${{1}}{}${{2}}", safe_ph))
+                    .into_owned()
+            } else {
+                re.replace_all(&out, NoExpand(ph.as_str())).into_owned()
+            };
+            if replaced != out {
+                out = replaced;
+                matched = true;
             }
         }
         if matched {
