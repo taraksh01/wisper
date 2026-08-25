@@ -3,10 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <title>Wisper Dev</title>
-    <link rel="stylesheet" href="overlay-dev.css" />
+    <link rel="stylesheet" href="overlay.css" />
   </head>
   <body>
     <div id="card">
+      <svg id="beam" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="beam-grad" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#c4b5fd" />
+            <stop offset="25%" stop-color="#7c3aed" />
+            <stop offset="50%" stop-color="#a78bfa" />
+            <stop offset="75%" stop-color="#7c3aed" />
+            <stop offset="100%" stop-color="#c4b5fd" />
+            <animateTransform attributeName="gradientTransform" type="rotate" from="0 0.5 0.5" to="360 0.5 0.5" dur="2s" repeatCount="indefinite" />
+          </linearGradient>
+        </defs>
+        <path d="M22 0H134A22 22 0 0 1 156 22A22 22 0 0 1 134 44H22A22 22 0 0 1 0 22A22 22 0 0 1 22 0Z" />
+      </svg>
       <svg id="wave" width="78" height="40" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="wisper-wave" x1="156" y1="20" x2="156" y2="140" gradientUnits="userSpaceOnUse">

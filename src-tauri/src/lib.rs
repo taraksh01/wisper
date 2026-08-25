@@ -194,8 +194,8 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
 /// Tauri webview showing the recording indicator (public/overlay.html).
 /// Created hidden, shown during recording/processing, destroyed when idle.
 const OVERLAY_LABEL: &str = "wisper-overlay";
-const OVERLAY_WIDTH: f64 = 300.0;
-const OVERLAY_HEIGHT: f64 = 44.0;
+const OVERLAY_WIDTH: f64 = 172.0;
+const OVERLAY_HEIGHT: f64 = 60.0;
 const OVERLAY_TOP_OFFSET: f64 = 0.0;
 const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 

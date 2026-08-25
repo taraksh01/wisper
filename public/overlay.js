@@ -50,6 +50,7 @@
     var processing = m === "processing";
     waveEl.style.display = processing ? "none" : "";
     procEl.style.display = processing ? "flex" : "none";
+    cardEl.classList.toggle("processing", processing);
     cardEl.classList.toggle("err", m === "error");
   };
 

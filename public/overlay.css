@@ -1,6 +1,7 @@
 html, body {
   margin: 0;
-  padding: 0;
+  padding: 8px;
+  box-sizing: border-box;
   background: transparent;
   overflow: hidden;
   display: flex;
@@ -9,19 +10,67 @@ html, body {
   height: 100%;
 }
 #card {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
+  position: relative;
+  width: 156px;
   height: 44px;
-  padding: 0 8px 0 16px;
+  padding: 0 8px 0 14px;
   border-radius: 22px;
-  background: rgba(10, 10, 10, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 10, 10, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  overflow: hidden;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#card.processing {
+  border-color: transparent;
+}
+@property --beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+#beam { display: none !important; }
+#card.processing {
+  border-color: transparent;
+}
+#card.processing::before {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: 22px;
+  padding: 1.5px;
+  background: conic-gradient(from var(--beam-angle), #fdba74 0deg, #ffedd5 45deg, #ea580c 120deg, #fdba74 220deg, #ea580c 320deg, #fdba74 360deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: beam-spin 1.8s linear infinite;
+  pointer-events: none;
+}
+#card.processing::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 24px;
+  padding: 2px;
+  background: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(234, 88, 12, 0.0) 40deg, rgba(234, 88, 12, 0.55) 110deg, transparent 170deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(4px);
+  animation: beam-spin 1.8s linear infinite;
+  pointer-events: none;
+}
+[data-dev="true"] #card.processing::before {
+  background: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);
+}
+[data-dev="true"] #card.processing::after {
+  background: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(124, 58, 237, 0.0) 40deg, rgba(124, 58, 237, 0.55) 110deg, transparent 170deg, transparent 360deg);
+}
+@keyframes beam-spin {
+  to { --beam-angle: 360deg; }
 }
 #wave rect {
   fill: url(#wisper-wave);
@@ -30,7 +79,7 @@ html, body {
 #proc {
   display: none;
   width: 78px;
-  gap: 4px;
+  gap: 5px;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
@@ -41,6 +90,9 @@ html, body {
   border-radius: 50%;
   background: #ea580c;
   animation: procpulse 1s infinite ease-in-out;
+}
+[data-dev="true"] #proc span {
+  background: #7c3aed;
 }
 #proc span:nth-child(2) { animation-delay: 0.15s; }
 #proc span:nth-child(3) { animation-delay: 0.3s; }
