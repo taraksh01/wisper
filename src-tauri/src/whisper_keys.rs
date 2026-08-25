@@ -1,13 +1,3 @@
-//! Whisper-keys global hotkey backend.
-//!
-//! Wraps the `handy-keys` crate (built on a raw OS input hook via rdev) so the
-//! push-to-talk hotkey fires reliably in every app on X11 and Wayland — unlike
-//! Tauri's global-shortcut plugin, which depends on the display server's key
-//! grab and fails depending on the focused client.
-//!
-//! A dedicated manager thread owns the `HotkeyManager` (it is not `Sync`) and
-//! polls for events, forwarding press/release as `hotkey::HotkeyEvent` into the
-//! existing `coordinator` channel. No action dispatch lives here.
 
 use handy_keys::{Hotkey, HotkeyId, HotkeyManager, HotkeyState};
 use std::collections::HashMap;

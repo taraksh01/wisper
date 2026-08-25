@@ -132,6 +132,11 @@ fn get_paste_environment(preference: String) -> paste::PasteEnvironment {
 }
 
 #[tauri::command]
+fn cancel_recording() {
+    coordinator::cancel_all();
+}
+
+#[tauri::command]
 fn get_current_state() -> String {
     let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     match *state {
@@ -189,10 +194,10 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
 /// Tauri webview showing the recording indicator (public/overlay.html).
 /// Created hidden, shown during recording/processing, destroyed when idle.
 const OVERLAY_LABEL: &str = "wisper-overlay";
-const OVERLAY_WIDTH: f64 = 260.0;
-const OVERLAY_HEIGHT: f64 = 56.0;
-const OVERLAY_TOP_OFFSET: f64 = 4.0;
-const OVERLAY_BOTTOM_OFFSET: f64 = 40.0;
+const OVERLAY_WIDTH: f64 = 300.0;
+const OVERLAY_HEIGHT: f64 = 44.0;
+const OVERLAY_TOP_OFFSET: f64 = 0.0;
+const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 
 #[cfg(target_os = "linux")]
 use enigo::Mouse;
@@ -280,9 +285,14 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
             if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
                 return;
             }
-            let _ = win.destroy();
+            if coordinator::active_job_count() > 0 {
+                let _ = win.eval("window.__mode && window.__mode('processing')");
+            } else {
+                let _ = win.destroy();
+            }
         }
         CoordinatorState::Recording | CoordinatorState::Processing => {
+            let _ = win.eval("window.__mode && window.__mode('recording')");
             let top = *OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner()) == "top";
             #[cfg(not(target_os = "linux"))]
             let _ = top;
@@ -365,6 +375,10 @@ pub fn show_overlay_error() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     // Dev desktop file is written in setup (needs app resource path), but we also
     // set GTK app_id via tauri's enableGTKAppId (identifier from merged config).
     // For `pnpm tauri dev` we merge tauri.dev.json via --config flag so identifier
@@ -396,6 +410,8 @@ pub fn run() {
 
             let (cmd_tx, cmd_rx) = mpsc::channel();
             let (state_tx, state_rx) = mpsc::channel();
+            // Overlay ✕ / Escape land here (see coordinator::send_cancel)
+            coordinator::set_cancel_sender(cmd_tx.clone());
 
             let (hk_tx, hk_rx) = mpsc::channel();
             {
@@ -517,6 +533,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             get_paste_environment,
+            cancel_recording,
             get_input_level,
             get_current_state,
             get_current_model,
