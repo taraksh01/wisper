@@ -45,6 +45,23 @@
   var cardEl = document.getElementById("card");
   var waveEl = document.getElementById("wave");
   var procEl = document.getElementById("proc");
+  var beamRaf = 0;
+  function startBeam() {
+    if (beamRaf) return;
+    function tick(now) {
+      var angle = (now / 5) % 360;
+      cardEl.style.setProperty("--beam-angle", angle + "deg");
+      beamRaf = requestAnimationFrame(tick);
+    }
+    beamRaf = requestAnimationFrame(tick);
+  }
+  function stopBeam() {
+    if (beamRaf) {
+      cancelAnimationFrame(beamRaf);
+      beamRaf = 0;
+    }
+    cardEl.style.removeProperty("--beam-angle");
+  }
 
   window.__mode = function (m) {
     var processing = m === "processing";
@@ -52,6 +69,8 @@
     procEl.style.display = processing ? "flex" : "none";
     cardEl.classList.toggle("processing", processing);
     cardEl.classList.toggle("err", m === "error");
+    if (processing) startBeam();
+    else stopBeam();
   };
 
   function cancel() {

@@ -23,6 +23,12 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
+  --beam-sharp: conic-gradient(from var(--beam-angle), #fdba74 0deg, #ffedd5 45deg, #ea580c 120deg, #fdba74 220deg, #ea580c 320deg, #fdba74 360deg);
+  --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(234, 88, 12, 0) 40deg, rgba(234, 88, 12, 0.55) 110deg, transparent 170deg, transparent 360deg);
+}
+[data-dev="true"] #card {
+  --beam-sharp: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);
+  --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(124, 58, 237, 0) 40deg, rgba(124, 58, 237, 0.55) 110deg, transparent 170deg, transparent 360deg);
 }
 #card.processing {
   border-color: transparent;
@@ -33,16 +39,13 @@ html, body {
   inherits: false;
 }
 #beam { display: none !important; }
-#card.processing {
-  border-color: transparent;
-}
 #card.processing::before {
   content: "";
   position: absolute;
   inset: -1.5px;
   border-radius: 22px;
   padding: 1.5px;
-  background: conic-gradient(from var(--beam-angle), #fdba74 0deg, #ffedd5 45deg, #ea580c 120deg, #fdba74 220deg, #ea580c 320deg, #fdba74 360deg);
+  background: var(--beam-sharp);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -55,19 +58,13 @@ html, body {
   inset: -4px;
   border-radius: 24px;
   padding: 2px;
-  background: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(234, 88, 12, 0.0) 40deg, rgba(234, 88, 12, 0.55) 110deg, transparent 170deg, transparent 360deg);
+  background: var(--beam-glow);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   filter: blur(4px);
   animation: beam-spin 1.8s linear infinite;
   pointer-events: none;
-}
-[data-dev="true"] #card.processing::before {
-  background: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);
-}
-[data-dev="true"] #card.processing::after {
-  background: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(124, 58, 237, 0.0) 40deg, rgba(124, 58, 237, 0.55) 110deg, transparent 170deg, transparent 360deg);
 }
 @keyframes beam-spin {
   to { --beam-angle: 360deg; }
