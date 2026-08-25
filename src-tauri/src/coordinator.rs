@@ -188,13 +188,14 @@ impl TranscriptionCoordinator {
     fn stop_and_process(&mut self) {
         let samples = self.audio_recorder.stop_recording();
         let device_sr = self.audio_recorder.sample_rate();
-        self.set_state(CoordinatorState::Idle);
 
         let cancel: CancelToken = Arc::new(std::sync::atomic::AtomicBool::new(false));
         ACTIVE_JOBS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(cancel.clone());
+
+        self.set_state(CoordinatorState::Idle);
 
         let cancel_for_thread = cancel.clone();
         let my_seq = SEQ_NEXT.fetch_add(1, Ordering::Relaxed);
