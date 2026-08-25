@@ -64,6 +64,7 @@ export interface AppSettings {
   process_endpoint: string;
   process_timeout_secs: number;
   process_max_tokens: number;
+  process_min_words: number;
   process_agent_profile: string;
   process_agent_name: string;
   process_agent_prompt: string;
@@ -370,6 +371,8 @@ export interface ProcessProvider {
   endpoint: string;
   models: string[];
 }
+
+export const PROCESS_MIN_WORDS_DEFAULT = 6;
 
 export const PROCESS_PROVIDERS: ProcessProvider[] = [
   {

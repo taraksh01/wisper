@@ -47,6 +47,9 @@ pub struct AppSettings {
     #[serde(default = "default_process_timeout")]
     pub process_timeout_secs: u32,
     pub process_max_tokens: u32,
+    /// Minimum word count before AI processing runs (1–20, 0 = always run).
+    #[serde(default = "default_process_min_words")]
+    pub process_min_words: u32,
     pub process_agent_profile: String,
     pub process_agent_name: String,
     pub process_agent_prompt: String,
@@ -94,6 +97,9 @@ fn default_endpoint() -> String {
 fn default_process_timeout() -> u32 {
     15
 }
+fn default_process_min_words() -> u32 {
+    6
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -129,6 +135,7 @@ impl Default for AppSettings {
             process_endpoint: "/chat/completions".into(),
             process_timeout_secs: default_process_timeout(),
             process_max_tokens: 0,
+            process_min_words: default_process_min_words(),
             process_agent_profile: "auto".into(),
             process_agent_name: "Auto-Format".into(),
             process_agent_prompt: String::new(),

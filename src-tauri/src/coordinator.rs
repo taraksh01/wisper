@@ -324,7 +324,27 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 let mut agent_name = None;
                 let settings_snapshot = crate::settings::AppSettings::load();
                 let words_enabled = settings_snapshot.words_enabled;
-                if settings_snapshot.process_enabled {
+                // Skip AI entirely for very short utterances — just words+paste.
+                let min_words = settings_snapshot.process_min_words;
+                let do_ai = if settings_snapshot.process_enabled {
+                    if min_words == 0 {
+                        true
+                    } else {
+                        let wc = text.split_whitespace().count() as u32;
+                        if wc < min_words {
+                            eprintln!(
+                                "[process] skipping AI ({} words < min {}), using raw text",
+                                wc, min_words
+                            );
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                } else {
+                    false
+                };
+                if do_ai {
                     let process_base_url = settings_snapshot.process_base_url.clone();
                     let process_api_key = settings_snapshot.process_api_key.clone();
                     let process_model = settings_snapshot.process_model.clone();
