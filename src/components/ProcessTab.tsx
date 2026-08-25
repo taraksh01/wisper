@@ -78,6 +78,17 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
     setFetchError("");
     setFreeModels(null);
     try {
+      try {
+        const cached = sessionStorage.getItem("openrouter:free-models");
+        if (cached) {
+          const { data, ts } = JSON.parse(cached);
+          if (Array.isArray(data) && Date.now() - ts < 10 * 60 * 1000) {
+            setFreeModels(data);
+            setFetching(false);
+            return;
+          }
+        }
+      } catch {}
       const res = await fetch("https://openrouter.ai/api/v1/models");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -91,6 +102,9 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
         .sort();
       if (free.length === 0) throw new Error("No free models found");
       setFreeModels(free);
+      try {
+        sessionStorage.setItem("openrouter:free-models", JSON.stringify({ data: free, ts: Date.now() }));
+      } catch {}
       if (!free.includes(settings.process_model)) {
         onSave("process_model", free[0]);
       }

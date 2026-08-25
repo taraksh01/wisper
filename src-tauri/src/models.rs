@@ -3,13 +3,27 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
 // Per-model cancel flags — allows concurrent downloads without canceling others.
 static ACTIVE_CANCEL: once_cell::sync::Lazy<
     Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
 > = once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
+
+static MODELS_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+fn models_client() -> &'static reqwest::Client {
+    MODELS_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .read_timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|e| {
+                eprintln!("[models] failed to build client: {} — using default", e);
+                reqwest::Client::new()
+            })
+    })
+}
 
 pub fn get_models_dir() -> PathBuf {
     let mut path = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -134,13 +148,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     let temp_archive =
         std::env::temp_dir().join(format!("wisper_{}_{}.{}", &model_name, nanos, ext));
 
-    // Connect timeout + no overall read timeout: large downloads stream slowly,
-    // but a dead connection must fail fast instead of hanging the progress UI.
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .read_timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = models_client();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
     let total = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
@@ -165,6 +173,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
 
     let mut stream = response.bytes_stream();
     let mut last_emitted = 0u32;
+    let mut last_unknown_emit = std::time::Instant::now();
     let start = std::time::Instant::now();
 
     while let Some(chunk_result) = stream.next().await {
@@ -205,8 +214,10 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                     }),
                 );
             }
-        } else if downloaded % (512 * 1024) < 8192 {
-            // For unknown total, emit periodically
+        } else if downloaded % (512 * 1024) < 8192
+            && last_unknown_emit.elapsed().as_millis() > 200
+        {
+            last_unknown_emit = std::time::Instant::now();
             let _ = app_handle.emit(
                 "download-progress",
                 serde_json::json!({
@@ -328,11 +339,7 @@ pub async fn fetch_indic_assets(
     model_name: &str,
 ) -> Result<(), String> {
     let url = download_url(model_name).ok_or_else(|| format!("Unknown model: {}", model_name))?;
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = models_client();
     let mut saved = false;
     let mut last_status = String::from("no attempts");
 
