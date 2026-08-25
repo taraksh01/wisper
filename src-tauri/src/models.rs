@@ -102,7 +102,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     let cancel = Arc::new(AtomicBool::new(false));
     ACTIVE_CANCEL
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .insert(model_name.clone(), cancel.clone());
     let _clear_guard = ClearGuard(model_name.clone());
 

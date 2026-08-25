@@ -1,5 +1,6 @@
 use reqwest::blocking::Client;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -67,7 +68,7 @@ impl EngineProvider for ParakeetOnnxProvider {
 
         let result = model
             .as_mut()
-            .expect("model present")
+            .ok_or_else(|| "Parakeet model unexpectedly empty".to_string())?
             .transcribe_with(&samples, &ParakeetParams::default())
             .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
         let text = result.text.trim().to_string();
@@ -75,7 +76,9 @@ impl EngineProvider for ParakeetOnnxProvider {
         // Return the model to the cache for reuse within TTL
         {
             let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
-            let model = model.take().expect("model present");
+            let model = model
+                .take()
+                .ok_or_else(|| "Parakeet model unexpectedly empty".to_string())?;
             *guard = Some(CachedParakeet {
                 dir: self.model_dir.clone(),
                 model,
@@ -125,6 +128,25 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
     output
 }
 
+static CLOUD_CLIENT: OnceLock<Client> = OnceLock::new();
+static CLOUD_TMP_CTR: AtomicU64 = AtomicU64::new(0);
+
+fn cloud_client() -> &'static Client {
+    CLOUD_CLIENT.get_or_init(|| {
+        Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|e| {
+                eprintln!(
+                    "[engine] failed to build cloud client: {} — using default",
+                    e
+                );
+                Client::new()
+            })
+    })
+}
+
 pub struct CloudEngineProvider {
     base_url: String,
     api_key: String,
@@ -148,7 +170,13 @@ impl EngineProvider for CloudEngineProvider {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let wav_path = temp_dir.join(format!("wisper_{}_{}.wav", std::process::id(), nanos));
+        let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
+        let wav_path = temp_dir.join(format!(
+            "wisper_{}_{}_{}.wav",
+            std::process::id(),
+            nanos,
+            ctr
+        ));
         // Ensure unique file with 0600 permissions and cleanup on scope exit
         struct Guard(std::path::PathBuf);
         impl Drop for Guard {
@@ -164,11 +192,7 @@ impl EngineProvider for CloudEngineProvider {
         let file_bytes = std::fs::read(&wav_path)
             .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
 
-        let client = Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+        let client = cloud_client();
         let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
             .file_name("audio.wav")
             .mime_str("audio/wav")
@@ -245,6 +269,55 @@ fn schedule_indic_eviction(dir: PathBuf) {
     });
 }
 
+fn ensure_tokens_txt(model_dir: &Path) -> Result<PathBuf, String> {
+    let tokens_path = model_dir.join("tokens.txt");
+    if tokens_path.exists() {
+        return Ok(tokens_path);
+    }
+    let vocab_path = model_dir.join("vocab.json");
+    if !vocab_path.exists() {
+        return Err(format!("Missing tokens/vocab in {}", model_dir.display()));
+    }
+    let vocab_str = std::fs::read_to_string(&vocab_path).map_err(|e| e.to_string())?;
+    let vocab: serde_json::Value = serde_json::from_str(&vocab_str).map_err(|e| e.to_string())?;
+    let tokens: Vec<String> = if let Some(arr) = vocab.as_array() {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect()
+    } else if let Some(arr) = vocab.get("tokens").and_then(|v| v.as_array()) {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect()
+    } else if let Some(obj) = vocab.as_object() {
+        let mut pairs: Vec<_> = obj.iter().collect();
+        pairs.sort_by_key(|(_, id)| id.as_u64().unwrap_or(0));
+        pairs.into_iter().map(|(k, _)| k.clone()).collect()
+    } else {
+        return Err("Unknown vocab.json format".into());
+    };
+    let mut out = String::new();
+    for tok in tokens {
+        out.push_str(&tok);
+        out.push('\n');
+    }
+    out.push_str("<blk>\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true).mode(0o600);
+        let mut f = opts.open(&tokens_path).map_err(|e| e.to_string())?;
+        use std::io::Write;
+        f.write_all(out.as_bytes()).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&tokens_path, out).map_err(|e| e.to_string())?;
+    }
+    Ok(tokens_path)
+}
+
 impl EngineProvider for SherpaIndicProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
         use sherpa_onnx::{OfflineNemoEncDecCtcModelConfig, OfflineRecognizerConfig};
@@ -263,14 +336,20 @@ impl EngineProvider for SherpaIndicProvider {
                 .map(|c| c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL)
                 .unwrap_or(false);
             if reuse {
-                let cached = guard.as_mut().unwrap();
+                let cached = match guard.as_mut() {
+                    Some(c) => c,
+                    None => return Err("Indic cache unexpectedly empty".into()),
+                };
                 cached.last_used = Instant::now();
                 let dir = cached.dir.clone();
                 drop(guard);
                 schedule_indic_eviction(dir);
 
                 let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
-                let cached = guard.as_mut().unwrap();
+                let cached = match guard.as_mut() {
+                    Some(c) => c,
+                    None => return Err("Indic cache unexpectedly empty".into()),
+                };
                 let stream = cached.recognizer.create_stream();
                 stream.accept_waveform(16000, &samples);
                 cached.recognizer.decode(&stream);
@@ -291,59 +370,7 @@ impl EngineProvider for SherpaIndicProvider {
         if !model_path.exists() {
             return Err(format!("Indic model missing: {}", model_path.display()));
         }
-        // Tokens: try tokens.txt, else generate from vocab.json
-        let tokens_path = self.model_dir.join("tokens.txt");
-        if !tokens_path.exists() {
-            let vocab_path = self.model_dir.join("vocab.json");
-            if vocab_path.exists() {
-                let vocab_str = std::fs::read_to_string(&vocab_path).map_err(|e| e.to_string())?;
-                let vocab: serde_json::Value =
-                    serde_json::from_str(&vocab_str).map_err(|e| e.to_string())?;
-                // vocab.json formats seen: bare array ["<unk>", ...] (index = id),
-                // {"tokens": [...]}, or {token: id} map
-                let tokens: Vec<String> = if let Some(arr) = vocab.as_array() {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                } else if let Some(arr) = vocab.get("tokens").and_then(|v| v.as_array()) {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect()
-                } else if let Some(obj) = vocab.as_object() {
-                    // vocab is object with token->id
-                    let mut pairs: Vec<_> = obj.iter().collect();
-                    pairs.sort_by_key(|(_, id)| id.as_u64().unwrap_or(0));
-                    pairs.into_iter().map(|(k, _)| k.clone()).collect()
-                } else {
-                    return Err("Unknown vocab.json format".into());
-                };
-                let mut out = String::new();
-                for tok in tokens {
-                    out.push_str(&tok);
-                    out.push('\n');
-                }
-                // CTC blank is last id
-                out.push_str("<blk>\n");
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    let mut opts = std::fs::OpenOptions::new();
-                    opts.write(true).create(true).truncate(true).mode(0o600);
-                    let mut f = opts.open(&tokens_path).map_err(|e| e.to_string())?;
-                    use std::io::Write;
-                    f.write_all(out.as_bytes()).map_err(|e| e.to_string())?;
-                }
-                #[cfg(not(unix))]
-                {
-                    std::fs::write(&tokens_path, out).map_err(|e| e.to_string())?;
-                }
-            } else {
-                return Err(format!(
-                    "Missing tokens/vocab in {}",
-                    self.model_dir.display()
-                ));
-            }
-        }
+        let tokens_path = ensure_tokens_txt(&self.model_dir)?;
 
         let mut config = OfflineRecognizerConfig::default();
         config.model_config.nemo_ctc = OfflineNemoEncDecCtcModelConfig {
@@ -484,7 +511,7 @@ impl EngineProvider for MoonshineProvider {
 
         let result = model
             .as_mut()
-            .expect("model present")
+            .ok_or_else(|| "Moonshine model unexpectedly empty".to_string())?
             .transcribe_with(&samples, &MoonshineParams::default())
             .map_err(|e| format!("Moonshine transcription failed: {}", e))?;
         let text = result.text.trim().to_string();
@@ -492,7 +519,9 @@ impl EngineProvider for MoonshineProvider {
         // Return the model to the cache
         {
             let mut guard = moonshine_cache().lock().unwrap_or_else(|e| e.into_inner());
-            let model = model.take().expect("model present");
+            let model = model
+                .take()
+                .ok_or_else(|| "Moonshine model unexpectedly empty".to_string())?;
             *guard = Some(CachedMoonshine {
                 dir: self.model_dir.clone(),
                 model,

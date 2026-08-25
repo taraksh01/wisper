@@ -1,4 +1,3 @@
-
 use handy_keys::{Hotkey, HotkeyId, HotkeyManager, HotkeyState};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -51,7 +50,7 @@ pub fn register(hotkey_string: &str) -> Result<(), String> {
     let sender = state()
         .command_sender
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .ok_or_else(|| "whisper-keys not initialized".to_string())?;
     let (tx, rx) = mpsc::channel();
@@ -69,7 +68,7 @@ pub fn unregister_all() -> Result<(), String> {
     let sender = state()
         .command_sender
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .ok_or_else(|| "whisper-keys not initialized".to_string())?;
     let (tx, rx) = mpsc::channel();

@@ -156,7 +156,10 @@ static PROCESS_CLIENT: once_cell::sync::Lazy<reqwest::blocking::Client> =
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
-            .expect("failed to build process client")
+            .unwrap_or_else(|e| {
+                eprintln!("[process] failed to build client: {} — using default", e);
+                reqwest::blocking::Client::new()
+            })
     });
 
 fn normalize_endpoint(raw: &str) -> String {
