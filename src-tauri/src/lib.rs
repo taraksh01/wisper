@@ -84,7 +84,7 @@ static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
 fn get_input_level() -> f32 {
     RECORDER
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map(|r| r.current_level())
         .unwrap_or(0.0)
@@ -103,7 +103,7 @@ fn start_mic_preview() -> Result<(), String> {
     };
     RECORDER
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map(|r| r.start_preview(device))
         .unwrap_or(Err("Recorder not initialized".into()))
@@ -322,15 +322,20 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
 /// Hide the overlay window (used before pasting so keyboard focus
 /// returns to the target app instead of the overlay).
 pub fn hide_overlay() {
-    if let Some(handle) = APP_HANDLE
+    let Some(handle) = APP_HANDLE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
-    {
-        if let Some(win) = handle.get_webview_window(OVERLAY_LABEL) {
+        .cloned()
+    else {
+        return;
+    };
+    let hide_handle = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(win) = hide_handle.get_webview_window(OVERLAY_LABEL) {
             let _ = win.hide();
         }
-    }
+    });
 }
 
 /// Briefly flash the overlay error glyph (~1.5s) to signal a failed
@@ -466,12 +471,18 @@ pub fn run() {
             let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
 
             // Spawn Coordinator
-            thread::Builder::new()
+            if let Err(e) = thread::Builder::new()
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
                     coordinator.run();
                 })
-                .unwrap();
+            {
+                eprintln!("Failed to spawn coordinator thread: {}", e);
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to spawn coordinator: {}", e),
+                )));
+            }
 
             // Register the global hotkey via whisper-keys (raw input hook:
             // works uniformly across X11/Wayland and every focused app).
@@ -572,5 +583,8 @@ pub fn run() {
             list_audio_devices
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            eprintln!("error while running tauri application: {}", e);
+            std::process::exit(1);
+        });
 }

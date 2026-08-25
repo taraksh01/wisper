@@ -318,15 +318,19 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
               <Field
                 label="Minimum words for AI"
                 type="number"
-                value={String(settings.process_min_words ?? 6)}
+                value={settings.process_min_words === 0 ? "" : String(settings.process_min_words ?? 6)}
                 onChange={(v) => {
+                  if (v.trim() === "") {
+                    onSave("process_min_words", 0);
+                    return;
+                  }
                   const n = parseInt(v, 10);
                   onSave("process_min_words", Number.isFinite(n) ? Math.min(20, Math.max(0, n)) : 6);
                 }}
-                placeholder="6"
+                placeholder="Always (0)"
                 onClear={settings.process_min_words !== 6 ? () => onSave("process_min_words", 6) : undefined}
               />
-              <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-1.5">Skip AI and paste raw text when the transcription has fewer than this many words — faster for short phrases like &quot;ok&quot; or &quot;yes please&quot; (0 = always run AI, 1–20).</p>
+              <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-1.5">Skip AI and paste raw text when the transcription has fewer than this many words — faster for short phrases like &quot;ok&quot; or &quot;yes please&quot; (empty = always run AI, 1–20, default 6).</p>
             </div>
 
             <div className="pt-1">

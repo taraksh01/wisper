@@ -434,7 +434,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     == CoordinatorState::Recording;
                 if !recording_now {
                     crate::hide_overlay();
-                    thread::sleep(std::time::Duration::from_millis(20));
+                    thread::sleep(std::time::Duration::from_millis(50));
                 }
                 if let Err(e) = paste_text(&final_text, &paste_method) {
                     eprintln!("Paste failed: {}", e);

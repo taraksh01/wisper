@@ -176,7 +176,15 @@ impl AppSettings {
         let p = Self::path();
         if p.exists() {
             if let Ok(content) = fs::read_to_string(&p) {
-                if let Ok(s) = serde_json::from_str(&content) {
+                if let Ok(mut s) = serde_json::from_str::<Self>(&content) {
+                    // Sanitize hand-edited values
+                    s.process_timeout_secs = s.process_timeout_secs.clamp(3, 120);
+                    s.process_min_words = s.process_min_words.clamp(0, 20);
+                    s.vad_threshold = s.vad_threshold.clamp(0.0, 1.0);
+                    s.noise_suppression_level = s.noise_suppression_level.clamp(0.0, 1.0);
+                    if s.max_history_entries < 0 {
+                        s.max_history_entries = 0;
+                    }
                     return s;
                 }
             }
@@ -246,43 +254,73 @@ pub fn sync_runtime(settings: &AppSettings) {
     );
     // Process settings are read per-dictation from AppSettings::load() in the
     // coordinator — no mirrors needed (single source of truth).
-    if let Ok(mut method) = crate::coordinator::PASTE_METHOD.lock() {
+    {
+        let mut method = crate::coordinator::PASTE_METHOD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *method = settings.paste_method.clone();
     }
-    if let Ok(mut tool) = crate::coordinator::PASTE_TOOL.lock() {
+    {
+        let mut tool = crate::coordinator::PASTE_TOOL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *tool = settings.paste_tool.clone();
     }
-    if let Ok(mut v) = crate::coordinator::INPUT_DEVICE.lock() {
+    {
+        let mut v = crate::coordinator::INPUT_DEVICE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *v = settings.input_device.clone();
     }
 
     // Cloud engine
-    if let Ok(mut v) = crate::coordinator::CLOUD_PROVIDER.lock() {
+    {
+        let mut v = crate::coordinator::CLOUD_PROVIDER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *v = settings.engine_provider.clone();
     }
-    if let Ok(mut v) = crate::coordinator::CLOUD_BASE_URL.lock() {
+    {
+        let mut v = crate::coordinator::CLOUD_BASE_URL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *v = settings.engine_base_url.clone();
     }
-    if let Ok(mut v) = crate::coordinator::CLOUD_API_KEY.lock() {
+    {
+        let mut v = crate::coordinator::CLOUD_API_KEY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *v = settings.voice_api_key.clone();
     }
-    if let Ok(mut v) = crate::coordinator::CLOUD_MODEL.lock() {
+    {
+        let mut v = crate::coordinator::CLOUD_MODEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *v = settings.engine_model.clone();
     }
 
     // Engine mode + current local model path (derived, not stored twice)
-    if let Ok(mut mode) = crate::coordinator::ENGINE_MODE.lock() {
+    {
+        let mut mode = crate::coordinator::ENGINE_MODE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *mode = settings.engine_mode.clone();
     }
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
     let model_exists = model_path.exists();
-    if let Ok(mut current) = crate::coordinator::CURRENT_MODEL.lock() {
+    {
+        let mut current = crate::coordinator::CURRENT_MODEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *current = if model_exists { Some(model_path) } else { None };
     }
 
     // Display name (derived from mode + model)
-    if let Ok(mut name) = crate::coordinator::MODEL_DISPLAY_NAME.lock() {
+    {
+        let mut name = crate::coordinator::MODEL_DISPLAY_NAME
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if settings.engine_mode == "cloud" {
             let provider_label = match settings.engine_provider.as_str() {
                 "openai" => "OpenAI",
@@ -299,10 +337,16 @@ pub fn sync_runtime(settings: &AppSettings) {
     }
 
     // Overlay
-    if let Ok(mut en) = crate::OVERLAY_ENABLED.lock() {
+    {
+        let mut en = crate::OVERLAY_ENABLED
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *en = settings.overlay_enabled;
     }
-    if let Ok(mut pos) = crate::OVERLAY_POSITION.lock() {
+    {
+        let mut pos = crate::OVERLAY_POSITION
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *pos = if settings.overlay_position == "top" {
             "top".into()
         } else {
@@ -327,6 +371,12 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     if s.max_history_entries < 0 {
         s.max_history_entries = 0;
     }
+    // Clamp process settings to sane ranges (protect against hand-edited JSON)
+    s.process_timeout_secs = s.process_timeout_secs.clamp(3, 120);
+    s.process_min_words = s.process_min_words.clamp(0, 20);
+    s.process_max_tokens = s.process_max_tokens.min(100_000);
+    s.vad_threshold = s.vad_threshold.clamp(0.0, 1.0);
+    s.noise_suppression_level = s.noise_suppression_level.clamp(0.0, 1.0);
     let do_trim = s.max_history_entries != prev_max || s.history_retention_mode != prev_mode;
     let _ = s.save();
     sync_runtime(&s);
