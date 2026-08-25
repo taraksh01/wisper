@@ -25,7 +25,7 @@ struct CachedParakeet {
 }
 
 static PARAKEET_CACHE: OnceLock<Mutex<Option<CachedParakeet>>> = OnceLock::new();
-const MODEL_TTL: Duration = Duration::from_secs(60 * 60); // 1 hour
+const MODEL_TTL: Duration = Duration::from_secs(60 * 60 * 6); // 6 hours — keep resident for frequent dictation
 
 fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
     PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
@@ -113,6 +113,20 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
     if input.is_empty() {
         return Vec::new();
     }
+    // Fast path for the common cpal case 48 kHz -> 16 kHz (exact 3:1)
+    if input_rate == 48000 && output_rate == 16000 {
+        let mut out = Vec::with_capacity(input.len() / 3);
+        for chunk in input.chunks_exact(3) {
+            // Simple box filter: average 3 samples for anti-aliasing
+            out.push((chunk[0] + chunk[1] + chunk[2]) / 3.0);
+        }
+        let rem = input.len() % 3;
+        if rem != 0 {
+            let tail = &input[input.len() - rem..];
+            out.push(tail.iter().sum::<f32>() / rem as f32);
+        }
+        return out;
+    }
     let ratio = output_rate as f64 / input_rate as f64;
     let output_len = (input.len() as f64 * ratio) as usize;
     let mut output = Vec::with_capacity(output_len);
@@ -122,7 +136,6 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
         let frac = (src_pos - idx as f64) as f32;
         let a = input[idx.min(input.len() - 1)];
         let b = input[(idx + 1).min(input.len() - 1)];
-        // Linear interpolation reduces aliasing vs nearest-neighbour
         output.push(a * (1.0 - frac) + b * frac);
     }
     output
