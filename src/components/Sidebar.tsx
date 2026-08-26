@@ -53,7 +53,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
   }, [appState]);
 
   return (
-    <aside className="w-[224px] shrink-0 bg-surface border-r border-stroke flex flex-col relative">
+    <aside className="w-[200px] shrink-0 bg-surface border-r border-stroke flex flex-col relative">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent pointer-events-none" />
 
       <div className="flex-1 flex flex-col min-h-0">
