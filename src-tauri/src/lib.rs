@@ -463,6 +463,37 @@ pub fn run() {
                 let _ = win.set_focus();
             }
 
+            // Fixed window, but auto-scale for larger displays (e.g. 2K/4K)
+            // so the UI doesn't look tiny on HiDPI/large monitors. Window is
+            // `resizable: false` (user can't drag), but we set a resolution-
+            // aware size at startup. Base 900x700 is designed for 1920x1080
+            // logical; scale is min(width/1920, height/1080) capped 1.0..1.5.
+            if let Some(win) = app.get_webview_window("main") {
+                let scale = win.scale_factor().unwrap_or(1.0);
+                let mon = win
+                    .current_monitor()
+                    .ok()
+                    .flatten()
+                    .or_else(|| win.primary_monitor().ok().flatten());
+                if let Some(m) = mon {
+                    let logical_w = m.size().width as f64 / scale;
+                    let logical_h = m.size().height as f64 / scale;
+                    let scale_w = logical_w / 1920.0;
+                    let scale_h = logical_h / 1080.0;
+                    let auto = scale_w.min(scale_h).clamp(1.0, 1.5);
+                    let target_w = (900.0 * auto).round();
+                    let target_h = (700.0 * auto).round();
+                    let max_w = (logical_w - 24.0).max(900.0);
+                    let max_h = (logical_h - 96.0).max(700.0);
+                    let final_w = target_w.min(max_w);
+                    let final_h = target_h.min(max_h);
+                    if (final_w - 900.0).abs() > 0.5 || (final_h - 700.0).abs() > 0.5 {
+                        let _ = win.set_size(tauri::LogicalSize::new(final_w, final_h));
+                        let _ = win.center();
+                    }
+                }
+            }
+
             let recorder = AudioRecorder::new();
             {
                 let mut guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
