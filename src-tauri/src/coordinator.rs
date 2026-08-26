@@ -8,6 +8,77 @@ use std::thread;
 use crate::engine::{create_local_engine, CloudEngineProvider, EngineProvider};
 use crate::paste::paste_text;
 
+const START_WAV: &[u8] = include_bytes!("../../public/sounds/start.wav");
+const DONE_WAV: &[u8] = include_bytes!("../../public/sounds/done.wav");
+const CANCEL_WAV: &[u8] = include_bytes!("../../public/sounds/cancel.wav");
+const ERROR_WAV: &[u8] = include_bytes!("../../public/sounds/error.wav");
+
+fn play_wav(data: &'static [u8]) {
+    // Write to /tmp once and play via aplay (ALSA) — lightweight, no extra
+    // Rust audio deps (rodio conflicts with cpal 0.18). Falls back silently.
+    let path = if std::ptr::eq(data.as_ptr(), START_WAV.as_ptr()) {
+        "/tmp/wisper_start.wav"
+    } else if std::ptr::eq(data.as_ptr(), DONE_WAV.as_ptr()) {
+        "/tmp/wisper_done.wav"
+    } else if std::ptr::eq(data.as_ptr(), CANCEL_WAV.as_ptr()) {
+        "/tmp/wisper_cancel.wav"
+    } else {
+        "/tmp/wisper_error.wav"
+    };
+    let _ = std::fs::write(path, data);
+    std::thread::spawn(move || {
+        let path = path.to_string();
+        // Try aplay (ALSA), then paplay (Pulse), then ffplay, else silent.
+        for prog in &["aplay", "paplay", "pw-play"] {
+            let mut cmd = std::process::Command::new(prog);
+            if *prog == "aplay" {
+                cmd.args(["-q", &path]);
+            } else {
+                cmd.arg(&path);
+            }
+            cmd.stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            if let Ok(mut child) = cmd.spawn() {
+                let _ = child.wait();
+                return;
+            }
+        }
+        // Last resort: ffplay (no window, auto exit)
+        let _ = std::process::Command::new("ffplay")
+            .args(["-nodisp", "-autoexit", "-loglevel", "quiet", &path])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|mut c| {
+                let _ = c.wait();
+            });
+    });
+}
+fn play_start_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_START.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(START_WAV);
+}
+fn play_done_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_DONE.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(DONE_WAV);
+}
+fn play_cancel_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_CANCEL.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(CANCEL_WAV);
+}
+fn play_error_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_ERROR.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(ERROR_WAV);
+}
+
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static VAD_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -25,6 +96,11 @@ pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
 pub static WORDS_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static WORDS_AUTO_SCAN: AtomicBool = AtomicBool::new(true);
+pub static SOUND_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static SOUND_ON_START: AtomicBool = AtomicBool::new(false);
+pub static SOUND_ON_DONE: AtomicBool = AtomicBool::new(false);
+pub static SOUND_ON_CANCEL: AtomicBool = AtomicBool::new(true);
+pub static SOUND_ON_ERROR: AtomicBool = AtomicBool::new(true);
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -75,6 +151,34 @@ pub fn active_job_count() -> usize {
 
 static SEQ_NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static SEQ_TURN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SEQ_CV: once_cell::sync::Lazy<(Mutex<()>, std::sync::Condvar)> =
+    once_cell::sync::Lazy::new(|| (Mutex::new(()), std::sync::Condvar::new()));
+
+fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
+    ACTIVE_JOBS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|t| !Arc::ptr_eq(t, cancel));
+    let recording_now = *crate::tray::STATE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        == CoordinatorState::Recording;
+    if !recording_now && active_job_count() == 0 {
+        crate::hide_overlay();
+    }
+    {
+        let (lock, cvar) = &*SEQ_CV;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
+            guard = cvar
+                .wait_timeout(guard, std::time::Duration::from_millis(10))
+                .unwrap()
+                .0;
+        }
+        SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
+        cvar.notify_all();
+    }
+}
 
 pub fn set_cancel_sender(tx: Sender<CoordinatorCommand>) {
     *CANCEL_SENDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
@@ -84,6 +188,9 @@ pub fn cancel_all() {
     let n = cancel_active_jobs();
     crate::hide_overlay();
     eprintln!("[cancel] cancel_all: {n} background pipeline(s) flagged, overlay hidden");
+    if n > 0 {
+        play_cancel_sound();
+    }
     if let Some(tx) = CANCEL_SENDER
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -114,9 +221,12 @@ impl TranscriptionCoordinator {
         }
     }
 
-    fn play_sound(&self, _freq: f32, _duration_ms: u64) {
-        // Subtle terminal bell sound cue
-        print!("\x07");
+    fn play_sound(&self, freq: f32, _duration_ms: u64) {
+        if freq >= 700.0 {
+            play_start_sound();
+        } else {
+            play_done_sound();
+        }
     }
 
     /// Selected input device name (empty = system default), for cpal resolution.
@@ -158,7 +268,6 @@ impl TranscriptionCoordinator {
                                 }
                             }
                             CoordinatorState::Recording => {
-                                self.play_sound(600.0, 150);
                                 self.stop_and_process();
                             }
                             _ => {}
@@ -170,7 +279,6 @@ impl TranscriptionCoordinator {
                     if HOTKEY_MODE.load(Ordering::Relaxed)
                         && self.state == CoordinatorState::Recording
                     {
-                        self.play_sound(600.0, 150);
                         self.stop_and_process();
                     }
                 }
@@ -179,6 +287,7 @@ impl TranscriptionCoordinator {
                         eprintln!("[cancel] discarding active recording");
                         let _ = self.audio_recorder.stop_recording();
                         self.set_state(CoordinatorState::Idle);
+                        play_cancel_sound();
                     }
                 }
             }
@@ -216,6 +325,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
     let cancelled = || cancel.load(Ordering::Relaxed);
 
     if cancelled() {
+        finish_pipeline(my_seq, &cancel);
         return;
     }
 
@@ -226,32 +336,40 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
         None
     };
 
-    // Resample to 16kHz once, then work with 16kHz audio everywhere
-    let samples_len = samples.len();
-    let resampled = if device_sr != 16000 {
-        crate::engine::resample(&samples, device_sr, 16000)
-    } else {
-        samples
-    };
-
-    // Noise suppression (optional, before VAD so VAD sees cleaner audio) and
-    // VAD trimming: VAD uses the user's vad_threshold; when disabled, keep full.
-    let denoised = if NOISE_SUPPRESSION_ENABLED.load(Ordering::Relaxed) {
-        let lvl = f32::from_bits(NOISE_SUPPRESSION_LEVEL.load(Ordering::Relaxed));
-        suppress_noise(&resampled, 16000, lvl)
-    } else {
-        resampled
-    };
-    let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
-        let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
-        trim_silence(&denoised, 1600, thresh)
-    } else {
-        denoised
+    // Resample -> denoise -> VAD in a scoped block so intermediate buffers
+    // are freed before we wait for the paste turn (saves ~6 MB while queued).
+    let (trimmed, samples_len) = {
+        let samples_len = samples.len();
+        let resampled = if device_sr != 16000 {
+            let r = crate::engine::resample(&samples, device_sr, 16000);
+            drop(samples);
+            r
+        } else {
+            samples
+        };
+        let denoised = if NOISE_SUPPRESSION_ENABLED.load(Ordering::Relaxed) {
+            let lvl = f32::from_bits(NOISE_SUPPRESSION_LEVEL.load(Ordering::Relaxed));
+            let d = suppress_noise(&resampled, 16000, lvl);
+            drop(resampled);
+            d
+        } else {
+            resampled
+        };
+        let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
+            let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
+            let t = trim_silence(&denoised, 1600, thresh);
+            drop(denoised);
+            t
+        } else {
+            denoised
+        };
+        (trimmed, samples_len)
     };
 
     if !trimmed.is_empty() {
         if cancelled() {
             eprintln!("[cancel] pipeline cancelled before transcription");
+            finish_pipeline(my_seq, &cancel);
             return;
         }
         let mode = ENGINE_MODE
@@ -301,6 +419,8 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 Some(path) => {
                     eprintln!("Model file not found at: {:?}", path);
                     crate::show_overlay_error();
+                    play_error_sound();
+                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
                 None => {
@@ -308,6 +428,8 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                         "No model selected. Go to Engine tab and activate a downloaded model."
                     );
                     crate::show_overlay_error();
+                    play_error_sound();
+                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
             }
@@ -317,6 +439,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
             Ok(text) => {
                 if cancelled() {
                     eprintln!("[cancel] pipeline cancelled after transcription — discarding text");
+                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
                 println!("Transcription: {}", text);
@@ -377,6 +500,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     let agent_name_snapshot = agent.name.clone();
                     if cancelled() {
                         eprintln!("[cancel] pipeline cancelled before AI phase");
+                        finish_pipeline(my_seq, &cancel);
                         return;
                     }
                     let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
@@ -391,6 +515,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                                 eprintln!(
                                     "[cancel] AI result discarded (cancelled during processing)"
                                 );
+                                finish_pipeline(my_seq, &cancel);
                                 return;
                             }
                             final_text = formatted;
@@ -411,6 +536,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 // whether or not the AI processing ran.
                 if cancelled() {
                     eprintln!("[cancel] pipeline cancelled before words/paste — discarding");
+                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
                 if words_enabled {
@@ -420,11 +546,30 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
-                while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
-                    if cancelled() {
-                        break;
+                {
+                    let (lock, cvar) = &*SEQ_CV;
+                    let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
+                        if cancelled() {
+                            drop(guard);
+                            eprintln!(
+                                "[cancel] pipeline cancelled while waiting for paste turn {my_seq}"
+                            );
+                            finish_pipeline(my_seq, &cancel);
+                            return;
+                        }
+                        let (g, _) = cvar
+                            .wait_timeout(guard, std::time::Duration::from_millis(25))
+                            .unwrap();
+                        guard = g;
                     }
-                    thread::sleep(std::time::Duration::from_millis(25));
+                }
+                if cfg!(debug_assertions) {
+                    eprintln!(
+                        "[paste] seq {my_seq} turn acquired, method={} text_len={}",
+                        paste_method,
+                        final_text.len()
+                    );
                 }
                 // Drop overlay focus so synthetic keystrokes land in the
                 // target app, not the (invisible) overlay window.
@@ -434,7 +579,15 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     == CoordinatorState::Recording;
                 if !recording_now {
                     crate::hide_overlay();
-                    thread::sleep(std::time::Duration::from_millis(50));
+                    // Condition-based wait: poll until overlay reports hidden
+                    // (hide is async via run_on_main_thread). Up to 200ms max,
+                    // faster than fixed 80ms when compositor is quick.
+                    for _ in 0..20 {
+                        if !crate::is_overlay_visible() {
+                            break;
+                        }
+                        thread::sleep(std::time::Duration::from_millis(10));
+                    }
                 }
                 if let Err(e) = paste_text(&final_text, &paste_method) {
                     eprintln!("Paste failed: {}", e);
@@ -487,30 +640,17 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
             Err(e) => {
                 eprintln!("Transcription error: {}", e);
                 crate::show_overlay_error();
+                play_error_sound();
             }
         }
     } else {
         eprintln!("No speech detected (VAD trimmed all audio)");
         crate::show_overlay_error();
+        play_error_sound();
     }
 
-    ACTIVE_JOBS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .retain(|t| !Arc::ptr_eq(t, &cancel));
-    let recording_now = *crate::tray::STATE_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        == CoordinatorState::Recording;
-    if !recording_now && active_job_count() == 0 {
-        crate::hide_overlay();
-    }
-
-    while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
-        thread::sleep(std::time::Duration::from_millis(10));
-    }
-    SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
-    print!("\x07"); // Finished processing beep
+    finish_pipeline(my_seq, &cancel);
+    play_done_sound();
 }
 
 impl TranscriptionCoordinator {

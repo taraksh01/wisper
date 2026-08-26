@@ -338,6 +338,21 @@ pub fn hide_overlay() {
     });
 }
 
+pub fn is_overlay_visible() -> bool {
+    let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    else {
+        return false;
+    };
+    handle
+        .get_webview_window(OVERLAY_LABEL)
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false)
+}
+
 /// Briefly flash the overlay error glyph (~1.5s) to signal a failed
 /// transcription. The window is destroyed afterwards so it can never get
 /// stuck in the error state; the next recording builds a fresh normal one.

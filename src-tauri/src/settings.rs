@@ -70,6 +70,18 @@ pub struct AppSettings {
     pub autostart: bool,
     pub overlay_enabled: bool,
     pub overlay_position: String,
+    /// Master toggle for all sound cues.
+    #[serde(default = "default_true")]
+    pub sound_enabled: bool,
+    /// Per-event sound cues (distinct wav per action, user can enable any).
+    #[serde(default)]
+    pub sound_on_start: bool,
+    #[serde(default)]
+    pub sound_on_done: bool,
+    #[serde(default = "default_true")]
+    pub sound_on_cancel: bool,
+    #[serde(default = "default_true")]
+    pub sound_on_error: bool,
     /// Selected input device name; empty string = system default.
     pub input_device: String,
     /// Cumulative seconds saved by speaking instead of typing (estimated).
@@ -155,6 +167,11 @@ impl Default for AppSettings {
             autostart: false,
             overlay_enabled: true,
             overlay_position: "bottom".into(),
+            sound_enabled: true,
+            sound_on_start: false,
+            sound_on_done: false,
+            sound_on_cancel: true,
+            sound_on_error: true,
             input_device: String::new(),
             time_saved_sec: 0,
             max_history_entries: default_max_history(),
@@ -353,6 +370,22 @@ pub fn sync_runtime(settings: &AppSettings) {
             "bottom".into()
         };
     }
+    crate::coordinator::SOUND_ENABLED
+        .store(settings.sound_enabled, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::SOUND_ON_START.store(
+        settings.sound_on_start,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::coordinator::SOUND_ON_DONE
+        .store(settings.sound_on_done, std::sync::atomic::Ordering::Relaxed);
+    crate::coordinator::SOUND_ON_CANCEL.store(
+        settings.sound_on_cancel,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    crate::coordinator::SOUND_ON_ERROR.store(
+        settings.sound_on_error,
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 /// The ONLY mutation funnel for settings:

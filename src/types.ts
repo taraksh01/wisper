@@ -84,6 +84,11 @@ export interface AppSettings {
   autostart: boolean;
   overlay_enabled: boolean;
   overlay_position: string;
+  sound_enabled: boolean;
+  sound_on_start: boolean;
+  sound_on_done: boolean;
+  sound_on_cancel: boolean;
+  sound_on_error: boolean;
   input_device: string;
   time_saved_sec: number;
   max_history_entries: number;

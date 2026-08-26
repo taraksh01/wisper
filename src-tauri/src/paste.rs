@@ -145,10 +145,41 @@ fn active_backend() -> String {
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[paste] paste_text method={} len={} backend={}",
+            method,
+            text.len(),
+            active_backend()
+        );
+    }
+    if text.trim().is_empty() {
+        if cfg!(debug_assertions) {
+            eprintln!("[paste] empty text — nothing to paste");
+        }
+        return Ok(());
+    }
     let r = match method {
         "Direct Typing" => type_text_directly(text),
         _ => paste_via_clipboard(text, method),
     };
+    match &r {
+        Ok(_) => {
+            if cfg!(debug_assertions) {
+                eprintln!(
+                    "[paste] success method={} backend={}",
+                    method,
+                    active_backend()
+                );
+            }
+        }
+        Err(e) => eprintln!(
+            "[paste] failed method={} backend={} err={}",
+            method,
+            active_backend(),
+            e
+        ),
+    }
     r
 }
 
@@ -202,6 +233,12 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
 
 fn simulate_key_combo(method: &str) -> Result<(), String> {
     let backend = active_backend();
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[paste] simulate_key_combo method={} backend={}",
+            method, backend
+        );
+    }
     // Try preferred backend first, then fall back through the chain
     let mut last_err = String::new();
     let order: Vec<&str> = match backend.as_str() {
@@ -210,14 +247,23 @@ fn simulate_key_combo(method: &str) -> Result<(), String> {
         _ => vec!["enigo", "wtype", "ydotool"],
     };
     for b in order {
+        if cfg!(debug_assertions) {
+            eprintln!("[paste] trying backend={} method={}", b, method);
+        }
         let r = match b {
             "wtype" => wtype_paste(method),
             "ydotool" => ydotool_paste(method),
             _ => enigo_paste(method),
         };
         match r {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                if cfg!(debug_assertions) {
+                    eprintln!("[paste] backend {} succeeded", b);
+                }
+                return Ok(());
+            }
             Err(e) => {
+                eprintln!("[paste] backend {} failed: {}", b, e);
                 last_err = e;
                 // try next backend
             }
@@ -331,6 +377,13 @@ fn enigo_paste(method: &str) -> Result<(), String> {
 
 fn type_text_directly(text: &str) -> Result<(), String> {
     let backend = active_backend();
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[paste] type_text_directly backend={} len={}",
+            backend,
+            text.len()
+        );
+    }
     match backend.as_str() {
         "wtype" => {
             let mut cmd = Command::new("wtype");
@@ -338,7 +391,12 @@ fn type_text_directly(text: &str) -> Result<(), String> {
             let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run wtype: {}", e))?;
             if status.success() {
+                if cfg!(debug_assertions) {
+                    eprintln!("[paste] wtype type succeeded");
+                }
                 return Ok(());
+            } else if cfg!(debug_assertions) {
+                eprintln!("[paste] wtype type non-zero status");
             }
         }
         "ydotool" => {
@@ -348,12 +406,20 @@ fn type_text_directly(text: &str) -> Result<(), String> {
             let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
             if status.success() {
+                if cfg!(debug_assertions) {
+                    eprintln!("[paste] ydotool type succeeded");
+                }
                 return Ok(());
+            } else if cfg!(debug_assertions) {
+                eprintln!("[paste] ydotool type non-zero status");
             }
         }
         _ => {}
     }
 
+    if cfg!(debug_assertions) {
+        eprintln!("[paste] falling back to enigo type");
+    }
     let mut enigo = Enigo::new(&Settings {
         linux_delay: 0,
         ..Default::default()
