@@ -34,6 +34,7 @@ fn tooltip_text() -> String {
         }
         CoordinatorState::Recording => format!("{} - Recording...", dn),
         CoordinatorState::Processing => format!("{} - Processing...", dn),
+        CoordinatorState::Error => format!("{} - Error", dn),
     }
 }
 

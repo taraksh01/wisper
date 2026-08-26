@@ -121,6 +121,7 @@ pub enum CoordinatorState {
     Idle,
     Recording,
     Processing,
+    Error,
 }
 
 pub enum CoordinatorCommand {
@@ -159,11 +160,13 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .retain(|t| !Arc::ptr_eq(t, cancel));
-    let recording_now = *crate::tray::STATE_LOCK
+    let state_lock = crate::tray::STATE_LOCK
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        == CoordinatorState::Recording;
-    if !recording_now && active_job_count() == 0 {
+        .unwrap_or_else(|e| e.into_inner());
+    let recording_now = *state_lock == CoordinatorState::Recording;
+    let error_now = *state_lock == CoordinatorState::Error;
+    drop(state_lock);
+    if !recording_now && active_job_count() == 0 && !error_now {
         crate::hide_overlay();
     }
     {
@@ -418,7 +421,10 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 }
                 Some(path) => {
                     eprintln!("Model file not found at: {:?}", path);
-                    crate::show_overlay_error();
+                    crate::show_overlay_error(Some(format!(
+                        "Model file not found: {}",
+                        path.display()
+                    )));
                     play_error_sound();
                     finish_pipeline(my_seq, &cancel);
                     return;
@@ -427,7 +433,9 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     eprintln!(
                         "No model selected. Go to Engine tab and activate a downloaded model."
                     );
-                    crate::show_overlay_error();
+                    crate::show_overlay_error(Some(
+                        "No model selected. Open the Engine tab to activate one.".into(),
+                    ));
                     play_error_sound();
                     finish_pipeline(my_seq, &cancel);
                     return;
@@ -639,13 +647,15 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
             }
             Err(e) => {
                 eprintln!("Transcription error: {}", e);
-                crate::show_overlay_error();
+                crate::show_overlay_error(Some(format!("Transcription failed: {}", e)));
                 play_error_sound();
             }
         }
     } else {
         eprintln!("No speech detected (VAD trimmed all audio)");
-        crate::show_overlay_error();
+        crate::show_overlay_error(Some(
+            "No speech detected — try speaking closer to the mic.".into(),
+        ));
         play_error_sound();
     }
 
