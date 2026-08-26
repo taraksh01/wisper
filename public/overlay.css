@@ -1,6 +1,6 @@
 html, body {
   margin: 0;
-  padding: 8px;
+  padding: 0;
   box-sizing: border-box;
   background: transparent;
   overflow: hidden;
@@ -23,8 +23,8 @@ html, body {
   display: flex;
   align-items: center;
   gap: 12px;
-  --beam-sharp: conic-gradient(from var(--beam-angle), #fdba74 0deg, #ffedd5 45deg, #ea580c 120deg, #fdba74 220deg, #ea580c 320deg, #fdba74 360deg);
-  --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(234, 88, 12, 0) 40deg, rgba(234, 88, 12, 0.55) 110deg, transparent 170deg, transparent 360deg);
+  --beam-sharp: conic-gradient(from var(--beam-angle), #fff7ed 0deg, #fdba74 22deg, #ea580c 62deg, #fdba74 118deg, #ffedd5 158deg, #fdba74 208deg, #ea580c 288deg, #fff7ed 360deg);
+  --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, transparent 18deg, rgba(251, 146, 60, 0.42) 68deg, rgba(234, 88, 12, 0.18) 108deg, transparent 152deg, transparent 360deg);
 }
 [data-dev="true"] #card {
   --beam-sharp: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);
@@ -44,7 +44,7 @@ html, body {
   position: absolute;
   inset: -2px;
   border-radius: 23px;
-  padding: 2px;
+  padding: 2px 3px;
   background: var(--beam-sharp);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -59,7 +59,7 @@ html, body {
   position: absolute;
   inset: -4px;
   border-radius: 25px;
-  padding: 2px;
+  padding: 2px 3px;
   background: var(--beam-glow);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -142,7 +142,68 @@ html, body {
   dominant-baseline: central;
   display: none;
 }
-#card.err #err { display: block; }
-#card.err #bars { display: none; }
-#card.err #divider,
-#card.err #cancel { display: none; }
+/* Error state: identical to recording (waveform + controls visible) with a
+   blinking red gradient border instead of the accent border. The `!` glyph and
+   reason pill are handled separately. */
+#card.err {
+  border-color: transparent;
+}
+#card.err #err { display: none; }
+#card.err::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 23px;
+  padding: 2px 3px;
+  background: linear-gradient(135deg, #fca5a5, #ef4444, #b91c1c, #ef4444, #fca5a5);
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(0.4px);
+  will-change: background, opacity;
+  transform: translateZ(0);
+  pointer-events: none;
+  animation: errblink 0.9s infinite ease-in-out;
+}
+#card.err::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 25px;
+  padding: 2px 3px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.6), rgba(185, 28, 28, 0.1), rgba(239, 68, 68, 0.6));
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(3px);
+  will-change: opacity;
+  transform: translateZ(0);
+  pointer-events: none;
+  animation: errblink 0.9s infinite ease-in-out;
+}
+@keyframes errblink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+#err-reason {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 600 11px system-ui, -apple-system, sans-serif;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.96);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: 8px;
+  padding: 2px 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 2;
+}

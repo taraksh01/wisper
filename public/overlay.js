@@ -63,12 +63,26 @@
     cardEl.style.removeProperty("--beam-angle");
   }
 
-  window.__mode = function (m) {
+  window.__setPosition = function (p) {
+    document.body.classList.toggle("top", p === "top");
+  };
+
+  window.__mode = function (m, reason) {
     var processing = m === "processing";
     waveEl.style.display = processing ? "none" : "";
     procEl.style.display = processing ? "flex" : "none";
     cardEl.classList.toggle("processing", processing);
     cardEl.classList.toggle("err", m === "error");
+    var pill = document.getElementById("err-reason");
+    if (pill) {
+      if (m === "error") {
+        var r = reason || window.__errReason || "";
+        pill.textContent = r;
+        pill.style.display = r ? "block" : "none";
+      } else {
+        pill.style.display = "none";
+      }
+    }
     if (processing) startBeam();
     else stopBeam();
   };
