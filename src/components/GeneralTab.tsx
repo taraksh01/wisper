@@ -481,6 +481,32 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
               )}
             </div>
           </div>
+          <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-mono text-muted">Sound feedback</span>
+              <Switch label="Sound feedback" checked={settings.sound_enabled} onChange={(v) => onSave("sound_enabled", v)} />
+            </div>
+            {settings.sound_enabled && (
+              <div className="grid gap-2 pt-2 border-t border-stroke/50">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted">On start recording</span>
+                  <Switch label="Sound on start" checked={settings.sound_on_start} onChange={(v) => onSave("sound_on_start", v)} />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted">When typing done</span>
+                  <Switch label="Sound when typing done" checked={settings.sound_on_done} onChange={(v) => onSave("sound_on_done", v)} />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted">On cancel</span>
+                  <Switch label="Sound on cancel" checked={settings.sound_on_cancel} onChange={(v) => onSave("sound_on_cancel", v)} />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted">On error</span>
+                  <Switch label="Sound on error" checked={settings.sound_on_error} onChange={(v) => onSave("sound_on_error", v)} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </SectionCard>
 
