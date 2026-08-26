@@ -10,6 +10,7 @@ import { Switch } from "./Switch";
 import { SectionCard } from "./SectionCard";
 import { ConfirmModal } from "./ConfirmModal";
 import { Input } from "./ui/Input";
+import { useWindowSize } from "../hooks/useWindowSize";
 
 interface GeneralTabProps {
   settings: AppSettings;
@@ -320,6 +321,7 @@ function VadThresholdControl({ threshold, onChange }: { threshold: number; onCha
 }
 
 export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: GeneralTabProps) {
+  const { width: winWidth } = useWindowSize();
   const [listening, setListening] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
@@ -451,7 +453,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
             <p className={`text-[10px] font-mono ${message.ok ? "text-ready" : "text-recording"}`}>{message.ok ? "✓" : "✗"} {message.text}</p>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={`grid gap-3 ${winWidth < 780 ? "grid-cols-1" : "grid-cols-2"}`}>
             <div>
               <label className="label-soft block mb-1.5">Microphone</label>
               <Select

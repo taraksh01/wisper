@@ -10,6 +10,7 @@ import { HistoryItem } from "./HistoryItem";
 import { AudioPlayerPopover } from "./AudioPlayerPopover";
 import { Input } from "./ui/Input";
 import { useToast } from "./ToastContext";
+import { useWindowSize } from "../hooks/useWindowSize";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
@@ -54,6 +55,8 @@ async function computePeaks(blobUrl: string): Promise<Float32Array | null> {
 
 export function HistoryTab({ history, stats, settings, historyTotal, loadingOlder, onLoadOlder, onSave, onRefresh }: HistoryTabProps) {
   const { addToast } = useToast();
+  const { width: winWidth } = useWindowSize();
+  const statCols = winWidth < 880 ? "grid-cols-2" : "grid-cols-4";
   useEffect(() => {
     return () => {
       audioCache.forEach((url) => URL.revokeObjectURL(url));
@@ -281,7 +284,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
       </div>
 
       <SectionCard className="card-enter">
-        <div className="grid grid-cols-4 gap-2">
+        <div className={`grid ${statCols} gap-2`}>
           {[
             { label: "Dictations", value: String(stats[0]) },
             { label: "Words", value: String(stats[1]) },
