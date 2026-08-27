@@ -83,6 +83,18 @@
         pill.style.display = "none";
       }
     }
+    // Reset cancel button visual state to avoid stuck hover/active after
+    // hide/show cycle (window is hidden while button is :active/:hover, and
+    // the browser retains that state when re-shown until next mouse move).
+    var btn = document.getElementById("cancel");
+    if (btn) {
+      btn.blur();
+      void btn.offsetWidth;
+      btn.style.pointerEvents = "none";
+      requestAnimationFrame(function () {
+        btn.style.pointerEvents = "";
+      });
+    }
     if (processing) startBeam();
     else stopBeam();
   };
@@ -95,6 +107,8 @@
   var cancelBtn = document.getElementById("cancel");
   cancelBtn.addEventListener("click", function (e) {
     e.stopPropagation();
+    cancelBtn.blur();
+    void cancelBtn.offsetWidth;
     cancel();
   });
 
