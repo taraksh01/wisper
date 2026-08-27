@@ -15,72 +15,165 @@ static AUDIO_CAP_WARNED: AtomicBool = AtomicBool::new(false);
 /// are skipped since they are not real microphones.
 /// Returns an empty vector if enumeration fails.
 pub fn list_input_devices() -> Vec<(String, String)> {
-    let host = cpal::default_host();
-    host.input_devices()
-        .map(|devices| {
-            // Best capture node per physical device name: dsnoop > hw > plughw > rest.
-            let rank = |id: &str| {
-                if id.contains("dsnoop") {
-                    0
-                } else if id.contains("hw:CARD") || id.contains("hw=") {
-                    1
-                } else if id.contains("plughw") {
-                    2
-                } else {
-                    3
-                }
+    let mut hosts = cpal::available_hosts();
+    if hosts.is_empty() {
+        hosts.push(cpal::default_host().id());
+    }
+    if !hosts.contains(&cpal::default_host().id()) {
+        hosts.push(cpal::default_host().id());
+    }
+    let is_bluetooth = |name: &str, id: &str| {
+        let lid = id.to_ascii_lowercase();
+        let lname = name.to_ascii_lowercase();
+        lid.contains("bluetooth") || lid.contains("bluez") || lname.contains("bluetooth")
+    };
+    let is_virtual = |name: &str, id: &str| {
+        if name.contains("Discard all samples") || name.contains("Default ALSA Output") {
+            return true;
+        }
+        if id.contains(":null") || id.contains(":default") {
+            return true;
+        }
+        if is_bluetooth(name, id) {
+            return false;
+        }
+        if id.to_ascii_lowercase().contains("pipewire") {
+            return true;
+        }
+        false
+    };
+    let rank = |id: &str| {
+        let lid = id.to_ascii_lowercase();
+        if id.contains("dsnoop") || lid.contains("bluetooth") || lid.contains("bluez") {
+            0
+        } else if id.contains("hw:CARD") || id.contains("hw=") {
+            1
+        } else if id.contains("plughw") {
+            2
+        } else {
+            3
+        }
+    };
+    let label_for = |name: &str, id: &str, host_name: &str| -> String {
+        if is_bluetooth(name, id) {
+            return format!("{} [{}]", name, host_name);
+        }
+        name.to_string()
+    };
+    let mut best: std::collections::HashMap<String, (String, String, usize)> =
+        std::collections::HashMap::new();
+    for host_id in &hosts {
+        let Ok(host) = cpal::host_from_id(*host_id) else {
+            continue;
+        };
+        let Ok(devices) = host.input_devices() else {
+            continue;
+        };
+        for d in devices {
+            let raw_name = d.to_string();
+            if raw_name.is_empty() {
+                continue;
+            }
+            let Ok(id) = d.id().map(|i| i.to_string()) else {
+                continue;
             };
-            let is_virtual = |name: &str, id: &str| {
-                id.contains(":null")
-                    || id.contains("pipewire")
-                    || id.contains(":default")
-                    || name.contains("Discard all samples")
-                    || name.contains("Default ALSA Output")
+            let name = d
+                .description()
+                .ok()
+                .and_then(|dd| {
+                    dd.name()
+                        .to_string()
+                        .lines()
+                        .next()
+                        .map(|s| s.trim().to_string())
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or(raw_name);
+            if name.is_empty() {
+                continue;
+            }
+            if is_virtual(&name, &id) {
+                continue;
+            }
+            let bt = is_bluetooth(&name, &id);
+            let key = if bt {
+                format!("{}::{}", host_id.name(), name)
+            } else {
+                name.clone()
             };
-            let mut best: std::collections::HashMap<String, (String, usize)> =
-                std::collections::HashMap::new();
-            for d in devices {
-                let name = d.to_string();
-                if name.is_empty() {
-                    continue;
+            let display = label_for(&name, &id, host_id.name());
+            let r = rank(&id);
+            match best.get(&key) {
+                Some(existing) if existing.2 <= r => {}
+                _ => {
+                    best.insert(key, (id, display, r));
                 }
-                let id = match d.id() {
-                    Ok(i) => i.to_string(),
-                    Err(_) => continue,
-                };
-                if is_virtual(&name, &id) {
-                    continue;
-                }
-                let r = rank(&id);
-                match best.get(&name) {
-                    Some(existing) if existing.1 <= r => {}
-                    _ => {
-                        best.insert(name.clone(), (id, r));
+            }
+        }
+    }
+    let mut out: Vec<(String, String)> =
+        best.into_values().map(|(id, name, _)| (id, name)).collect();
+    out.sort_by(|a, b| a.1.to_ascii_lowercase().cmp(&b.1.to_ascii_lowercase()));
+    out
+}
+
+/// Resolve the requested input device by its stable id, searching all available
+/// hosts (ALSA/Pulse/PipeWire) so Bluetooth mics on PipeWire are found even
+/// when the default host is ALSA. Also handles substring matches because the
+/// stable id from `list_input_devices` may be a prefix of what cpal actually
+/// hands back. Falls back to the host default when not found.
+fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
+    if let Some(id) = device {
+        if !id.is_empty() {
+            for &host_id in cpal::available_hosts().as_slice() {
+                if let Ok(host) = cpal::host_from_id(host_id) {
+                    if let Ok(mut devices) = host.input_devices() {
+                        if let Some(d) = devices
+                            .find(|d| d.id().ok().map(|i| i.to_string()) == Some(id.to_string()))
+                        {
+                            eprintln!("[audio] using device '{}' via host {}", id, host_id.name());
+                            return Ok(d);
+                        }
                     }
                 }
             }
-            best.into_iter().map(|(name, (id, _))| (id, name)).collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Resolve the requested input device by its stable id, or fall back to the
-/// host default when `device` is None/empty/not found.
-fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
-    let host = cpal::default_host();
-    if let Some(id) = device {
-        if !id.is_empty() {
+            if let Ok(host) = cpal::host_from_id(cpal::default_host().id()) {
+                if let Ok(mut devices) = host.input_devices() {
+                    if let Some(d) = devices.find(|d| {
+                        let did = d.id().ok().map(|i| i.to_string()).unwrap_or_default();
+                        let dname = d.to_string();
+                        did.contains(id)
+                            || dname.contains(id)
+                            || id.contains(&did)
+                            || id.contains(&dname)
+                    }) {
+                        eprintln!(
+                            "[audio] using device '{}' via fallback match '{}'",
+                            id,
+                            d.id().ok().map(|i| i.to_string()).unwrap_or_default()
+                        );
+                        return Ok(d);
+                    }
+                }
+            }
+            let host = cpal::default_host();
             if let Ok(mut devices) = host.input_devices() {
-                if let Some(d) =
-                    devices.find(|d| d.id().ok().map(|i| i.to_string()) == Some(id.to_string()))
-                {
+                if let Some(d) = devices.find(|d| {
+                    let did = d.id().ok().map(|i| i.to_string()).unwrap_or_default();
+                    let dname = d.to_string();
+                    did.contains(id)
+                        || dname.contains(id)
+                        || id.contains(&did)
+                        || id.contains(&dname)
+                }) {
                     return Ok(d);
                 }
             }
-            eprintln!("Input device '{}' not found, falling back to default", id);
+            eprintln!("[audio] device '{}' not found, falling back to default", id);
         }
     }
-    host.default_input_device()
+    cpal::default_host()
+        .default_input_device()
         .ok_or("No input device available".into())
 }
 
@@ -148,7 +241,25 @@ impl AudioRecorder {
             cpal::SampleFormat::U16 => {
                 Self::build_stream::<u16>(&device, &config.into(), buffer_clone, level_clone)
             }
-            _ => Err("Unsupported sample format".into()),
+            cpal::SampleFormat::I32 => Self::build_stream::<i32>(
+                &device,
+                &config.clone().into(),
+                buffer_clone,
+                level_clone,
+            ),
+            cpal::SampleFormat::U32 => Self::build_stream::<u32>(
+                &device,
+                &config.clone().into(),
+                buffer_clone,
+                level_clone,
+            ),
+            cpal::SampleFormat::F64 => Self::build_stream::<f64>(
+                &device,
+                &config.clone().into(),
+                buffer_clone,
+                level_clone,
+            ),
+            other => Err(format!("Unsupported sample format: {:?}", other))?,
         }?;
 
         stream
@@ -212,7 +323,16 @@ impl AudioRecorder {
             cpal::SampleFormat::U16 => {
                 Self::build_stream::<u16>(&device, &config.into(), buf.clone(), level_clone)
             }
-            _ => Err("Unsupported sample format".into()),
+            cpal::SampleFormat::I32 => {
+                Self::build_stream::<i32>(&device, &config.clone().into(), buf.clone(), level_clone)
+            }
+            cpal::SampleFormat::U32 => {
+                Self::build_stream::<u32>(&device, &config.clone().into(), buf.clone(), level_clone)
+            }
+            cpal::SampleFormat::F64 => {
+                Self::build_stream::<f64>(&device, &config.clone().into(), buf.clone(), level_clone)
+            }
+            other => Err(format!("Unsupported sample format: {:?}", other))?,
         }?;
         stream
             .play()
@@ -247,7 +367,12 @@ impl AudioRecorder {
         f32: FromSample<T>,
     {
         let channels = config.channels as usize;
-        let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
+        let err_fn = |err: cpal::Error| {
+            if matches!(err.kind(), cpal::ErrorKind::Xrun) {
+                return;
+            }
+            eprintln!("an error occurred on stream: {}", err);
+        };
 
         let stream = device
             .build_input_stream(
