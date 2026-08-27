@@ -323,6 +323,12 @@ pub fn sync_runtime(settings: &AppSettings) {
             .unwrap_or_else(|e| e.into_inner());
         *mode = settings.engine_mode.clone();
     }
+    {
+        let mut v = crate::coordinator::ENGINE_LANGUAGE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *v = settings.language.clone();
+    }
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
     let model_exists = model_path.exists();

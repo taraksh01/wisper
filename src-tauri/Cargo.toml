@@ -45,4 +45,6 @@ regex = "1"
 handy-keys = "0.3.0"
 image = "0.25"
 sherpa-onnx = "1.13.5"
+ort = "2.0.0-rc.12"
+ndarray = "0.17"
 
