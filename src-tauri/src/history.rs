@@ -86,6 +86,17 @@ impl HistoryManager {
         recording_path: Option<&str>,
     ) -> SqlResult<()> {
         let word_count = raw_text.split_whitespace().count() as i64;
+        // Skip zero-word entries — they pollute history and have no value.
+        // The caller (coordinator) already avoids saving the recording file in this case,
+        // but we defend here as well for any direct callers.
+        if word_count == 0
+            && formatted_text
+                .map(|s| s.split_whitespace().count() == 0)
+                .unwrap_or(true)
+        {
+            eprintln!("[history] skipping zero-word entry");
+            return Ok(());
+        }
         let conn = Self::conn();
         conn.execute(
             "INSERT INTO history (raw_text, formatted_text, agent_name, duration_ms, word_count, recording_path)
@@ -249,6 +260,39 @@ impl HistoryManager {
                 }
             }
         }
+    }
+
+    /// Delete all history entries with zero words (polluted empty transcriptions).
+    /// Returns number of deleted rows. Also removes associated recording files.
+    pub fn delete_zero_word_entries(&self) -> SqlResult<usize> {
+        let paths: Vec<Option<String>> = {
+            let conn = Self::conn();
+            let mut stmt = conn.prepare(
+                "SELECT recording_path FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
+            )?;
+            let rows = stmt
+                .query_map([], |r| r.get(0))?
+                .collect::<SqlResult<Vec<_>>>()?;
+            rows
+        };
+        for p in &paths {
+            if let Some(ref path) = p {
+                if !path.is_empty() {
+                    if let Ok(canonical) = validate_recording_path(path) {
+                        let _ = std::fs::remove_file(canonical);
+                    }
+                }
+            }
+        }
+        let conn = Self::conn();
+        let n = conn.execute(
+            "DELETE FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
+            [],
+        )?;
+        if n > 0 {
+            eprintln!("[history] cleaned up {} zero-word entries", n);
+        }
+        Ok(n)
     }
 
     pub fn get_recording_dir() -> PathBuf {

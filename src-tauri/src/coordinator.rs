@@ -618,44 +618,56 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 } else {
                     0
                 };
-                let history = crate::history::HistoryManager::new();
-                if let Err(e) = history.insert(
-                    &text,
-                    Some(&final_text),
-                    agent_name.as_deref(),
-                    duration_ms,
-                    recording_path.as_deref(),
-                ) {
-                    eprintln!("Failed to log history: {}", e);
-                } else {
-                    if WORDS_ENABLED.load(Ordering::Relaxed)
-                        && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
-                        && text != final_text
-                    {
-                        crate::words::maybe_auto_add_corrections(&text, &final_text);
+                // Skip zero-word entries — they just pollute history (user request).
+                let raw_words = text.split_whitespace().count();
+                let final_words = final_text.split_whitespace().count();
+                if raw_words == 0 && final_words == 0 {
+                    eprintln!("[history] skipping zero-word entry");
+                    if let Some(ref p) = recording_path {
+                        let _ = std::fs::remove_file(p);
                     }
-                    // Enforce retention limit after each insert
-                    let s = crate::settings::AppSettings::load();
-                    if s.max_history_entries > 0 {
-                        let mode =
-                            if s.keep_recordings && s.history_retention_mode == "recordings_only" {
+                } else {
+                    let history = crate::history::HistoryManager::new();
+                    if let Err(e) = history.insert(
+                        &text,
+                        Some(&final_text),
+                        agent_name.as_deref(),
+                        duration_ms,
+                        recording_path.as_deref(),
+                    ) {
+                        eprintln!("Failed to log history: {}", e);
+                    } else {
+                        if WORDS_ENABLED.load(Ordering::Relaxed)
+                            && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
+                            && text != final_text
+                        {
+                            crate::words::maybe_auto_add_corrections(&text, &final_text);
+                        }
+                        // Enforce retention limit after each insert
+                        let s = crate::settings::AppSettings::load();
+                        if s.max_history_entries > 0 {
+                            let mode = if s.keep_recordings
+                                && s.history_retention_mode == "recordings_only"
+                            {
                                 "recordings_only"
                             } else {
                                 "both"
                             };
-                        if let Err(e) = history.trim_history(s.max_history_entries as i64, mode) {
-                            eprintln!("Failed to trim history: {}", e);
+                            if let Err(e) = history.trim_history(s.max_history_entries as i64, mode)
+                            {
+                                eprintln!("Failed to trim history: {}", e);
+                            }
                         }
                     }
-                }
 
-                // Accumulate estimated time saved (typing time minus speaking time).
-                let words = text.split_whitespace().count() as f64;
-                let typing_sec = words / 1.0; // ~60 WPM
-                let speak_sec = duration_ms as f64 / 1000.0;
-                let saved = (typing_sec - speak_sec).max(0.0) as i64;
-                if saved > 0 {
-                    crate::settings::add_time_saved(saved);
+                    // Accumulate estimated time saved (typing time minus speaking time).
+                    let words = raw_words as f64;
+                    let typing_sec = words / 1.0; // ~60 WPM
+                    let speak_sec = duration_ms as f64 / 1000.0;
+                    let saved = (typing_sec - speak_sec).max(0.0) as i64;
+                    if saved > 0 {
+                        crate::settings::add_time_saved(saved);
+                    }
                 }
             }
             Err(e) => {

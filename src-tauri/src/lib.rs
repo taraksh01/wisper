@@ -612,6 +612,8 @@ pub fn run() {
                 let _ = crate::history::HistoryManager::new()
                     .trim_history(saved_settings.max_history_entries as i64, mode);
             }
+            // Clean up previously saved zero-word entries (polluted history)
+            let _ = crate::history::HistoryManager::new().delete_zero_word_entries();
 
             if saved_settings.autostart {
                 let _ = app.autolaunch().enable();
