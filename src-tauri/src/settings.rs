@@ -65,6 +65,8 @@ pub struct AppSettings {
     pub noise_suppression_enabled: bool,
     pub noise_suppression_level: f32,
     pub language: String,
+    #[serde(default = "default_enabled_languages")]
+    pub enabled_languages: Vec<String>,
     pub keep_recordings: bool,
     pub launch_to_tray: bool,
     pub autostart: bool,
@@ -111,6 +113,10 @@ fn default_process_timeout() -> u32 {
 }
 fn default_process_min_words() -> u32 {
     6
+}
+
+fn default_enabled_languages() -> Vec<String> {
+    vec!["auto".into()]
 }
 
 impl Default for AppSettings {
@@ -162,6 +168,7 @@ impl Default for AppSettings {
             noise_suppression_enabled: false,
             noise_suppression_level: 0.5,
             language: "auto".into(),
+            enabled_languages: default_enabled_languages(),
             keep_recordings: false,
             launch_to_tray: false,
             autostart: false,
@@ -194,13 +201,21 @@ impl AppSettings {
         if p.exists() {
             if let Ok(content) = fs::read_to_string(&p) {
                 if let Ok(mut s) = serde_json::from_str::<Self>(&content) {
-                    // Sanitize hand-edited values
                     s.process_timeout_secs = s.process_timeout_secs.clamp(3, 120);
                     s.process_min_words = s.process_min_words.clamp(0, 20);
                     s.vad_threshold = s.vad_threshold.clamp(0.0, 1.0);
                     s.noise_suppression_level = s.noise_suppression_level.clamp(0.0, 1.0);
                     if s.max_history_entries < 0 {
                         s.max_history_entries = 0;
+                    }
+                    if s.enabled_languages.is_empty() {
+                        s.enabled_languages = default_enabled_languages();
+                    }
+                    if s.enabled_languages == vec!["auto".to_string()]
+                        && s.language != "auto"
+                        && !s.language.is_empty()
+                    {
+                        s.enabled_languages = vec![s.language.clone()];
                     }
                     return s;
                 }
@@ -328,6 +343,12 @@ pub fn sync_runtime(settings: &AppSettings) {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *v = settings.language.clone();
+    }
+    {
+        let mut v = crate::coordinator::ENABLED_LANGUAGES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *v = settings.enabled_languages.clone();
     }
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);

@@ -79,6 +79,7 @@ export interface AppSettings {
   noise_suppression_enabled: boolean;
   noise_suppression_level: number;
   language: string;
+  enabled_languages: string[];
   keep_recordings: boolean;
   launch_to_tray: boolean;
   autostart: boolean;

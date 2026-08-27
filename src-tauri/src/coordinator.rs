@@ -92,6 +92,7 @@ pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> =
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static ENGINE_MODE: Mutex<String> = Mutex::new(String::new());
 pub static ENGINE_LANGUAGE: Mutex<String> = Mutex::new(String::new());
+pub static ENABLED_LANGUAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 pub static INPUT_DEVICE: Mutex<String> = Mutex::new(String::new()); // empty = system default
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
