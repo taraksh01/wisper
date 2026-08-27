@@ -1,7 +1,7 @@
 {
   "name": "wisper",
   "private": true,
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Turn your voice into text right on your device, with your privacy always in your hands.",
   "author": "Tarak Shaw <taraksh01@gmail.com>",
   "engines": {
