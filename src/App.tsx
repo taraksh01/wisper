@@ -299,7 +299,7 @@ function AppShell() {
   const renderTab = () => {
     switch (activeTab) {
       case "general":
-        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onReset={() => resetTab("general")} />;
+        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
       case "engine":
         return (
           <EngineTab
@@ -325,7 +325,7 @@ function AppShell() {
       case "donate":
         return <DonateTab />;
       default:
-        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onReset={() => resetTab("general")} />;
+        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
     }
   };
 

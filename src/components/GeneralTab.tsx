@@ -16,6 +16,7 @@ interface GeneralTabProps {
   settings: AppSettings;
   historyTotal?: number;
   onSave: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  onSaveAll?: (updates: Partial<AppSettings>) => void;
   onReset: () => void;
 }
 
@@ -320,14 +321,16 @@ function VadThresholdControl({ threshold, onChange }: { threshold: number; onCha
   );
 }
 
-export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: GeneralTabProps) {
-  const { width: winWidth } = useWindowSize();
+export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onReset }: GeneralTabProps) {
+  useWindowSize();
   const [listening, setListening] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [inputDevices, setInputDevices] = useState<[string, string][]>([]);
   const [pendingMax, setPendingMax] = useState(settings.max_history_entries);
   const [trimConfirm, setTrimConfirm] = useState<{ newLimit: number; excess: number } | null>(null);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const dragIdxRef = useRef<number | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const pendingModsRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -453,7 +456,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
             <p className={`text-[10px] font-mono ${message.ok ? "text-ready" : "text-recording"}`}>{message.ok ? "✓" : "✗"} {message.text}</p>
           )}
 
-          <div className={`grid gap-3 ${winWidth < 780 ? "grid-cols-1" : "grid-cols-2"}`}>
+          <div className="grid gap-3 grid-cols-1">
             <div>
               <label className="label-soft block mb-1.5">Microphone</label>
               <Select
@@ -463,8 +466,109 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onReset }: Gene
               />
             </div>
             <div>
-              <label className="label-soft block mb-1.5">Language</label>
-              <Select value={settings.language} onChange={(v) => onSave("language", v)} options={[{ value: "auto", label: "Auto-detect" }, ...languages.filter((l) => l.value !== "auto")]} />
+              <label className="label-soft block mb-1.5">Transcription languages</label>
+              <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5">
+                <div className="flex flex-wrap gap-1.5 mb-2.5 min-h-[28px]">
+                  {(settings.enabled_languages && settings.enabled_languages.length > 0 ? settings.enabled_languages : ["auto"]).map((lang, idx) => {
+                    const label = languages.find((l) => l.value === lang)?.label || lang;
+                    const isDraggable = (settings.enabled_languages || ["auto"]).length > 1 && lang !== "auto";
+                    return (
+                      <span
+                        key={lang}
+                        draggable={isDraggable}
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", String(idx));
+                          dragIdxRef.current = idx;
+                          setDragIdx(idx);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const fromStr = e.dataTransfer.getData("text/plain");
+                          const from = dragIdxRef.current ?? (fromStr ? parseInt(fromStr, 10) : dragIdx);
+                          if (from === null || Number.isNaN(from as number) || (from as number) === idx) return;
+                          const current = settings.enabled_languages && settings.enabled_languages.length > 0 ? settings.enabled_languages : ["auto"];
+                          const next = [...current];
+                          const [moved] = next.splice(from as number, 1);
+                          next.splice(idx, 0, moved);
+                          const fallback = next.includes("auto") || next.length === 0 ? "auto" : next[0];
+                          if (onSaveAll) {
+                            onSaveAll({ enabled_languages: next, language: fallback } as any);
+                          } else {
+                            onSave("enabled_languages", next as any);
+                          }
+                          setDragIdx(null);
+                          dragIdxRef.current = null;
+                        }}
+                        onDragEnd={() => {
+                          setDragIdx(null);
+                          dragIdxRef.current = null;
+                        }}
+                        className={`inline-flex items-center gap-1 pl-1.5 pr-1 py-1 rounded-full bg-surface text-ink text-[11px] font-medium ring-1 ring-stroke shadow-sm select-none ${dragIdx === idx ? "opacity-40 ring-accent/30" : ""}`}
+                        title={isDraggable ? "Drag to reorder priority" : undefined}
+                      >
+                        {isDraggable && (
+                          <span
+                            className="w-5 h-5 grid place-items-center rounded-full bg-elevated ring-1 ring-stroke cursor-grab active:cursor-grabbing text-muted"
+                            aria-hidden
+                          >
+                            <span className="text-[10px] leading-none">⠿</span>
+                          </span>
+                        )}
+                        <span className="px-1">{label}</span>
+                        <button
+                          type="button"
+                          draggable={false}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={() => {
+                            const current = settings.enabled_languages && settings.enabled_languages.length > 0 ? settings.enabled_languages : ["auto"];
+                            let next = current.filter((l) => l !== lang);
+                            if (next.length === 0) next = ["auto"];
+                            const fallback = next.includes("auto") || next.length === 0 ? "auto" : next[0];
+                            if (onSaveAll) {
+                              onSaveAll({ enabled_languages: next, language: fallback } as any);
+                            } else {
+                              onSave("enabled_languages", next as any);
+                              setTimeout(() => onSave("language", fallback as any), 0);
+                            }
+                          }}
+                          className="w-5 h-5 grid place-items-center rounded-full bg-elevated hover:bg-surface ring-1 ring-stroke text-muted hover:text-ink transition-colors"
+                          aria-label={`Remove ${label}`}
+                        >
+                          <span className="text-[11px] leading-none">×</span>
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+                <Select
+                  value=""
+                  searchable
+                  onChange={(v) => {
+                    if (!v) return;
+                    const current = settings.enabled_languages && settings.enabled_languages.length > 0 ? settings.enabled_languages : ["auto"];
+                    let next: string[];
+                    if (v === "auto") {
+                      next = ["auto"];
+                    } else {
+                      next = current.includes("auto") ? [v] : current.includes(v) ? current : [...current, v];
+                    }
+                    const fallback = next.includes("auto") || next.length === 0 ? "auto" : next[0];
+                    if (onSaveAll) {
+                      onSaveAll({ enabled_languages: next, language: fallback } as any);
+                    } else {
+                      onSave("enabled_languages", next as any);
+                      setTimeout(() => onSave("language", fallback as any), 0);
+                    }
+                  }}
+                  options={[{ value: "auto", label: "Auto-detect" }, ...languages.filter((l) => l.value !== "auto")].filter((opt) => !(settings.enabled_languages || ["auto"]).includes(opt.value))}
+                />
+                <p className="text-[10px] font-mono text-muted/60 mt-2 leading-relaxed">Auto is default. Add languages to constrain multilingual models; drag the handle to set priority (top = first try, then fallback). No hand cursor on the pill — only the handle grabs.</p>
+              </div>
             </div>
           </div>
 
