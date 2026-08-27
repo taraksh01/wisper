@@ -238,7 +238,7 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function VadThresholdControl({ threshold, onChange }: { threshold: number; onChange: (v: number) => void }) {
+function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: number; onChange: (v: number) => void; inputDevice: string }) {
   const [level, setLevel] = useState(0);
   const [testing, setTesting] = useState(false);
 
@@ -260,7 +260,13 @@ function VadThresholdControl({ threshold, onChange }: { threshold: number; onCha
       cancelAnimationFrame(raf);
       invoke("stop_mic_preview").catch(() => {});
     };
-  }, [testing]);
+  }, [testing, inputDevice]);
+
+  useEffect(() => {
+    if (!testing) return;
+    invoke("stop_mic_preview").catch(() => {});
+    invoke("start_mic_preview").catch(() => {});
+  }, [inputDevice, testing]);
 
   const startToggle = () => {
     if (testing) {
@@ -335,9 +341,20 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
   const pendingModsRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => {
+  const fetchDevices = useCallback(() => {
     invoke<[string, string][]>("list_audio_devices").then(setInputDevices).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchDevices();
+    const id = window.setInterval(fetchDevices, 3000);
+    const onFocus = () => fetchDevices();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [fetchDevices]);
 
   useEffect(() => {
     setPendingMax(settings.max_history_entries);
@@ -458,10 +475,19 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
 
           <div className="grid gap-3 grid-cols-1">
             <div>
-              <label className="label-soft block mb-1.5">Microphone</label>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="label-soft">Microphone</label>
+                <button type="button" onClick={fetchDevices} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
+              </div>
               <Select
                 value={settings.input_device}
-                options={[{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))]}
+                options={(() => {
+                  const opts: { value: string; label: string }[] = [{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))];
+                  if (settings.input_device && !opts.some((o) => o.value === settings.input_device)) {
+                    opts.push({ value: settings.input_device, label: `${settings.input_device} — not found` });
+                  }
+                  return opts;
+                })()}
                 onChange={(v) => onSave("input_device", v)}
               />
             </div>
@@ -642,7 +668,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
             <span className="text-xs text-muted">Trim silence</span>
             <Switch label="Trim silence" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
           </div>
-          {settings.vad_enabled && <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} />}
+          {settings.vad_enabled && <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} inputDevice={settings.input_device} />}
           <p className="text-[10px] font-mono text-muted/50 leading-relaxed">
             Defaults suit most setups. If you hear background noise or speech is clipped, adjust the sliders above and use Test microphone level.
           </p>
