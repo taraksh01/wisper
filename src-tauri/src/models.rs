@@ -44,14 +44,28 @@ pub fn list_local_models() -> Vec<String> {
                 if file_type.is_dir()
                     && (name.starts_with("parakeet-")
                         || name.starts_with("indicconformer-")
-                        || name.starts_with("moonshine-"))
+                        || name.starts_with("moonshine-")
+                        || name.starts_with("whisper-large-v3"))
                 {
                     // Family-appropriate marker: parakeet is a directory bundle,
-                    // indic uses model.onnx, moonshine uses encoder_model.onnx
+                    // indic uses model.onnx, moonshine uses encoder_model.onnx,
+                    // 600m-multi uses encoder-model.onnx, whisper v3 uses
+                    // large-v3-encoder.int8.onnx
                     let path = entry.path();
                     let complete = name.starts_with("parakeet-")
                         || path.join("model.onnx").exists()
-                        || path.join("encoder_model.onnx").exists();
+                        || path.join("encoder_model.onnx").exists()
+                        || (name.starts_with("indicconformer-600m-multi")
+                            && path.join("encoder-model.onnx").exists()
+                            && path.join("encoder-model.onnx.data").exists()
+                            && path.join("ctc_decoder-model.onnx").exists()
+                            && path.join("nemo128.onnx").exists()
+                            && path.join("vocab.txt").exists()
+                            && path.join("language_spans.json").exists())
+                        || (name.starts_with("whisper-large-v3")
+                            && path.join("large-v3-encoder.int8.onnx").exists()
+                            && path.join("large-v3-decoder.int8.onnx").exists()
+                            && path.join("large-v3-tokens.txt").exists());
                     if complete {
                         models.push(name);
                     }
@@ -77,6 +91,8 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
         "indicconformer-8lang" => "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
         "moonshine-base" => "https://blob.handy.computer/moonshine-base.tar.gz",
+        "indicconformer-600m-multi" => "https://huggingface.co/christopherthompson81/indicconformer-600m-onnx/resolve/main/encoder-model.onnx",
+        "whisper-large-v3-int8" => "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx",
         _ => return None,
     };
     Some(url.to_string())
@@ -97,6 +113,42 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => Some("indicconformer-120m-pa".into()),
         "indicconformer-8lang" => Some("indicconformer-8lang".into()),
         "moonshine-base" => Some("moonshine-base".into()),
+        "indicconformer-600m-multi" => Some("indicconformer-600m-multi".into()),
+        "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
+        _ => None,
+    }
+}
+
+/// Multi-file model bundles. Returns `(remote_subpath, local_filename, expected_size_bytes)` per file.
+/// Sizes are advisory; HTTP `Content-Length` is the source of truth.
+fn multi_file_download(model_name: &str) -> Option<Vec<(String, String, u64)>> {
+    match model_name {
+        "indicconformer-600m-multi" => Some(vec![
+            ("encoder-model.onnx".into(), "encoder-model.onnx".into(), 42_006_402),
+            ("encoder-model.onnx.data".into(), "encoder-model.onnx.data".into(), 2_430_799_872),
+            ("ctc_decoder-model.onnx".into(), "ctc_decoder-model.onnx".into(), 23_095_900),
+            ("nemo128.onnx".into(), "nemo128.onnx".into(), 1_151_666),
+            ("vocab.txt".into(), "vocab.txt".into(), 41_814),
+            ("language_spans.json".into(), "language_spans.json".into(), 1_397),
+            ("config.json".into(), "config.json".into(), 467),
+        ]),
+        "whisper-large-v3-int8" => Some(vec![
+            (
+                "large-v3-encoder.int8.onnx".into(),
+                "large-v3-encoder.int8.onnx".into(),
+                766_671_985,
+            ),
+            (
+                "large-v3-decoder.int8.onnx".into(),
+                "large-v3-decoder.int8.onnx".into(),
+                1_008_265_203,
+            ),
+            (
+                "large-v3-tokens.txt".into(),
+                "large-v3-tokens.txt".into(),
+                818_000,
+            ),
+        ]),
         _ => None,
     }
 }
@@ -131,6 +183,107 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&model_name);
+        return Ok(target_dir.to_string_lossy().to_string());
+    }
+
+    // Multi-file models: 600M Multi (7 files) and Whisper large-v3 int8 (3 files).
+    if let Some(files) = multi_file_download(&model_name) {
+        let _ = fs::create_dir_all(&target_dir);
+        let total: u64 = files.iter().map(|(_, _, size)| *size).sum();
+        let mut downloaded: u64 = 0;
+        let start = std::time::Instant::now();
+        let client = models_client();
+        for (sub_path, dest_name, file_size) in files {
+            if cancel.load(Ordering::Relaxed) {
+                let _ = fs::remove_dir_all(&target_dir);
+                ACTIVE_CANCEL
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&model_name);
+                let _ = app_handle.emit(
+                    "download-canceled",
+                    serde_json::json!({ "model": &model_name }),
+                );
+                return Err("Download canceled".into());
+            }
+            let file_url = format!(
+                "{}/resolve/main/{}",
+                url.split("/resolve/main/").next().unwrap_or(&url),
+                sub_path
+            );
+            let response = client
+                .get(&file_url)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to fetch {}: {}", sub_path, e))?;
+            if !response.status().is_success() {
+                let _ = fs::remove_dir_all(&target_dir);
+                return Err(format!(
+                    "Failed to fetch {}: HTTP {}",
+                    sub_path,
+                    response.status()
+                ));
+            }
+            let dest = target_dir.join(&dest_name);
+            #[cfg(unix)]
+            let mut f = {
+                use std::os::unix::fs::OpenOptionsExt;
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .mode(0o600)
+                    .open(&dest)
+                    .map_err(|e| format!("Failed to open {}: {}", dest_name, e))?
+            };
+            #[cfg(not(unix))]
+            let mut f = fs::File::create(&dest)
+                .map_err(|e| format!("Failed to open {}: {}", dest_name, e))?;
+            let mut stream = response.bytes_stream();
+            let mut last_emitted = 0u32;
+            while let Some(chunk_result) = stream.next().await {
+                if cancel.load(Ordering::Relaxed) {
+                    let _ = fs::remove_dir_all(&target_dir);
+                    ACTIVE_CANCEL
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&model_name);
+                    let _ = app_handle.emit(
+                        "download-canceled",
+                        serde_json::json!({ "model": &model_name }),
+                    );
+                    return Err("Download canceled".into());
+                }
+                let chunk = chunk_result.map_err(|e| e.to_string())?;
+                f.write_all(&chunk).map_err(|e| e.to_string())?;
+                downloaded += chunk.len() as u64;
+                let elapsed = start.elapsed().as_secs_f64();
+                let speed_bps = if elapsed > 0.0 {
+                    downloaded as f64 / elapsed
+                } else {
+                    0.0
+                };
+                if total > 0 {
+                    let pct = (downloaded as f64 / total as f64 * 100.0) as u32;
+                    if pct >= last_emitted + 1 || pct == 100 {
+                        last_emitted = pct;
+                        let _ = app_handle.emit(
+                            "download-progress",
+                            serde_json::json!({
+                                "model": &model_name,
+                                "progress": pct,
+                                "speed_bps": speed_bps as u64,
+                                "downloaded": downloaded,
+                                "total": total,
+                                "current_file": dest_name,
+                                "expected_size": file_size,
+                            }),
+                        );
+                    }
+                }
+            }
+            f.sync_all().ok();
+        }
         return Ok(target_dir.to_string_lossy().to_string());
     }
 
@@ -310,7 +463,8 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     }
     if !(model_name.starts_with("parakeet-")
         || model_name.starts_with("indicconformer-")
-        || model_name.starts_with("moonshine-"))
+        || model_name.starts_with("moonshine-")
+        || model_name.starts_with("whisper-large-v3"))
     {
         return Err("Invalid model name prefix".to_string());
     }
@@ -397,13 +551,16 @@ pub async fn fetch_indic_assets(
 /// Repair path: install missing tokens/vocab for an already-downloaded Indic model.
 #[tauri::command]
 pub async fn install_model_assets(model_name: String) -> Result<(), String> {
-    if !model_name.starts_with("indicconformer-") {
-        return Err("Only IndicConformer models need language data".into());
+    if !(model_name.starts_with("indicconformer-") || model_name.starts_with("whisper-large-v3")) {
+        return Err("Only IndicConformer / Whisper models need language data".into());
     }
     let dir_name = onnx_dir_name(&model_name).ok_or("Unknown model")?;
     let target_dir = get_models_dir().join(&dir_name);
     if !target_dir.exists() {
         return Err(format!("Model '{}' is not downloaded", model_name));
+    }
+    if model_name == "indicconformer-600m-multi" || model_name.starts_with("whisper-large-v3") {
+        return Ok(());
     }
     fetch_indic_assets(&target_dir, &model_name).await
 }
@@ -415,5 +572,11 @@ pub fn has_model_assets(model_name: String) -> bool {
         return false;
     };
     let dir = get_models_dir().join(&dir_name);
+    if model_name == "indicconformer-600m-multi" {
+        return dir.join("vocab.txt").exists() && dir.join("language_spans.json").exists();
+    }
+    if model_name.starts_with("whisper-large-v3") {
+        return dir.join("large-v3-tokens.txt").exists();
+    }
     dir.join("tokens.txt").exists() || dir.join("vocab.json").exists()
 }

@@ -428,12 +428,47 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
+    if name.starts_with("indicconformer-600m-multi") {
+        // Phase 2: real implementation.
+        // For now this is a placeholder that fails loudly so the user sees a clear
+        // message instead of a silent wrong-engine load.
+        return Box::new(UnsupportedEngineProvider::new(
+            name,
+            "IndicConformer 600M Multi engine is not wired up yet.",
+        ));
+    }
+    if name.starts_with("whisper-large-v3") {
+        return Box::new(UnsupportedEngineProvider::new(
+            name,
+            "Whisper large-v3 local engine is not wired up yet.",
+        ));
+    }
     if name.starts_with("indicconformer-") {
         Box::new(SherpaIndicProvider::new(model_path))
     } else if name.starts_with("moonshine-") {
         Box::new(MoonshineProvider::new(model_path))
     } else {
         Box::new(ParakeetOnnxProvider::new(model_path))
+    }
+}
+
+pub struct UnsupportedEngineProvider {
+    name: String,
+    reason: String,
+}
+
+impl UnsupportedEngineProvider {
+    pub fn new(name: &str, reason: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            reason: reason.to_string(),
+        }
+    }
+}
+
+impl EngineProvider for UnsupportedEngineProvider {
+    fn transcribe(&self, _audio: &[f32], _sample_rate: u32) -> Result<String, String> {
+        Err(format!("[engine] {}: {}", self.name, self.reason))
     }
 }
 
