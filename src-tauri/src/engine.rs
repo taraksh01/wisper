@@ -431,6 +431,47 @@ impl WhisperLargeV3Provider {
     pub fn new(model_dir: PathBuf) -> Self {
         Self { model_dir }
     }
+
+    fn transcribe_with_hint(&self, samples: &[f32], hint: &str) -> Result<String, String> {
+        use sherpa_onnx::{OfflineRecognizerConfig, OfflineWhisperModelConfig};
+        let encoder = self.model_dir.join("large-v3-encoder.int8.onnx");
+        let decoder = self.model_dir.join("large-v3-decoder.int8.onnx");
+        let tokens = self.model_dir.join("large-v3-tokens.txt");
+        if !encoder.exists() || !decoder.exists() || !tokens.exists() {
+            return Err(format!(
+                "Whisper large-v3 files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.whisper = OfflineWhisperModelConfig {
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            decoder: Some(decoder.to_string_lossy().to_string()),
+            language: Some(hint.to_string()),
+            task: Some("transcribe".to_string()),
+            tail_paddings: -1,
+            enable_token_timestamps: false,
+            enable_segment_timestamps: false,
+        };
+        config.model_config.model_type = Some("whisper".to_string());
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Whisper v3 recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Whisper v3 decode: no result".to_string())?;
+        Ok(result.text.trim().to_string())
+    }
 }
 
 struct CachedWhisperV3 {
@@ -468,6 +509,24 @@ impl EngineProvider for WhisperLargeV3Provider {
             audio.to_vec()
         };
 
+        let enabled_check = crate::coordinator::ENABLED_LANGUAGES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if enabled_check.len() > 1 && !enabled_check.contains(&"auto".to_string()) {
+            for lang in &enabled_check {
+                match self.transcribe_with_hint(&samples, lang) {
+                    Ok(t) if !t.trim().is_empty() => return Ok(t),
+                    Ok(_) => continue,
+                    Err(e) => {
+                        eprintln!("[whisper] hint {} failed: {}", lang, e);
+                        continue;
+                    }
+                }
+            }
+            return self.transcribe_with_hint(&samples, "");
+        }
+
         let recognizer = {
             let mut guard = whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
             let reuse = guard
@@ -504,14 +563,16 @@ impl EngineProvider for WhisperLargeV3Provider {
                         self.model_dir.display()
                     ));
                 }
-                let whisper_lang = crate::coordinator::ENGINE_LANGUAGE
+                let enabled = crate::coordinator::ENABLED_LANGUAGES
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
-                let whisper_lang = if whisper_lang == "auto" || whisper_lang.is_empty() {
+                let whisper_lang = if enabled.is_empty() || enabled.contains(&"auto".to_string()) {
                     String::new()
+                } else if enabled.len() == 1 {
+                    enabled[0].clone()
                 } else {
-                    whisper_lang
+                    String::new()
                 };
                 let mut config = OfflineRecognizerConfig::default();
                 config.model_config.whisper = OfflineWhisperModelConfig {
@@ -634,13 +695,19 @@ impl EngineProvider for IndicConformer600MProvider {
             audio.to_vec()
         };
 
-        let language = crate::coordinator::ENGINE_LANGUAGE
+        let enabled = crate::coordinator::ENABLED_LANGUAGES
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let languages: Vec<String> = if enabled.is_empty() || enabled.contains(&"auto".to_string())
+        {
+            Vec::new()
+        } else {
+            enabled
+        };
 
         let mut sess = self.load_session()?;
-        let text = decode_indic_600m(&mut sess, &samples, &language)?;
+        let text = decode_indic_600m_multi(&mut sess, &samples, &languages)?;
         Ok(text)
     }
 }
@@ -676,10 +743,10 @@ fn parse_language_spans(
     Ok(out)
 }
 
-fn decode_indic_600m(
+fn decode_indic_600m_multi(
     sess: &mut Indic600MSession,
     samples: &[f32],
-    language: &str,
+    languages: &[String],
 ) -> Result<String, String> {
     use ndarray::{Array1, Array2};
     use ort::value::TensorRef;
@@ -781,12 +848,20 @@ fn decode_indic_600m(
         (vt, vocab_dim)
     };
 
-    // Apply language span mask (256-token window) if requested and known
-    let span = if !language.is_empty() && language != "auto" {
-        sess.spans.get(language).copied()
+    let allowed_spans: Vec<(usize, usize)> = if languages.is_empty() {
+        Vec::new()
+    } else {
+        languages
+            .iter()
+            .filter_map(|lang| sess.spans.get(lang.as_str()).copied())
+            .collect()
+    };
+    let single_span = if allowed_spans.len() == 1 {
+        Some(allowed_spans[0])
     } else {
         None
     };
+    let is_multi = allowed_spans.len() > 1;
     let blank_id: i32 = (sess.vocab.len()) as i32;
 
     let mut out_ids: Vec<i32> = Vec::with_capacity(t_frames);
@@ -797,25 +872,51 @@ fn decode_indic_600m(
             let row = &logits[frame * vocab_dim..(frame + 1) * vocab_dim];
             let mut best_idx: i32 = -1;
             let mut best_val: f32 = f32::NEG_INFINITY;
-            match span {
-                Some((start, length)) => {
-                    let end = (start + length).min(vocab_dim);
-                    for (i, slot) in row.iter().enumerate().take(end).skip(start) {
-                        if *slot > best_val {
-                            best_val = *slot;
-                            best_idx = i as i32;
-                        }
+            if let Some((start, length)) = single_span {
+                let end = (start + length).min(vocab_dim);
+                for (i, slot) in row.iter().enumerate().take(end).skip(start) {
+                    if *slot > best_val {
+                        best_val = *slot;
+                        best_idx = i as i32;
                     }
                 }
-                None => {
-                    for (i, slot) in row.iter().enumerate() {
-                        if i as i32 == blank_id {
-                            continue;
+            } else if is_multi {
+                for (i, slot) in row.iter().enumerate() {
+                    if i as i32 == blank_id {
+                        continue;
+                    }
+                    let mut bias = f32::NEG_INFINITY;
+                    let mut found = false;
+                    for (prio, (s, l)) in allowed_spans.iter().enumerate() {
+                        if i >= *s && i < *s + *l {
+                            bias = match prio {
+                                0 => 2.0,
+                                1 => 1.0,
+                                2 => 0.5,
+                                3 => 0.25,
+                                _ => 0.0,
+                            };
+                            found = true;
+                            break;
                         }
-                        if *slot > best_val {
-                            best_val = *slot;
-                            best_idx = i as i32;
-                        }
+                    }
+                    if !found {
+                        continue;
+                    }
+                    let score = *slot + bias;
+                    if score > best_val {
+                        best_val = score;
+                        best_idx = i as i32;
+                    }
+                }
+            } else {
+                for (i, slot) in row.iter().enumerate() {
+                    if i as i32 == blank_id {
+                        continue;
+                    }
+                    if *slot > best_val {
+                        best_val = *slot;
+                        best_idx = i as i32;
                     }
                 }
             }
@@ -825,31 +926,57 @@ fn decode_indic_600m(
             prev = best_idx;
         }
     } else {
-        // [B=1, V, T] layout: argmax over vocab axis for each time frame.
         for frame in 0..t_frames {
             let mut best_idx: i32 = -1;
             let mut best_val: f32 = f32::NEG_INFINITY;
-            match span {
-                Some((start, length)) => {
-                    let end = (start + length).min(vocab_dim);
-                    for v in start..end {
-                        let slot = logits[v * t_frames + frame];
-                        if slot > best_val {
-                            best_val = slot;
-                            best_idx = v as i32;
-                        }
+            if let Some((start, length)) = single_span {
+                let end = (start + length).min(vocab_dim);
+                for v in start..end {
+                    let slot = logits[v * t_frames + frame];
+                    if slot > best_val {
+                        best_val = slot;
+                        best_idx = v as i32;
                     }
                 }
-                None => {
-                    for v in 0..vocab_dim {
-                        if v as i32 == blank_id {
-                            continue;
+            } else if is_multi {
+                for v in 0..vocab_dim {
+                    if v as i32 == blank_id {
+                        continue;
+                    }
+                    let mut bias = f32::NEG_INFINITY;
+                    let mut found = false;
+                    for (prio, (s, l)) in allowed_spans.iter().enumerate() {
+                        if v >= *s && v < *s + *l {
+                            bias = match prio {
+                                0 => 2.0,
+                                1 => 1.0,
+                                2 => 0.5,
+                                3 => 0.25,
+                                _ => 0.0,
+                            };
+                            found = true;
+                            break;
                         }
-                        let slot = logits[v * t_frames + frame];
-                        if slot > best_val {
-                            best_val = slot;
-                            best_idx = v as i32;
-                        }
+                    }
+                    if !found {
+                        continue;
+                    }
+                    let slot = logits[v * t_frames + frame];
+                    let score = slot + bias;
+                    if score > best_val {
+                        best_val = score;
+                        best_idx = v as i32;
+                    }
+                }
+            } else {
+                for v in 0..vocab_dim {
+                    if v as i32 == blank_id {
+                        continue;
+                    }
+                    let slot = logits[v * t_frames + frame];
+                    if slot > best_val {
+                        best_val = slot;
+                        best_idx = v as i32;
                     }
                 }
             }
@@ -868,6 +995,19 @@ fn decode_indic_600m(
         }
     }
     Ok(text.trim().to_string())
+}
+
+fn decode_indic_600m(
+    sess: &mut Indic600MSession,
+    samples: &[f32],
+    language: &str,
+) -> Result<String, String> {
+    let languages = if language.is_empty() || language == "auto" {
+        Vec::new()
+    } else {
+        vec![language.to_string()]
+    };
+    decode_indic_600m_multi(sess, samples, &languages)
 }
 
 pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
