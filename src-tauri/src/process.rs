@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A resolved agent ready to run: a name plus the system prompt to send.
@@ -159,6 +161,17 @@ static PROCESS_CLIENT: once_cell::sync::Lazy<reqwest::blocking::Client> =
             .unwrap_or_else(|e| {
                 eprintln!("[process] failed to build client: {} — using default", e);
                 reqwest::blocking::Client::new()
+            })
+    });
+
+static PROCESS_CLIENT_ASYNC: once_cell::sync::Lazy<reqwest::Client> =
+    once_cell::sync::Lazy::new(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|e| {
+                eprintln!("[process] failed to build async client: {} — using default", e);
+                reqwest::Client::new()
             })
     });
 
@@ -479,6 +492,150 @@ impl ProcessClient {
         }
 
         Ok(content)
+    }
+
+    /// Like `process_with_timeout` but aborts the underlying HTTP request when
+    /// `cancel` is set. Dropping the `reqwest` future closes the TCP connection
+    /// so the remote model stops generating and the user is not billed for
+    /// output tokens that would have been discarded.
+    pub async fn process_with_cancel(
+        &self,
+        text: &str,
+        agent: &SmartAgent,
+        timeout: Duration,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<String, String> {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Cancelled".into());
+        }
+        let endpoint_path = self.resolved_endpoint();
+        let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), endpoint_path);
+        let client = &*PROCESS_CLIENT_ASYNC;
+
+        let user_msg = format!("<transcript>\n{}\n</transcript>", text);
+
+        let (body, is_anthropic, is_responses) = if endpoint_path == "/messages" {
+            let mut b = serde_json::json!({
+                "model": self.model,
+                "system": agent.system_prompt,
+                "messages": [{"role": "user", "content": user_msg}],
+                "temperature": 0.2
+            });
+            if self.max_tokens > 0 {
+                b["max_tokens"] = serde_json::json!(self.max_tokens);
+            } else {
+                b["max_tokens"] = serde_json::json!(1024);
+            }
+            (b, true, false)
+        } else if endpoint_path == "/responses" {
+            let mut b = serde_json::json!({
+                "model": self.model,
+                "input": user_msg,
+                "instructions": agent.system_prompt,
+                "temperature": 0.2
+            });
+            if self.max_tokens > 0 {
+                b["max_output_tokens"] = serde_json::json!(self.max_tokens);
+            }
+            (b, false, true)
+        } else {
+            let mut b = serde_json::json!({
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": agent.system_prompt},
+                    {"role": "user", "content": user_msg}
+                ],
+                "temperature": 0.2
+            });
+            if self.max_tokens > 0 {
+                b["max_tokens"] = serde_json::json!(self.max_tokens);
+            }
+            (b, false, false)
+        };
+
+        let mut req = client.post(&endpoint).json(&body).timeout(timeout);
+        if is_anthropic {
+            req = req
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+
+        let request_fut = async move {
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| format!("AI request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                return Err(format!("AI API error: {}", resp.text().await.unwrap_or_default()));
+            }
+
+            let json: Value = resp
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse AI response: {}", e))?;
+
+            let content = if is_responses {
+                json.get("output_text")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        json["output"][0]["content"][0]["text"]
+                            .as_str()
+                            .map(|s| s.to_string())
+                    })
+                    .or_else(|| json["output"][0]["content"].as_str().map(|s| s.to_string()))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string()
+            } else if is_anthropic {
+                json["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string()
+            } else {
+                json["choices"][0]["message"]["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .trim()
+                    .to_string()
+            };
+
+            if content.is_empty() {
+                let finish = if is_responses {
+                    json.get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(json["output"][0]["finish_reason"].as_str().unwrap_or(""))
+                } else if is_anthropic {
+                    json.get("stop_reason")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                } else {
+                    json["choices"][0]["finish_reason"].as_str().unwrap_or("")
+                };
+                return Err(format!(
+                    "AI returned empty content (finish_reason: {}). Try increasing max tokens.",
+                    finish
+                ));
+            }
+
+            Ok(content)
+        };
+
+        tokio::select! {
+            res = request_fut => res,
+            _ = async {
+                loop {
+                    if cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            } => Err("Cancelled".into()),
+        }
     }
 }
 

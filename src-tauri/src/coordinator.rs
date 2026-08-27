@@ -511,14 +511,28 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                         finish_pipeline(my_seq, &cancel);
                         return;
                     }
-                    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+                    // Cancellable AI request: dropping the reqwest future closes the
+                    // TCP connection so the remote model stops and the user is not billed.
+                    let cancel_for_ai = cancel.clone();
                     let text_for_ai = text.clone();
-                    std::thread::spawn(move || {
-                        let _ =
-                            tx.send(client.process_with_timeout(&text_for_ai, &agent, ai_timeout));
-                    });
-                    match rx.recv_timeout(ai_timeout + std::time::Duration::from_secs(2)) {
-                        Ok(Ok(formatted)) => {
+                    let agent_for_ai = agent.clone();
+                    let result = match tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        Ok(rt) => rt.block_on(client.process_with_cancel(
+                            &text_for_ai,
+                            &agent_for_ai,
+                            ai_timeout,
+                            cancel_for_ai,
+                        )),
+                        Err(e) => {
+                            eprintln!("[process] failed to create runtime: {} — using raw text", e);
+                            Err(format!("runtime error: {}", e))
+                        }
+                    };
+                    match result {
+                        Ok(formatted) => {
                             if cancelled() {
                                 eprintln!(
                                     "[cancel] AI result discarded (cancelled during processing)"
@@ -529,14 +543,13 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                             final_text = formatted;
                             agent_name = Some(agent_name_snapshot);
                         }
-                        Ok(Err(e)) => {
-                            eprintln!("AI processing skipped ({}), using raw text", e);
+                        Err(e) if e == "Cancelled" => {
+                            eprintln!("[cancel] AI request cancelled, discarding pipeline");
+                            finish_pipeline(my_seq, &cancel);
+                            return;
                         }
-                        Err(_) => {
-                            eprintln!(
-                                "AI processing timed out after {}s, using raw text",
-                                timeout_secs
-                            );
+                        Err(e) => {
+                            eprintln!("AI processing skipped ({}), using raw text", e);
                         }
                     }
                 }
