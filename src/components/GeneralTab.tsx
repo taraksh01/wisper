@@ -2,6 +2,7 @@ import { IconGeneral, IconKeyboard } from "./ui/icons";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AppSettings, languages } from "../types";
 import { Select } from "./Select";
 import { PillGroup } from "./PillGroup";
@@ -341,18 +342,28 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
   const pendingModsRef = useRef<Set<string>>(new Set());
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  const fetchDevices = useCallback(() => {
+  const fetchDevices = useCallback((force = false) => {
+    if (!force && document.visibilityState !== "visible") return;
     invoke<[string, string][]>("list_audio_devices").then(setInputDevices).catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetchDevices();
-    const id = window.setInterval(fetchDevices, 3000);
-    const onFocus = () => fetchDevices();
+    fetchDevices(true);
+    const id = window.setInterval(() => fetchDevices(), 3000);
+    const onFocus = () => fetchDevices(true);
+    const onVis = () => {
+      if (document.visibilityState === "visible") fetchDevices(true);
+    };
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    const unlisten = listen<string>("wisper:open-tab", (e) => {
+      if (e.payload === "general") fetchDevices(true);
+    }).then((fn) => fn).catch(() => () => {});
     return () => {
       window.clearInterval(id);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+      unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [fetchDevices]);
 
@@ -477,7 +488,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
             <div>
               <div className="flex items-center justify-between gap-2 mb-1.5">
                 <label className="label-soft">Microphone</label>
-                <button type="button" onClick={fetchDevices} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
+                <button type="button" onClick={() => fetchDevices(true)} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
               </div>
               <Select
                 value={settings.input_device}

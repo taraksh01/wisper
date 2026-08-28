@@ -176,14 +176,19 @@ function AppShell() {
   };
 
   const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const settingsRef = useRef<AppSettings | null>(null);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   const saveSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    if (!settings) return;
-    const prev = { ...settings };
-    const updated = { ...settings, [key]: value };
-    setSettings(updated);
+    if (!settingsRef.current) return;
     const msg = settingToast(key, value);
-    invoke<number>("save_settings", { settings: updated })
-      .then((trimmed) => {
+    setSettings((prev) => (prev ? ({ ...prev, [key]: value } as AppSettings) : prev));
+    const task = async () => {
+      const base = settingsRef.current;
+      if (!base) return;
+      const updated = { ...base, [key]: value } as AppSettings;
+      try {
+        const trimmed = await invoke<number>("save_settings", { settings: updated });
         if (key === "max_history_entries" || key === "history_retention_mode") {
           fetchHistory();
           if (typeof trimmed === "number" && trimmed > 0) {
@@ -195,20 +200,40 @@ function AppShell() {
         } else {
           if (msg) toast.addToast(msg, "success");
         }
-      })
-      .catch((e) => { console.error("[saveSetting]", e); setSettings(prev); toast.addToast("Failed to save settings", "error"); });
-    if ((MODEL_KEYS as string[]).includes(key as string)) refreshCurrentModel();
+      } catch (e) {
+        console.error("[saveSetting]", e);
+        try {
+          const fresh = await invoke<AppSettings>("load_settings");
+          setSettings(fresh);
+        } catch {}
+        toast.addToast("Failed to save settings", "error");
+      }
+      if ((MODEL_KEYS as string[]).includes(key as string)) refreshCurrentModel();
+    };
+    saveQueueRef.current = saveQueueRef.current.then(task, task);
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
-    if (!settings) return;
-    const prev = { ...settings };
-    const merged = { ...settings, ...updates };
-    setSettings(merged);
-    invoke("save_settings", { settings: merged })
-      .then(() => { toast.addToast("Settings saved", "success"); })
-      .catch((e) => { console.error("[saveAllSettings]", e); setSettings(prev); toast.addToast("Failed to save settings", "error"); });
-    if (Object.keys(updates).some((k) => (MODEL_KEYS as string[]).includes(k))) refreshCurrentModel();
+    if (!settingsRef.current) return;
+    setSettings((prev) => (prev ? ({ ...prev, ...updates } as AppSettings) : prev));
+    const task = async () => {
+      const base = settingsRef.current;
+      if (!base) return;
+      const merged = { ...base, ...updates } as AppSettings;
+      try {
+        await invoke("save_settings", { settings: merged });
+        toast.addToast("Settings saved", "success");
+      } catch (e) {
+        console.error("[saveAllSettings]", e);
+        try {
+          const fresh = await invoke<AppSettings>("load_settings");
+          setSettings(fresh);
+        } catch {}
+        toast.addToast("Failed to save settings", "error");
+      }
+      if (Object.keys(updates).some((k) => (MODEL_KEYS as string[]).includes(k))) refreshCurrentModel();
+    };
+    saveQueueRef.current = saveQueueRef.current.then(task, task);
   };
 
   const settingToast = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): string | null => {

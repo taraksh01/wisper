@@ -185,11 +185,10 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
     });
   };
 
-  const cancelDownload = async (modelName?: string) => {
+  const cancelDownload = async (modelName: string) => {
     try {
-      const target = modelName || Array.from(downloading)[0];
-      if (!target) return;
-      await invoke("cancel_download", { modelName: target });
+      if (!modelName) return;
+      await invoke("cancel_download", { modelName });
     } catch (e) {
       console.error("Cancel failed:", e);
     }

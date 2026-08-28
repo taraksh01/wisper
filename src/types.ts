@@ -92,6 +92,8 @@ export interface AppSettings {
   sound_on_error: boolean;
   input_device: string;
   time_saved_sec: number;
+  lifetime_dictations: number;
+  lifetime_words: number;
   max_history_entries: number;
   history_retention_mode: string;
 }
@@ -411,6 +413,19 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
   const map: Record<string, string> = {
     "parakeet-onnx-tdt-0.6b-v3": "parakeet-tdt-0.6b-v3-int8",
     "parakeet-onnx-tdt-0.6b-v2": "parakeet-tdt-0.6b-v2-int8",
+    "indicconformer-120m-hi": "indicconformer-120m-hi",
+    "indicconformer-120m-bn": "indicconformer-120m-bn",
+    "indicconformer-120m-ta": "indicconformer-120m-ta",
+    "indicconformer-120m-te": "indicconformer-120m-te",
+    "indicconformer-120m-mr": "indicconformer-120m-mr",
+    "indicconformer-120m-gu": "indicconformer-120m-gu",
+    "indicconformer-120m-kn": "indicconformer-120m-kn",
+    "indicconformer-120m-ml": "indicconformer-120m-ml",
+    "indicconformer-120m-pa": "indicconformer-120m-pa",
+    "indicconformer-8lang": "indicconformer-8lang",
+    "indicconformer-600m-multi": "indicconformer-600m-multi",
+    "whisper-large-v3-int8": "whisper-large-v3-int8",
+    "moonshine-base": "moonshine-base",
   };
   return map[key] || key;
 }

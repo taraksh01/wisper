@@ -27,11 +27,11 @@ interface HistoryTabProps {
 const audioCache = new Map<string, string>();
 const peaksCache = new Map<string, Float32Array>();
 
-/** Downsample channel 0 into peak amplitudes for the waveform. */
 async function computePeaks(blobUrl: string): Promise<Float32Array | null> {
+  let ctx: AudioContext | null = null;
   try {
     const buf = await (await fetch(blobUrl)).arrayBuffer();
-    const ctx = new AudioContext();
+    ctx = new AudioContext();
     const audio = await ctx.decodeAudioData(buf);
     const ch = audio.getChannelData(0);
     const buckets = 120;
@@ -46,10 +46,11 @@ async function computePeaks(blobUrl: string): Promise<Float32Array | null> {
       }
       out[i] = max;
     }
-    void ctx.close();
     return out;
   } catch {
     return null;
+  } finally {
+    if (ctx) void ctx.close();
   }
 }
 
@@ -82,8 +83,10 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
   const [playerDur, setPlayerDur] = useState(0);
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
 
-  // Time saved is accumulated in settings by the backend on each dictation.
   const timeSavedSec = settings.time_saved_sec;
+  const lifetimeWords = settings.lifetime_words ?? 0;
+  const lifetimeDictations = settings.lifetime_dictations ?? 0;
+  const lifetimeAvg = lifetimeDictations > 0 ? lifetimeWords / lifetimeDictations : 0;
 
   const filteredHistory = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -286,9 +289,9 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
       <SectionCard className="card-enter">
         <div className={`grid ${statCols} gap-2`}>
           {[
-            { label: "Dictations", value: String(stats[0]) },
-            { label: "Words", value: String(stats[1]) },
-            { label: "Avg Words", value: stats[2].toFixed(1) },
+            { label: "Dictations", value: String(stats[0]), title: "Entries in history — resets when you clear history" },
+            { label: "Words", value: String(lifetimeWords), title: "Lifetime words — never resets" },
+            { label: "Avg Words", value: lifetimeAvg.toFixed(1), title: "Lifetime average — never resets" },
             {
               label: "Time saved",
               value: timeSavedSec >= 3600
@@ -296,11 +299,12 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
                 : timeSavedSec >= 60
                 ? `${Math.floor(timeSavedSec / 60)}m ${timeSavedSec % 60}s`
                 : `${timeSavedSec}s`,
+              title: "Estimated at 60 WPM typing speed — lifetime, never resets",
             },
           ].map((s) => (
             <div
               key={s.label}
-              title={s.label === "Time saved" ? "Estimated at 60 WPM typing speed" : undefined}
+              title={s.title}
               className="bg-elevated/40 rounded-xl px-3 py-3 text-center min-w-0"
             >
               <div className="text-xl font-bold font-mono text-accent tabular-nums truncate leading-none">{s.value}</div>
