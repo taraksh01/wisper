@@ -194,14 +194,34 @@ static CLIPBOARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 static ENIGO: Lazy<Mutex<Option<Enigo>>> = Lazy::new(|| Mutex::new(None));
 
 fn with_enigo(f: impl FnOnce(&mut Enigo) -> Result<(), String>) -> Result<(), String> {
-    let mut g = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
-    if g.is_none() {
-        *g = Enigo::new(&Settings {
-            linux_delay: 1,
-            ..Default::default()
-        })
-        .ok();
+    {
+        let g = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+        if g.is_some() {
+            drop(g);
+        } else {
+            drop(g);
+            for i in 0..3 {
+                if i > 0 {
+                    thread::sleep(Duration::from_millis(200));
+                }
+                if let Ok(enigo) = Enigo::new(&Settings {
+                    linux_delay: 1,
+                    ..Default::default()
+                }) {
+                    let mut gg = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+                    if gg.is_none() {
+                        *gg = Some(enigo);
+                    }
+                    break;
+                }
+                let check = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+                if check.is_some() {
+                    break;
+                }
+            }
+        }
     }
+    let mut g = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
     match g.as_mut() {
         Some(e) => f(e),
         None => Err("Failed to create Enigo".into()),
@@ -222,14 +242,18 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
         return Err(format!("Failed to set clipboard text: {}", e));
     }
 
-    // Poll until clipboard claims the new text (Wayland may be async) — 200ms max
+    let mut ready = false;
     for _ in 0..20 {
         if let Ok(cur) = clipboard.get_text() {
             if cur == expected {
+                ready = true;
                 break;
             }
         }
         thread::sleep(Duration::from_millis(10));
+    }
+    if ready {
+        thread::sleep(Duration::from_millis(30));
     }
 
     let paste_result = simulate_key_combo(method);

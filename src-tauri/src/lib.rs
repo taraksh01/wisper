@@ -25,14 +25,17 @@ const DEFAULT_HOTKEY: &str = "F9";
 /// Some native libraries (libayatana-appindicator, handy-keys) print harmless
 /// deprecation/info warnings straight to the C stderr stream, which can't be
 /// captured by Rust's `eprintln!` redirection. This dup2's fd 2 to /dev/null
-/// for the duration of `f`, then restores the original fd. Linux only.
+#[cfg(target_os = "linux")]
+static SILENCE_LOCK: once_cell::sync::Lazy<std::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(()));
+
 #[cfg(target_os = "linux")]
 pub fn silence_stderr<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
     use std::os::unix::io::AsRawFd;
-    // Save the current stderr fd.
+    let _g = SILENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
     let null = std::fs::OpenOptions::new()
         .write(true)
@@ -596,8 +599,18 @@ pub fn run() {
                 }
             });
 
-            // Load saved settings and derive ALL runtime state from them (single source)
-            let saved_settings = settings::AppSettings::load();
+            let mut saved_settings = settings::AppSettings::load();
+            if saved_settings.lifetime_dictations == 0 && saved_settings.lifetime_words == 0 {
+                if let Ok((total, total_words, _)) =
+                    crate::history::HistoryManager::new().get_stats()
+                {
+                    if total > 0 {
+                        saved_settings.lifetime_dictations = total;
+                        saved_settings.lifetime_words = total_words;
+                        let _ = saved_settings.save();
+                    }
+                }
+            }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh();
             // Enforce history retention limit on startup

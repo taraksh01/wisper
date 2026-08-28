@@ -393,13 +393,28 @@ fn wav_from_samples(
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(path)
-                .map_err(|e| e.to_string())?
+            let mut last_err = String::new();
+            let mut file: Option<std::fs::File> = None;
+            for _ in 0..3 {
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(path)
+                {
+                    Ok(fd) => {
+                        file = Some(fd);
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        last_err = e.to_string();
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                        continue;
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
+            file.ok_or(last_err)?
         }
         #[cfg(not(unix))]
         {
@@ -522,26 +537,27 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
 #[tauri::command]
 pub fn clear_history() -> Result<(), String> {
     let manager = HistoryManager::new();
-
-    // Collect all recording paths before deleting
-    let entries = manager
-        .get_history(i64::MAX, 0)
-        .map_err(|e| format!("Failed to get history: {}", e))?;
-
-    // Delete recording files (only inside recordings dir)
-    for entry in &entries {
-        if let Some(ref path) = entry.recording_path {
-            if let Ok(p) = validate_recording_path(path) {
-                let _ = std::fs::remove_file(p);
+    let paths: Vec<Option<String>> = {
+        let conn = HistoryManager::conn();
+        let mut stmt = conn
+            .prepare("SELECT recording_path FROM history")
+            .map_err(|e| format!("Failed to prepare: {}", e))?;
+        let rows = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| format!("Failed to query: {}", e))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| format!("Failed to collect: {}", e))?
+    };
+    for path in &paths {
+        if let Some(ref p) = path {
+            if let Ok(valid) = validate_recording_path(p) {
+                let _ = std::fs::remove_file(valid);
             }
         }
     }
-
-    // Delete all rows from the table
     manager
         .clear_all()
         .map_err(|e| format!("Failed to clear history: {}", e))?;
-
     Ok(())
 }
 

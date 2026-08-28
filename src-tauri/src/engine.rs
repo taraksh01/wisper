@@ -113,11 +113,9 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
     if input.is_empty() {
         return Vec::new();
     }
-    // Fast path for the common cpal case 48 kHz -> 16 kHz (exact 3:1)
     if input_rate == 48000 && output_rate == 16000 {
         let mut out = Vec::with_capacity(input.len() / 3);
         for chunk in input.chunks_exact(3) {
-            // Simple box filter: average 3 samples for anti-aliasing
             out.push((chunk[0] + chunk[1] + chunk[2]) / 3.0);
         }
         let rem = input.len() % 3;
@@ -130,13 +128,38 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
     let ratio = output_rate as f64 / input_rate as f64;
     let output_len = (input.len() as f64 * ratio) as usize;
     let mut output = Vec::with_capacity(output_len);
-    for i in 0..output_len {
-        let src_pos = i as f64 / ratio;
-        let idx = src_pos as usize;
-        let frac = (src_pos - idx as f64) as f32;
-        let a = input[idx.min(input.len() - 1)];
-        let b = input[(idx + 1).min(input.len() - 1)];
-        output.push(a * (1.0 - frac) + b * frac);
+    if input_rate > output_rate {
+        let win = (input_rate as f64 / output_rate as f64).ceil() as usize;
+        for i in 0..output_len {
+            let src_pos = i as f64 / ratio;
+            let idx = src_pos as usize;
+            let frac = (src_pos - idx as f64) as f32;
+            let avg = |p: usize| {
+                let end = (p + win).min(input.len());
+                let slice = &input[p..end];
+                slice.iter().sum::<f32>() / slice.len() as f32
+            };
+            let a = if win > 1 {
+                avg(idx)
+            } else {
+                input[idx.min(input.len() - 1)]
+            };
+            let b = if win > 1 {
+                avg((idx + 1).min(input.len() - 1))
+            } else {
+                input[(idx + 1).min(input.len() - 1)]
+            };
+            output.push(a * (1.0 - frac) + b * frac);
+        }
+    } else {
+        for i in 0..output_len {
+            let src_pos = i as f64 / ratio;
+            let idx = src_pos as usize;
+            let frac = (src_pos - idx as f64) as f32;
+            let a = input[idx.min(input.len() - 1)];
+            let b = input[(idx + 1).min(input.len() - 1)];
+            output.push(a * (1.0 - frac) + b * frac);
+        }
     }
     output
 }
@@ -178,19 +201,18 @@ impl CloudEngineProvider {
 
 impl EngineProvider for CloudEngineProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
-        let temp_dir = std::env::temp_dir();
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
         let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
-        let wav_path = temp_dir.join(format!(
-            "wisper_{}_{}_{}.wav",
+        let mut wav_path = std::env::temp_dir();
+        wav_path.push(format!(
+            "wisper_cloud_{}_{}_{}.wav",
             std::process::id(),
             nanos,
             ctr
         ));
-        // Ensure unique file with 0600 permissions and cleanup on scope exit
         struct Guard(std::path::PathBuf);
         impl Drop for Guard {
             fn drop(&mut self) {
@@ -198,7 +220,6 @@ impl EngineProvider for CloudEngineProvider {
             }
         }
         let _guard = Guard(wav_path.clone());
-
         crate::audio::save_wav(&wav_path, audio, sample_rate)
             .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
 

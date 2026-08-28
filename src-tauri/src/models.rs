@@ -33,6 +33,29 @@ pub fn get_models_dir() -> PathBuf {
     path
 }
 
+fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
+    if name.starts_with("parakeet-") {
+        return true;
+    }
+    if dir.join("model.onnx").exists() || dir.join("encoder_model.onnx").exists() {
+        return true;
+    }
+    if name.starts_with("indicconformer-600m-multi") {
+        return dir.join("encoder-model.onnx").exists()
+            && dir.join("encoder-model.onnx.data").exists()
+            && dir.join("ctc_decoder-model.onnx").exists()
+            && dir.join("nemo128.onnx").exists()
+            && dir.join("vocab.txt").exists()
+            && dir.join("language_spans.json").exists();
+    }
+    if name.starts_with("whisper-large-v3") {
+        return dir.join("large-v3-encoder.int8.onnx").exists()
+            && dir.join("large-v3-decoder.int8.onnx").exists()
+            && dir.join("large-v3-tokens.txt").exists();
+    }
+    false
+}
+
 #[tauri::command]
 pub fn list_local_models() -> Vec<String> {
     let dir = get_models_dir();
@@ -47,26 +70,8 @@ pub fn list_local_models() -> Vec<String> {
                         || name.starts_with("moonshine-")
                         || name.starts_with("whisper-large-v3"))
                 {
-                    // Family-appropriate marker: parakeet is a directory bundle,
-                    // indic uses model.onnx, moonshine uses encoder_model.onnx,
-                    // 600m-multi uses encoder-model.onnx, whisper v3 uses
-                    // large-v3-encoder.int8.onnx
                     let path = entry.path();
-                    let complete = name.starts_with("parakeet-")
-                        || path.join("model.onnx").exists()
-                        || path.join("encoder_model.onnx").exists()
-                        || (name.starts_with("indicconformer-600m-multi")
-                            && path.join("encoder-model.onnx").exists()
-                            && path.join("encoder-model.onnx.data").exists()
-                            && path.join("ctc_decoder-model.onnx").exists()
-                            && path.join("nemo128.onnx").exists()
-                            && path.join("vocab.txt").exists()
-                            && path.join("language_spans.json").exists())
-                        || (name.starts_with("whisper-large-v3")
-                            && path.join("large-v3-encoder.int8.onnx").exists()
-                            && path.join("large-v3-decoder.int8.onnx").exists()
-                            && path.join("large-v3-tokens.txt").exists());
-                    if complete {
+                    if is_model_complete(&path, &name) {
                         models.push(name);
                     }
                 }
@@ -179,11 +184,14 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     let dir_name = onnx_dir_name(&model_name).ok_or("Missing directory name for ONNX model")?;
     let target_dir = models_dir.join(&dir_name);
     if target_dir.exists() {
-        ACTIVE_CANCEL
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&model_name);
-        return Ok(target_dir.to_string_lossy().to_string());
+        if is_model_complete(&target_dir, &dir_name) {
+            ACTIVE_CANCEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&model_name);
+            return Ok(target_dir.to_string_lossy().to_string());
+        }
+        let _ = fs::remove_dir_all(&target_dir);
     }
 
     // Multi-file models: 600M Multi (7 files) and Whisper large-v3 int8 (3 files).

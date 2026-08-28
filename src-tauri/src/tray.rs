@@ -22,14 +22,17 @@ fn pretty_model(file: &str) -> String {
 
 fn tooltip_text() -> String {
     let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let s = settings::AppSettings::load();
     let dn = app_info::display_name();
+    let model = crate::coordinator::MODEL_DISPLAY_NAME
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     match *state {
         CoordinatorState::Idle => {
-            if s.local_model_file.is_empty() {
+            if model.is_empty() {
                 format!("{} - Idle", dn)
             } else {
-                format!("{} - Idle [{}]", dn, pretty_model(&s.local_model_file))
+                format!("{} - Idle [{}]", dn, model)
             }
         }
         CoordinatorState::Recording => format!("{} - Recording...", dn),

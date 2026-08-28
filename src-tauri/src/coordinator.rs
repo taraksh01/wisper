@@ -14,21 +14,59 @@ const CANCEL_WAV: &[u8] = include_bytes!("../../public/sounds/cancel.wav");
 const ERROR_WAV: &[u8] = include_bytes!("../../public/sounds/error.wav");
 
 fn play_wav(data: &'static [u8]) {
-    // Write to /tmp once and play via aplay (ALSA) — lightweight, no extra
-    // Rust audio deps (rodio conflicts with cpal 0.18). Falls back silently.
-    let path = if std::ptr::eq(data.as_ptr(), START_WAV.as_ptr()) {
-        "/tmp/wisper_start.wav"
+    let suffix = if std::ptr::eq(data.as_ptr(), START_WAV.as_ptr()) {
+        "start"
     } else if std::ptr::eq(data.as_ptr(), DONE_WAV.as_ptr()) {
-        "/tmp/wisper_done.wav"
+        "done"
     } else if std::ptr::eq(data.as_ptr(), CANCEL_WAV.as_ptr()) {
-        "/tmp/wisper_cancel.wav"
+        "cancel"
     } else {
-        "/tmp/wisper_error.wav"
+        "error"
     };
-    let _ = std::fs::write(path, data);
+    let mut tmp = std::env::temp_dir();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    tmp.push(format!(
+        "wisper_{}_{}_{}.wav",
+        suffix,
+        std::process::id(),
+        nanos
+    ));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+        {
+            use std::io::Write;
+            let _ = f.write_all(data);
+            let _ = f.sync_all();
+        } else {
+            return;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            let _ = f.write_all(data);
+        } else {
+            return;
+        }
+    }
     std::thread::spawn(move || {
-        let path = path.to_string();
-        // Try aplay (ALSA), then paplay (Pulse), then ffplay, else silent.
+        let path = tmp.to_string_lossy().to_string();
+        let tmp_path = tmp.clone();
+        let mut played = false;
         for prog in &["aplay", "paplay", "pw-play"] {
             let mut cmd = std::process::Command::new(prog);
             if *prog == "aplay" {
@@ -40,18 +78,21 @@ fn play_wav(data: &'static [u8]) {
                 .stderr(std::process::Stdio::null());
             if let Ok(mut child) = cmd.spawn() {
                 let _ = child.wait();
-                return;
+                played = true;
+                break;
             }
         }
-        // Last resort: ffplay (no window, auto exit)
-        let _ = std::process::Command::new("ffplay")
-            .args(["-nodisp", "-autoexit", "-loglevel", "quiet", &path])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map(|mut c| {
-                let _ = c.wait();
-            });
+        if !played {
+            let _ = std::process::Command::new("ffplay")
+                .args(["-nodisp", "-autoexit", "-loglevel", "quiet", &path])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map(|mut c| {
+                    let _ = c.wait();
+                });
+        }
+        let _ = std::fs::remove_file(&tmp_path);
     });
 }
 fn play_start_sound() {
@@ -175,13 +216,34 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
         let (lock, cvar) = &*SEQ_CV;
         let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
-            guard = cvar
-                .wait_timeout(guard, std::time::Duration::from_millis(10))
-                .unwrap()
-                .0;
+            if cancel.load(Ordering::Relaxed) {
+                let cur = SEQ_TURN.load(Ordering::Relaxed);
+                if cur == my_seq {
+                    break;
+                }
+                if cur < my_seq {
+                    SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
+                    cvar.notify_all();
+                    return;
+                }
+            }
+            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
         }
         SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
         cvar.notify_all();
+    }
+}
+
+struct PipelineGuard {
+    seq: u64,
+    cancel: CancelToken,
+}
+
+impl Drop for PipelineGuard {
+    fn drop(&mut self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            finish_pipeline(self.seq, &self.cancel);
+        }));
     }
 }
 
@@ -327,14 +389,19 @@ impl TranscriptionCoordinator {
 }
 
 fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: u64) {
+    let _guard = PipelineGuard {
+        seq: my_seq,
+        cancel: cancel.clone(),
+    };
     let cancelled = || cancel.load(Ordering::Relaxed);
 
     if cancelled() {
-        finish_pipeline(my_seq, &cancel);
         return;
     }
 
-    // Save recording to disk if enabled (at original sample rate for playback)
+    if crate::audio::was_capped_and_reset() {
+        crate::show_overlay_error(Some("Recording too long — truncated to 5 minutes.".into()));
+    }
     let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
         crate::history::save_recording_to_disk(&samples, device_sr)
     } else {
@@ -374,7 +441,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
     if !trimmed.is_empty() {
         if cancelled() {
             eprintln!("[cancel] pipeline cancelled before transcription");
-            finish_pipeline(my_seq, &cancel);
             return;
         }
         let mode = ENGINE_MODE
@@ -428,7 +494,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                         path.display()
                     )));
                     play_error_sound();
-                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
                 None => {
@@ -439,7 +504,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                         "No model selected. Open the Engine tab to activate one.".into(),
                     ));
                     play_error_sound();
-                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
             }
@@ -449,7 +513,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
             Ok(text) => {
                 if cancelled() {
                     eprintln!("[cancel] pipeline cancelled after transcription — discarding text");
-                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
                 println!("Transcription: {}", text);
@@ -510,7 +573,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     let agent_name_snapshot = agent.name.clone();
                     if cancelled() {
                         eprintln!("[cancel] pipeline cancelled before AI phase");
-                        finish_pipeline(my_seq, &cancel);
                         return;
                     }
                     // Cancellable AI request: dropping the reqwest future closes the
@@ -539,7 +601,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                                 eprintln!(
                                     "[cancel] AI result discarded (cancelled during processing)"
                                 );
-                                finish_pipeline(my_seq, &cancel);
                                 return;
                             }
                             final_text = formatted;
@@ -547,7 +608,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                         }
                         Err(e) if e == "Cancelled" => {
                             eprintln!("[cancel] AI request cancelled, discarding pipeline");
-                            finish_pipeline(my_seq, &cancel);
                             return;
                         }
                         Err(e) => {
@@ -559,7 +619,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 // whether or not the AI processing ran.
                 if cancelled() {
                     eprintln!("[cancel] pipeline cancelled before words/paste — discarding");
-                    finish_pipeline(my_seq, &cancel);
                     return;
                 }
                 if words_enabled {
@@ -578,7 +637,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                             eprintln!(
                                 "[cancel] pipeline cancelled while waiting for paste turn {my_seq}"
                             );
-                            finish_pipeline(my_seq, &cancel);
                             return;
                         }
                         let (g, _) = cvar
@@ -639,13 +697,20 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     ) {
                         eprintln!("Failed to log history: {}", e);
                     } else {
+                        crate::settings::add_lifetime_stats(raw_words as i64);
+                        let words = raw_words as f64;
+                        let typing_sec = words / 1.0; // ~60 WPM
+                        let speak_sec = duration_ms as f64 / 1000.0;
+                        let saved = (typing_sec - speak_sec).max(0.0) as i64;
+                        if saved > 0 {
+                            crate::settings::add_time_saved(saved);
+                        }
                         if WORDS_ENABLED.load(Ordering::Relaxed)
                             && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
                             && text != final_text
                         {
                             crate::words::maybe_auto_add_corrections(&text, &final_text);
                         }
-                        // Enforce retention limit after each insert
                         let s = crate::settings::AppSettings::load();
                         if s.max_history_entries > 0 {
                             let mode = if s.keep_recordings
@@ -660,15 +725,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                                 eprintln!("Failed to trim history: {}", e);
                             }
                         }
-                    }
-
-                    // Accumulate estimated time saved (typing time minus speaking time).
-                    let words = raw_words as f64;
-                    let typing_sec = words / 1.0; // ~60 WPM
-                    let speak_sec = duration_ms as f64 / 1000.0;
-                    let saved = (typing_sec - speak_sec).max(0.0) as i64;
-                    if saved > 0 {
-                        crate::settings::add_time_saved(saved);
                     }
                 }
             }
@@ -686,7 +742,6 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
         play_error_sound();
     }
 
-    finish_pipeline(my_seq, &cancel);
     play_done_sound();
 }
 

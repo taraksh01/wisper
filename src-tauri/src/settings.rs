@@ -88,6 +88,11 @@ pub struct AppSettings {
     pub input_device: String,
     /// Cumulative seconds saved by speaking instead of typing (estimated).
     pub time_saved_sec: i64,
+    /// Lifetime dictations and words for stats that never reset on clear.
+    #[serde(default)]
+    pub lifetime_dictations: i64,
+    #[serde(default)]
+    pub lifetime_words: i64,
     /// Maximum history entries to retain (0 = unlimited).
     #[serde(default = "default_max_history")]
     pub max_history_entries: i32,
@@ -181,6 +186,8 @@ impl Default for AppSettings {
             sound_on_error: true,
             input_device: String::new(),
             time_saved_sec: 0,
+            lifetime_dictations: 0,
+            lifetime_words: 0,
             max_history_entries: default_max_history(),
             history_retention_mode: default_retention_mode(),
         }
@@ -217,6 +224,9 @@ impl AppSettings {
                     {
                         s.enabled_languages = vec![s.language.clone()];
                     }
+                    s.lifetime_dictations = s.lifetime_dictations.max(0);
+                    s.lifetime_words = s.lifetime_words.max(0);
+                    s.time_saved_sec = s.time_saved_sec.max(0);
                     return s;
                 }
             }
@@ -486,6 +496,17 @@ pub fn add_time_saved(delta: i64) {
     let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut s = AppSettings::load();
     s.time_saved_sec = s.time_saved_sec.saturating_add(delta);
+    let _ = s.save();
+}
+
+pub fn add_lifetime_stats(words: i64) {
+    if words < 0 {
+        return;
+    }
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut s = AppSettings::load();
+    s.lifetime_dictations = s.lifetime_dictations.saturating_add(1);
+    s.lifetime_words = s.lifetime_words.saturating_add(words);
     let _ = s.save();
 }
 

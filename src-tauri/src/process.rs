@@ -366,27 +366,9 @@ impl ProcessClient {
         resolved_endpoint_for(&self.base_url, &self.model, &self.endpoint)
     }
 
-    pub fn process(&self, text: &str, agent: &SmartAgent) -> Result<String, String> {
-        self.process_with_timeout(text, agent, Duration::from_secs(30))
-    }
-
-    /// Like [`Self::process`], but hard-aborts the HTTP request after `timeout` —
-    /// the connection is closed so the model stops streaming and no further
-    /// tokens are billed for this request.
-    pub fn process_with_timeout(
-        &self,
-        text: &str,
-        agent: &SmartAgent,
-        timeout: Duration,
-    ) -> Result<String, String> {
-        let endpoint_path = self.resolved_endpoint();
-        let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), endpoint_path);
-        let client = &*PROCESS_CLIENT;
-
+    fn build_body(&self, agent: &SmartAgent, text: &str, endpoint_path: &str) -> (Value, bool, bool) {
         let user_msg = format!("<transcript>\n{}\n</transcript>", text);
-
-        // Build request per endpoint type
-        let (body, is_anthropic, is_responses) = if endpoint_path == "/messages" {
+        if endpoint_path == "/messages" {
             let mut b = serde_json::json!({
                 "model": self.model,
                 "system": agent.system_prompt,
@@ -423,30 +405,11 @@ impl ProcessClient {
                 b["max_tokens"] = serde_json::json!(self.max_tokens);
             }
             (b, false, false)
-        };
-
-        let mut req = client.post(&endpoint).json(&body).timeout(timeout);
-        if is_anthropic {
-            req = req
-                .header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01");
-        } else {
-            req = req.header("Authorization", format!("Bearer {}", self.api_key));
         }
-        let resp = req
-            .send()
-            .map_err(|e| format!("AI request failed: {}", e))?;
+    }
 
-        if !resp.status().is_success() {
-            return Err(format!("AI API error: {}", resp.text().unwrap_or_default()));
-        }
-
-        let json: Value = resp
-            .json()
-            .map_err(|e| format!("Failed to parse AI response: {}", e))?;
-
+    fn parse_content(json: &Value, is_anthropic: bool, is_responses: bool) -> Result<String, String> {
         let content = if is_responses {
-            // Responses API: prefer output_text helper, fallback to output[0].content
             json.get("output_text")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
@@ -472,16 +435,13 @@ impl ProcessClient {
                 .trim()
                 .to_string()
         };
-
         if content.is_empty() {
             let finish = if is_responses {
                 json.get("status")
                     .and_then(|v| v.as_str())
                     .unwrap_or(json["output"][0]["finish_reason"].as_str().unwrap_or(""))
             } else if is_anthropic {
-                json.get("stop_reason")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
+                json.get("stop_reason").and_then(|v| v.as_str()).unwrap_or("")
             } else {
                 json["choices"][0]["finish_reason"].as_str().unwrap_or("")
             };
@@ -490,14 +450,43 @@ impl ProcessClient {
                 finish
             ));
         }
-
         Ok(content)
     }
 
-    /// Like `process_with_timeout` but aborts the underlying HTTP request when
-    /// `cancel` is set. Dropping the `reqwest` future closes the TCP connection
-    /// so the remote model stops generating and the user is not billed for
-    /// output tokens that would have been discarded.
+    pub fn process(&self, text: &str, agent: &SmartAgent) -> Result<String, String> {
+        self.process_with_timeout(text, agent, Duration::from_secs(30))
+    }
+
+    pub fn process_with_timeout(
+        &self,
+        text: &str,
+        agent: &SmartAgent,
+        timeout: Duration,
+    ) -> Result<String, String> {
+        let endpoint_path = self.resolved_endpoint();
+        let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), endpoint_path);
+        let client = &*PROCESS_CLIENT;
+        let (body, is_anthropic, is_responses) = self.build_body(agent, text, &endpoint_path);
+        let mut req = client.post(&endpoint).json(&body).timeout(timeout);
+        if is_anthropic {
+            req = req
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", "2023-06-01");
+        } else {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+        let resp = req
+            .send()
+            .map_err(|e| format!("AI request failed: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("AI API error: {}", resp.text().unwrap_or_default()));
+        }
+        let json: Value = resp
+            .json()
+            .map_err(|e| format!("Failed to parse AI response: {}", e))?;
+        Self::parse_content(&json, is_anthropic, is_responses)
+    }
+
     pub async fn process_with_cancel(
         &self,
         text: &str,
@@ -511,48 +500,7 @@ impl ProcessClient {
         let endpoint_path = self.resolved_endpoint();
         let endpoint = format!("{}{}", self.base_url.trim_end_matches('/'), endpoint_path);
         let client = &*PROCESS_CLIENT_ASYNC;
-
-        let user_msg = format!("<transcript>\n{}\n</transcript>", text);
-
-        let (body, is_anthropic, is_responses) = if endpoint_path == "/messages" {
-            let mut b = serde_json::json!({
-                "model": self.model,
-                "system": agent.system_prompt,
-                "messages": [{"role": "user", "content": user_msg}],
-                "temperature": 0.2
-            });
-            if self.max_tokens > 0 {
-                b["max_tokens"] = serde_json::json!(self.max_tokens);
-            } else {
-                b["max_tokens"] = serde_json::json!(1024);
-            }
-            (b, true, false)
-        } else if endpoint_path == "/responses" {
-            let mut b = serde_json::json!({
-                "model": self.model,
-                "input": user_msg,
-                "instructions": agent.system_prompt,
-                "temperature": 0.2
-            });
-            if self.max_tokens > 0 {
-                b["max_output_tokens"] = serde_json::json!(self.max_tokens);
-            }
-            (b, false, true)
-        } else {
-            let mut b = serde_json::json!({
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": agent.system_prompt},
-                    {"role": "user", "content": user_msg}
-                ],
-                "temperature": 0.2
-            });
-            if self.max_tokens > 0 {
-                b["max_tokens"] = serde_json::json!(self.max_tokens);
-            }
-            (b, false, false)
-        };
-
+        let (body, is_anthropic, is_responses) = self.build_body(agent, text, &endpoint_path);
         let mut req = client.post(&endpoint).json(&body).timeout(timeout);
         if is_anthropic {
             req = req
@@ -561,70 +509,20 @@ impl ProcessClient {
         } else {
             req = req.header("Authorization", format!("Bearer {}", self.api_key));
         }
-
         let request_fut = async move {
             let resp = req
                 .send()
                 .await
                 .map_err(|e| format!("AI request failed: {}", e))?;
-
             if !resp.status().is_success() {
                 return Err(format!("AI API error: {}", resp.text().await.unwrap_or_default()));
             }
-
             let json: Value = resp
                 .json()
                 .await
                 .map_err(|e| format!("Failed to parse AI response: {}", e))?;
-
-            let content = if is_responses {
-                json.get("output_text")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        json["output"][0]["content"][0]["text"]
-                            .as_str()
-                            .map(|s| s.to_string())
-                    })
-                    .or_else(|| json["output"][0]["content"].as_str().map(|s| s.to_string()))
-                    .unwrap_or_default()
-                    .trim()
-                    .to_string()
-            } else if is_anthropic {
-                json["content"][0]["text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
-            } else {
-                json["choices"][0]["message"]["content"]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
-            };
-
-            if content.is_empty() {
-                let finish = if is_responses {
-                    json.get("status")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(json["output"][0]["finish_reason"].as_str().unwrap_or(""))
-                } else if is_anthropic {
-                    json.get("stop_reason")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                } else {
-                    json["choices"][0]["finish_reason"].as_str().unwrap_or("")
-                };
-                return Err(format!(
-                    "AI returned empty content (finish_reason: {}). Try increasing max tokens.",
-                    finish
-                ));
-            }
-
-            Ok(content)
+            Self::parse_content(&json, is_anthropic, is_responses)
         };
-
         tokio::select! {
             res = request_fut => res,
             _ = async {

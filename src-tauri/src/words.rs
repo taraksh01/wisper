@@ -695,10 +695,9 @@ const COMMON_WORDS: &[&str] = &[
     "no", "just", "him", "know", "take", "people", "into", "year", "your", "good", "some", "could",
     "them", "see", "other", "than", "then", "now", "look", "only", "come", "its", "over", "think",
     "also", "back", "after", "use", "two", "how", "our", "work", "first", "well", "way", "even",
-    "new", "want", "because", "any", "these", "give", "day", "most", "us", "should", "commit",
-    "shall", "may", "might", "must", "has", "had", "were", "been", "being", "are", "was", "is",
-    "am", "does", "did", "ought", "need", "dare", "used", "has", "have", "had", "do", "does",
-    "did", "will", "would", "shall", "should", "may", "might",
+    "new", "want", "because", "any", "these", "give", "day", "most", "us", "should", "shall", "may",
+    "might", "must", "has", "had", "were", "been", "being", "are", "was", "is", "am", "does", "did",
+    "ought", "need", "dare", "used",
 ];
 
 fn is_common_word(low: &str) -> bool {

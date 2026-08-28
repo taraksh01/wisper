@@ -7,6 +7,10 @@ use std::time::Duration;
 static AUDIO_DROP_CTR: AtomicU32 = AtomicU32::new(0);
 static AUDIO_CAP_WARNED: AtomicBool = AtomicBool::new(false);
 
+pub fn was_capped_and_reset() -> bool {
+    AUDIO_CAP_WARNED.swap(false, Ordering::Relaxed)
+}
+
 /// List available audio input devices as (stable id, display name) pairs.
 /// ALSA exposes the same physical microphone under many PCM nodes (hw/plughw/
 /// sysdefault/front/dsnoop) and even under both its numeric and named card id,
@@ -449,13 +453,23 @@ pub fn save_wav(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // Open with 0600 so recordings are never world-readable, even briefly
         let file = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
-            .open(path)?;
+            .open(path)
+            .or_else(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    std::fs::remove_file(path)?;
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .mode(0o600)
+                        .open(path)
+                } else {
+                    Err(e)
+                }
+            })?;
         let mut writer = hound::WavWriter::new(std::io::BufWriter::new(file), spec)?;
         for &sample in data {
             writer.write_sample(sample)?;
