@@ -1,14 +1,3 @@
-//! Whisper-keys global hotkey backend.
-//!
-//! Wraps the `handy-keys` crate (built on a raw OS input hook via rdev) so the
-//! push-to-talk hotkey fires reliably in every app on X11 and Wayland — unlike
-//! Tauri's global-shortcut plugin, which depends on the display server's key
-//! grab and fails depending on the focused client.
-//!
-//! A dedicated manager thread owns the `HotkeyManager` (it is not `Sync`) and
-//! polls for events, forwarding press/release as `hotkey::HotkeyEvent` into the
-//! existing `coordinator` channel. No action dispatch lives here.
-
 use handy_keys::{Hotkey, HotkeyId, HotkeyManager, HotkeyState};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -45,9 +34,15 @@ fn state() -> &'static WhisperKeysState {
 /// Initialize the whisper-keys backend. Spawns the manager thread.
 pub fn init(_app: &AppHandle) {
     let (cmd_tx, cmd_rx) = mpsc::channel::<ManagerCommand>();
-    *state().command_sender.lock().unwrap() = Some(cmd_tx);
+    *state()
+        .command_sender
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(cmd_tx);
     let handle = thread::spawn(move || manager_thread(cmd_rx));
-    *state().thread_handle.lock().unwrap() = Some(handle);
+    *state()
+        .thread_handle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(handle);
 }
 
 /// Register (or re-register) the single push-to-talk hotkey.
@@ -55,7 +50,7 @@ pub fn register(hotkey_string: &str) -> Result<(), String> {
     let sender = state()
         .command_sender
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .ok_or_else(|| "whisper-keys not initialized".to_string())?;
     let (tx, rx) = mpsc::channel();
@@ -73,7 +68,7 @@ pub fn unregister_all() -> Result<(), String> {
     let sender = state()
         .command_sender
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
         .ok_or_else(|| "whisper-keys not initialized".to_string())?;
     let (tx, rx) = mpsc::channel();
@@ -84,6 +79,17 @@ pub fn unregister_all() -> Result<(), String> {
 }
 
 fn manager_thread(cmd_rx: Receiver<ManagerCommand>) {
+    // handy-keys prints device-enumeration info lines to C stderr during
+    // manager creation; silence them for just the constructor call.
+    #[cfg(target_os = "linux")]
+    let manager = match crate::silence_stderr(|| HotkeyManager::new_with_blocking()) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("whisper-keys: failed to create HotkeyManager: {e}");
+            return;
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
     let manager = match HotkeyManager::new_with_blocking() {
         Ok(m) => m,
         Err(e) => {
@@ -107,11 +113,7 @@ fn manager_thread(cmd_rx: Receiver<ManagerCommand>) {
                 hotkey_string,
                 response,
             }) => {
-                let _ = response.send(do_register(
-                    &manager,
-                    &mut hotkey_to_id,
-                    &hotkey_string,
-                ));
+                let _ = response.send(do_register(&manager, &mut hotkey_to_id, &hotkey_string));
             }
             Ok(ManagerCommand::UnregisterAll { response }) => {
                 let _ = response.send(do_unregister_all(&manager, &mut hotkey_to_id));

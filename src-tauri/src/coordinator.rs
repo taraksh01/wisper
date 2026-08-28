@@ -1,30 +1,149 @@
-use crate::audio::{trim_silence, AudioRecorder};
+use crate::audio::{suppress_noise, trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::paste::paste_text;
 use crate::engine::{create_local_engine, CloudEngineProvider, EngineProvider};
+use crate::paste::paste_text;
+
+const START_WAV: &[u8] = include_bytes!("../../public/sounds/start.wav");
+const DONE_WAV: &[u8] = include_bytes!("../../public/sounds/done.wav");
+const CANCEL_WAV: &[u8] = include_bytes!("../../public/sounds/cancel.wav");
+const ERROR_WAV: &[u8] = include_bytes!("../../public/sounds/error.wav");
+
+fn play_wav(data: &'static [u8]) {
+    let suffix = if std::ptr::eq(data.as_ptr(), START_WAV.as_ptr()) {
+        "start"
+    } else if std::ptr::eq(data.as_ptr(), DONE_WAV.as_ptr()) {
+        "done"
+    } else if std::ptr::eq(data.as_ptr(), CANCEL_WAV.as_ptr()) {
+        "cancel"
+    } else {
+        "error"
+    };
+    let mut tmp = std::env::temp_dir();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    tmp.push(format!(
+        "wisper_{}_{}_{}.wav",
+        suffix,
+        std::process::id(),
+        nanos
+    ));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+        {
+            use std::io::Write;
+            let _ = f.write_all(data);
+            let _ = f.sync_all();
+        } else {
+            return;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            let _ = f.write_all(data);
+        } else {
+            return;
+        }
+    }
+    std::thread::spawn(move || {
+        let path = tmp.to_string_lossy().to_string();
+        let tmp_path = tmp.clone();
+        let mut played = false;
+        for prog in &["aplay", "paplay", "pw-play"] {
+            let mut cmd = std::process::Command::new(prog);
+            if *prog == "aplay" {
+                cmd.args(["-q", &path]);
+            } else {
+                cmd.arg(&path);
+            }
+            cmd.stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            if let Ok(mut child) = cmd.spawn() {
+                let _ = child.wait();
+                played = true;
+                break;
+            }
+        }
+        if !played {
+            let _ = std::process::Command::new("ffplay")
+                .args(["-nodisp", "-autoexit", "-loglevel", "quiet", &path])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map(|mut c| {
+                    let _ = c.wait();
+                });
+        }
+        let _ = std::fs::remove_file(&tmp_path);
+    });
+}
+fn play_start_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_START.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(START_WAV);
+}
+fn play_done_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_DONE.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(DONE_WAV);
+}
+fn play_cancel_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_CANCEL.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(CANCEL_WAV);
+}
+fn play_error_sound() {
+    if !SOUND_ENABLED.load(Ordering::Relaxed) || !SOUND_ON_ERROR.load(Ordering::Relaxed) {
+        return;
+    }
+    play_wav(ERROR_WAV);
+}
 
 pub static HOTKEY_MODE: AtomicBool = AtomicBool::new(true); // true = push-to-talk, false = toggle
 pub static KEEP_RECORDINGS: AtomicBool = AtomicBool::new(false);
 pub static VAD_ENABLED: AtomicBool = AtomicBool::new(true);
-pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
-pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+pub static VAD_THRESHOLD: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0.01_f32.to_bits());
+pub static NOISE_SUPPRESSION_ENABLED: AtomicBool = AtomicBool::new(false);
+pub static NOISE_SUPPRESSION_LEVEL: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0.5_f32.to_bits());
+pub static CURRENT_MODEL: std::sync::Mutex<Option<std::path::PathBuf>> =
+    std::sync::Mutex::new(None);
 pub static MODEL_DISPLAY_NAME: Mutex<String> = Mutex::new(String::new());
 pub static ENGINE_MODE: Mutex<String> = Mutex::new(String::new());
+pub static ENGINE_LANGUAGE: Mutex<String> = Mutex::new(String::new());
+pub static ENABLED_LANGUAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 pub static INPUT_DEVICE: Mutex<String> = Mutex::new(String::new()); // empty = system default
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
-pub static PASTE_BACKEND: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static WORDS_ENABLED: AtomicBool = AtomicBool::new(true);
-pub static PROCESS_BASE_URL: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_API_KEY: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_MODEL: Mutex<String> = Mutex::new(String::new());
-pub static PROCESS_MAX_TOKENS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+pub static WORDS_AUTO_SCAN: AtomicBool = AtomicBool::new(true);
+pub static SOUND_ENABLED: AtomicBool = AtomicBool::new(true);
+pub static SOUND_ON_START: AtomicBool = AtomicBool::new(false);
+pub static SOUND_ON_DONE: AtomicBool = AtomicBool::new(false);
+pub static SOUND_ON_CANCEL: AtomicBool = AtomicBool::new(true);
+pub static SOUND_ON_ERROR: AtomicBool = AtomicBool::new(true);
 pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
@@ -33,7 +152,8 @@ pub static CLOUD_MODEL: Mutex<String> = Mutex::new(String::new());
 pub fn model_display_name(path: &std::path::Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     if name.starts_with("parakeet-") {
-        name.replace("parakeet-", "Parakeet ").replace("-int8", " (INT8)")
+        name.replace("parakeet-", "Parakeet ")
+            .replace("-int8", " (INT8)")
     } else {
         name.to_string()
     }
@@ -44,10 +164,107 @@ pub enum CoordinatorState {
     Idle,
     Recording,
     Processing,
+    Error,
 }
 
 pub enum CoordinatorCommand {
     Hotkey(HotkeyEvent),
+    Cancel,
+}
+
+static CANCEL_SENDER: once_cell::sync::Lazy<Mutex<Option<Sender<CoordinatorCommand>>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+type CancelToken = Arc<std::sync::atomic::AtomicBool>;
+
+static ACTIVE_JOBS: once_cell::sync::Lazy<Mutex<Vec<CancelToken>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
+
+fn cancel_active_jobs() -> usize {
+    let jobs = ACTIVE_JOBS.lock().unwrap_or_else(|e| e.into_inner());
+    let n = jobs.len();
+    for t in jobs.iter() {
+        t.store(true, Ordering::Relaxed);
+    }
+    n
+}
+
+pub fn active_job_count() -> usize {
+    ACTIVE_JOBS.lock().unwrap_or_else(|e| e.into_inner()).len()
+}
+
+static SEQ_NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SEQ_TURN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SEQ_CV: once_cell::sync::Lazy<(Mutex<()>, std::sync::Condvar)> =
+    once_cell::sync::Lazy::new(|| (Mutex::new(()), std::sync::Condvar::new()));
+
+fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
+    ACTIVE_JOBS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .retain(|t| !Arc::ptr_eq(t, cancel));
+    let state_lock = crate::tray::STATE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let recording_now = *state_lock == CoordinatorState::Recording;
+    let error_now = *state_lock == CoordinatorState::Error;
+    drop(state_lock);
+    if !recording_now && active_job_count() == 0 && !error_now {
+        crate::hide_overlay();
+    }
+    {
+        let (lock, cvar) = &*SEQ_CV;
+        let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
+            if cancel.load(Ordering::Relaxed) {
+                let cur = SEQ_TURN.load(Ordering::Relaxed);
+                if cur == my_seq {
+                    break;
+                }
+                if cur < my_seq {
+                    SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
+                    cvar.notify_all();
+                    return;
+                }
+            }
+            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
+        }
+        SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
+        cvar.notify_all();
+    }
+}
+
+struct PipelineGuard {
+    seq: u64,
+    cancel: CancelToken,
+}
+
+impl Drop for PipelineGuard {
+    fn drop(&mut self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            finish_pipeline(self.seq, &self.cancel);
+        }));
+    }
+}
+
+pub fn set_cancel_sender(tx: Sender<CoordinatorCommand>) {
+    *CANCEL_SENDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+}
+
+pub fn cancel_all() {
+    let n = cancel_active_jobs();
+    crate::hide_overlay();
+    eprintln!("[cancel] cancel_all: {n} background pipeline(s) flagged, overlay hidden");
+    if n > 0 {
+        play_cancel_sound();
+    }
+    if let Some(tx) = CANCEL_SENDER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        let _ = tx.send(CoordinatorCommand::Cancel);
+    }
 }
 
 pub struct TranscriptionCoordinator {
@@ -71,15 +288,22 @@ impl TranscriptionCoordinator {
         }
     }
 
-    fn play_sound(&self, _freq: f32, _duration_ms: u64) {
-        // Subtle terminal bell sound cue
-        print!("\x07");
+    fn play_sound(&self, freq: f32, _duration_ms: u64) {
+        if freq >= 700.0 {
+            play_start_sound();
+        } else {
+            play_done_sound();
+        }
     }
 
     /// Selected input device name (empty = system default), for cpal resolution.
     fn input_device(&self) -> Option<String> {
-        let d = INPUT_DEVICE.lock().unwrap();
-        if d.is_empty() { None } else { Some(d.clone()) }
+        let d = INPUT_DEVICE.lock().unwrap_or_else(|e| e.into_inner());
+        if d.is_empty() {
+            None
+        } else {
+            Some(d.clone())
+        }
     }
 
     pub fn run(mut self) {
@@ -89,7 +313,8 @@ impl TranscriptionCoordinator {
                     let is_push_to_talk = HOTKEY_MODE.load(Ordering::Relaxed);
                     if is_push_to_talk {
                         if self.state == CoordinatorState::Idle {
-                            if let Err(e) = self.audio_recorder.start_recording(self.input_device()) {
+                            if let Err(e) = self.audio_recorder.start_recording(self.input_device())
+                            {
                                 eprintln!("Failed to start recording: {}", e);
                             } else {
                                 self.play_sound(800.0, 100);
@@ -100,7 +325,9 @@ impl TranscriptionCoordinator {
                         // Toggle mode
                         match self.state {
                             CoordinatorState::Idle => {
-                                if let Err(e) = self.audio_recorder.start_recording(self.input_device()) {
+                                if let Err(e) =
+                                    self.audio_recorder.start_recording(self.input_device())
+                                {
                                     eprintln!("Failed to start recording: {}", e);
                                 } else {
                                     self.play_sound(800.0, 100);
@@ -108,7 +335,6 @@ impl TranscriptionCoordinator {
                                 }
                             }
                             CoordinatorState::Recording => {
-                                self.play_sound(600.0, 150);
                                 self.stop_and_process();
                             }
                             _ => {}
@@ -117,9 +343,18 @@ impl TranscriptionCoordinator {
                 }
                 CoordinatorCommand::Hotkey(HotkeyEvent::Released) => {
                     // Only act on release in push-to-talk mode
-                    if HOTKEY_MODE.load(Ordering::Relaxed) && self.state == CoordinatorState::Recording {
-                        self.play_sound(600.0, 150);
+                    if HOTKEY_MODE.load(Ordering::Relaxed)
+                        && self.state == CoordinatorState::Recording
+                    {
                         self.stop_and_process();
+                    }
+                }
+                CoordinatorCommand::Cancel => {
+                    if self.state == CoordinatorState::Recording {
+                        eprintln!("[cancel] discarding active recording");
+                        let _ = self.audio_recorder.stop_recording();
+                        self.set_state(CoordinatorState::Idle);
+                        play_cancel_sound();
                     }
                 }
             }
@@ -127,123 +362,331 @@ impl TranscriptionCoordinator {
     }
 
     fn stop_and_process(&mut self) {
-        self.set_state(CoordinatorState::Processing);
         let samples = self.audio_recorder.stop_recording();
         let device_sr = self.audio_recorder.sample_rate();
 
-        // Resample to 16kHz once, then work with 16kHz audio everywhere
+        let cancel: CancelToken = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        ACTIVE_JOBS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(cancel.clone());
+
+        self.set_state(CoordinatorState::Idle);
+
+        let cancel_for_thread = cancel.clone();
+        let my_seq = SEQ_NEXT.fetch_add(1, Ordering::Relaxed);
+        if let Err(e) = thread::Builder::new()
+            .name("wisper-pipeline".into())
+            .spawn(move || run_pipeline(samples, device_sr, cancel_for_thread, my_seq))
+        {
+            eprintln!("Failed to spawn pipeline thread: {}", e);
+            ACTIVE_JOBS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|t| !Arc::ptr_eq(t, &cancel));
+        }
+    }
+}
+
+fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: u64) {
+    let _guard = PipelineGuard {
+        seq: my_seq,
+        cancel: cancel.clone(),
+    };
+    let cancelled = || cancel.load(Ordering::Relaxed);
+
+    if cancelled() {
+        return;
+    }
+
+    if crate::audio::was_capped_and_reset() {
+        crate::show_overlay_error(Some("Recording too long — truncated to 5 minutes.".into()));
+    }
+    let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
+        crate::history::save_recording_to_disk(&samples, device_sr)
+    } else {
+        None
+    };
+
+    // Resample -> denoise -> VAD in a scoped block so intermediate buffers
+    // are freed before we wait for the paste turn (saves ~6 MB while queued).
+    let (trimmed, samples_len) = {
+        let samples_len = samples.len();
         let resampled = if device_sr != 16000 {
-            crate::engine::resample(&samples, device_sr, 16000)
+            let r = crate::engine::resample(&samples, device_sr, 16000);
+            drop(samples);
+            r
         } else {
-            samples.clone()
+            samples
         };
-
-        // Save recording to disk if enabled (at original sample rate for playback)
-        let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
-            crate::history::save_recording_to_disk(&samples, device_sr)
+        let denoised = if NOISE_SUPPRESSION_ENABLED.load(Ordering::Relaxed) {
+            let lvl = f32::from_bits(NOISE_SUPPRESSION_LEVEL.load(Ordering::Relaxed));
+            let d = suppress_noise(&resampled, 16000, lvl);
+            drop(resampled);
+            d
         } else {
-            None
+            resampled
         };
-
-        // VAD trimming: when enabled, the silence energy cutoff is the user's
-        // vad_threshold; when disabled, keep the full captured audio.
         let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
             let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
-            trim_silence(&resampled, 1600, thresh)
+            let t = trim_silence(&denoised, 1600, thresh);
+            drop(denoised);
+            t
         } else {
-            resampled.clone()
+            denoised
         };
+        (trimmed, samples_len)
+    };
 
-        if !trimmed.is_empty() {
-            let mode = ENGINE_MODE.lock().unwrap().clone();
-            let result = if mode == "cloud" {
-                let _provider = CLOUD_PROVIDER.lock().unwrap().clone();
-                let base_url = CLOUD_BASE_URL.lock().unwrap().clone();
-                let api_key = CLOUD_API_KEY.lock().unwrap().clone();
-                let model = CLOUD_MODEL.lock().unwrap().clone();
+    if !trimmed.is_empty() {
+        if cancelled() {
+            eprintln!("[cancel] pipeline cancelled before transcription");
+            return;
+        }
+        let mode = ENGINE_MODE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let result = if mode == "cloud" {
+            let provider = CLOUD_PROVIDER
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let mut base_url = CLOUD_BASE_URL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if base_url.trim().is_empty() {
+                base_url = match provider.as_str() {
+                    "openai" => "https://api.openai.com/v1".into(),
+                    "groq" => "https://api.groq.com/openai/v1".into(),
+                    _ => base_url,
+                };
+            }
+            if base_url.trim().is_empty() {
+                Err("Cloud provider not configured (missing base URL)".into())
+            } else {
+                let api_key = CLOUD_API_KEY
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let model = CLOUD_MODEL
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
                 let engine = CloudEngineProvider::new(base_url, api_key, model);
                 engine.transcribe(&trimmed, 16000)
-            } else {
-                let model_path = {
-                    let guard = CURRENT_MODEL.lock().unwrap();
-                    guard.clone()
+            }
+        } else {
+            let model_path = {
+                let guard = CURRENT_MODEL.lock().unwrap_or_else(|e| e.into_inner());
+                guard.clone()
+            };
+            match model_path {
+                Some(path) if path.exists() => {
+                    let engine = create_local_engine(path);
+                    engine.transcribe(&trimmed, 16000)
+                }
+                Some(path) => {
+                    eprintln!("Model file not found at: {:?}", path);
+                    crate::show_overlay_error(Some(format!(
+                        "Model file not found: {}",
+                        path.display()
+                    )));
+                    play_error_sound();
+                    return;
+                }
+                None => {
+                    eprintln!(
+                        "No model selected. Go to Engine tab and activate a downloaded model."
+                    );
+                    crate::show_overlay_error(Some(
+                        "No model selected. Open the Engine tab to activate one.".into(),
+                    ));
+                    play_error_sound();
+                    return;
+                }
+            }
+        };
+
+        match result {
+            Ok(text) => {
+                if cancelled() {
+                    eprintln!("[cancel] pipeline cancelled after transcription — discarding text");
+                    return;
+                }
+                println!("Transcription: {}", text);
+                let mut final_text = text.clone();
+                let mut agent_name = None;
+                let settings_snapshot = crate::settings::AppSettings::load();
+                let words_enabled = settings_snapshot.words_enabled;
+                // Skip AI entirely for very short utterances — just words+paste.
+                let min_words = settings_snapshot.process_min_words;
+                let do_ai = if settings_snapshot.process_enabled {
+                    if min_words == 0 {
+                        true
+                    } else {
+                        let wc = text.split_whitespace().count() as u32;
+                        if wc < min_words {
+                            eprintln!(
+                                "[process] skipping AI ({} words < min {}), using raw text",
+                                wc, min_words
+                            );
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                } else {
+                    false
                 };
-                match model_path {
-                    Some(path) if path.exists() => {
-                        let engine = create_local_engine(path);
-                        engine.transcribe(&trimmed, 16000)
+                if do_ai {
+                    let process_base_url = settings_snapshot.process_base_url.clone();
+                    let process_api_key = settings_snapshot.process_api_key.clone();
+                    let process_model = settings_snapshot.process_model.clone();
+                    let process_max_tokens = settings_snapshot.process_max_tokens;
+                    let process_endpoint = settings_snapshot.process_endpoint.clone();
+                    let mut agent = crate::process::SmartAgent::resolve(
+                        &settings_snapshot.process_agent_profile,
+                        &settings_snapshot.process_agent_prompt,
+                        &text,
+                    );
+                    if words_enabled {
+                        let hint = crate::words::words_prompt_hint(&text);
+                        if !hint.is_empty() {
+                            agent.system_prompt = format!("{}{}", hint, agent.system_prompt);
+                        }
                     }
-                    Some(path) => {
-                        eprintln!("Model file not found at: {:?}", path);
-                        self.set_state(CoordinatorState::Idle);
-                        crate::show_overlay_error();
+                    let client = crate::process::ProcessClient::new(
+                        process_base_url,
+                        process_api_key,
+                        process_model,
+                        process_max_tokens,
+                        if process_endpoint.is_empty() {
+                            "/chat/completions".to_string()
+                        } else {
+                            process_endpoint
+                        },
+                    );
+                    let timeout_secs = settings_snapshot.process_timeout_secs.clamp(3, 120) as u64;
+                    let ai_timeout = std::time::Duration::from_secs(timeout_secs);
+                    let agent_name_snapshot = agent.name.clone();
+                    if cancelled() {
+                        eprintln!("[cancel] pipeline cancelled before AI phase");
                         return;
                     }
-                    None => {
-                        eprintln!("No model selected. Go to Engine tab and activate a downloaded model.");
-                        self.set_state(CoordinatorState::Idle);
-                        crate::show_overlay_error();
-                        return;
+                    // Cancellable AI request: dropping the reqwest future closes the
+                    // TCP connection so the remote model stops and the user is not billed.
+                    let cancel_for_ai = cancel.clone();
+                    let text_for_ai = text.clone();
+                    let agent_for_ai = agent.clone();
+                    let result = match tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        Ok(rt) => rt.block_on(client.process_with_cancel(
+                            &text_for_ai,
+                            &agent_for_ai,
+                            ai_timeout,
+                            cancel_for_ai,
+                        )),
+                        Err(e) => {
+                            eprintln!("[process] failed to create runtime: {} — using raw text", e);
+                            Err(format!("runtime error: {}", e))
+                        }
+                    };
+                    match result {
+                        Ok(formatted) => {
+                            if cancelled() {
+                                eprintln!(
+                                    "[cancel] AI result discarded (cancelled during processing)"
+                                );
+                                return;
+                            }
+                            final_text = formatted;
+                            agent_name = Some(agent_name_snapshot);
+                        }
+                        Err(e) if e == "Cancelled" => {
+                            eprintln!("[cancel] AI request cancelled, discarding pipeline");
+                            return;
+                        }
+                        Err(e) => {
+                            eprintln!("AI processing skipped ({}), using raw text", e);
+                        }
                     }
                 }
-            };
-
-            match result {
-                Ok(text) => {
-                    println!("Transcription: {}", text);
-                    let mut final_text = text.clone();
-                    let mut agent_name = None;
-                    let words_enabled = WORDS_ENABLED.load(Ordering::Relaxed);
-                    if PROCESS_ENABLED.load(Ordering::Relaxed) {
-                        let process_base_url = PROCESS_BASE_URL.lock().unwrap().clone();
-                        let process_api_key = PROCESS_API_KEY.lock().unwrap().clone();
-                        let process_model = PROCESS_MODEL.lock().unwrap().clone();
-                        let process_max_tokens = PROCESS_MAX_TOKENS.load(Ordering::Relaxed);
-                        let mut agent = {
-                            let settings = crate::settings::AppSettings::load();
-                            crate::process::SmartAgent::resolve(
-                                &settings.process_agent_profile,
-                                &settings.process_agent_prompt,
-                                &text,
-                            )
-                        };
-                        // Bias the AI toward the user's canonical spellings.
-                        if words_enabled {
-                            let hint = crate::words::words_prompt_hint();
-                            if !hint.is_empty() {
-                                agent.system_prompt.push_str(&hint);
-                            }
+                // Deterministic words correction as a final guarantee,
+                // whether or not the AI processing ran.
+                if cancelled() {
+                    eprintln!("[cancel] pipeline cancelled before words/paste — discarding");
+                    return;
+                }
+                if words_enabled {
+                    final_text = crate::words::apply_words(&final_text);
+                }
+                let paste_method = PASTE_METHOD
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                {
+                    let (lock, cvar) = &*SEQ_CV;
+                    let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
+                        if cancelled() {
+                            drop(guard);
+                            eprintln!(
+                                "[cancel] pipeline cancelled while waiting for paste turn {my_seq}"
+                            );
+                            return;
                         }
-                        let client = crate::process::ProcessClient::new(
-                            process_base_url,
-                            process_api_key,
-                            process_model,
-                            process_max_tokens,
-                        );
-                        match client.process(&text, &agent) {
-                            Ok(formatted) => {
-                                final_text = formatted;
-                                agent_name = Some(agent.name);
-                            }
-                            Err(e) => {
-                                eprintln!("AI processing skipped ({}), using raw text", e);
-                            }
-                        }
+                        let (g, _) = cvar
+                            .wait_timeout(guard, std::time::Duration::from_millis(25))
+                            .unwrap();
+                        guard = g;
                     }
-                    // Deterministic words correction as a final guarantee,
-                    // whether or not the AI processing ran.
-                    if words_enabled {
-                        final_text = crate::words::apply_words(&final_text);
-                    }
-                    let paste_method = PASTE_METHOD.lock().unwrap().clone();
-                    // Drop overlay focus so synthetic keystrokes land in the
-                    // target app, not the (invisible) overlay window.
+                }
+                if cfg!(debug_assertions) {
+                    eprintln!(
+                        "[paste] seq {my_seq} turn acquired, method={} text_len={}",
+                        paste_method,
+                        final_text.len()
+                    );
+                }
+                // Drop overlay focus so synthetic keystrokes land in the
+                // target app, not the (invisible) overlay window.
+                let recording_now = *crate::tray::STATE_LOCK
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    == CoordinatorState::Recording;
+                if !recording_now {
                     crate::hide_overlay();
-                    thread::sleep(std::time::Duration::from_millis(80));
-                    if let Err(e) = paste_text(&final_text, &paste_method) {
-                        eprintln!("Paste failed: {}", e);
+                    // Condition-based wait: poll until overlay reports hidden
+                    // (hide is async via run_on_main_thread). Up to 200ms max,
+                    // faster than fixed 80ms when compositor is quick.
+                    for _ in 0..20 {
+                        if !crate::is_overlay_visible() {
+                            break;
+                        }
+                        thread::sleep(std::time::Duration::from_millis(10));
                     }
-                    let duration_ms = samples.len() as i64 / 16;
+                }
+                if let Err(e) = paste_text(&final_text, &paste_method) {
+                    eprintln!("Paste failed: {}", e);
+                }
+                let duration_ms = if device_sr > 0 {
+                    (samples_len as i64 * 1000) / device_sr as i64
+                } else {
+                    0
+                };
+                // Skip zero-word entries — they just pollute history (user request).
+                let raw_words = text.split_whitespace().count();
+                let final_words = final_text.split_whitespace().count();
+                if raw_words == 0 && final_words == 0 {
+                    eprintln!("[history] skipping zero-word entry");
+                    if let Some(ref p) = recording_path {
+                        let _ = std::fs::remove_file(p);
+                    }
+                } else {
                     let history = crate::history::HistoryManager::new();
                     if let Err(e) = history.insert(
                         &text,
@@ -253,30 +696,56 @@ impl TranscriptionCoordinator {
                         recording_path.as_deref(),
                     ) {
                         eprintln!("Failed to log history: {}", e);
+                    } else {
+                        crate::settings::add_lifetime_stats(raw_words as i64);
+                        let words = raw_words as f64;
+                        let typing_sec = words / 1.0; // ~60 WPM
+                        let speak_sec = duration_ms as f64 / 1000.0;
+                        let saved = (typing_sec - speak_sec).max(0.0) as i64;
+                        if saved > 0 {
+                            crate::settings::add_time_saved(saved);
+                        }
+                        if WORDS_ENABLED.load(Ordering::Relaxed)
+                            && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
+                            && text != final_text
+                        {
+                            crate::words::maybe_auto_add_corrections(&text, &final_text);
+                        }
+                        let s = crate::settings::AppSettings::load();
+                        if s.max_history_entries > 0 {
+                            let mode = if s.keep_recordings
+                                && s.history_retention_mode == "recordings_only"
+                            {
+                                "recordings_only"
+                            } else {
+                                "both"
+                            };
+                            if let Err(e) = history.trim_history(s.max_history_entries as i64, mode)
+                            {
+                                eprintln!("Failed to trim history: {}", e);
+                            }
+                        }
                     }
-
-                    // Accumulate estimated time saved (typing time minus speaking time).
-                    let words = text.split_whitespace().count() as f64;
-                    let typing_sec = words / 1.0; // ~60 WPM
-                    let speak_sec = duration_ms as f64 / 1000.0;
-                    let saved = (typing_sec - speak_sec).max(0.0) as i32;
-                    if saved > 0 {
-                        let mut settings = crate::settings::AppSettings::load();
-                        settings.time_saved_sec += saved;
-                        let _ = settings.save();
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Transcription error: {}", e);
-                    crate::show_overlay_error();
                 }
             }
+            Err(e) => {
+                eprintln!("Transcription error: {}", e);
+                crate::show_overlay_error(Some(format!("Transcription failed: {}", e)));
+                play_error_sound();
+            }
         }
-
-        self.set_state(CoordinatorState::Idle);
-        self.play_sound(1000.0, 200); // Finished processing beep
+    } else {
+        eprintln!("No speech detected (VAD trimmed all audio)");
+        crate::show_overlay_error(Some(
+            "No speech detected — try speaking closer to the mic.".into(),
+        ));
+        play_error_sound();
     }
 
+    play_done_sound();
+}
+
+impl TranscriptionCoordinator {
     fn set_state(&mut self, new_state: CoordinatorState) {
         self.state = new_state;
         if let Some(tx) = &self.state_tx {
@@ -294,16 +763,17 @@ mod tests {
     fn test_coordinator_state_changes() {
         let recorder = AudioRecorder::new();
         let (cmd_tx, cmd_rx) = mpsc::channel();
-        let (state_tx, state_rx) = mpsc::channel();
 
-        let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
+        let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, None);
 
         std::thread::spawn(move || {
             coordinator.run();
         });
 
         // Send pressed event
-        cmd_tx.send(CoordinatorCommand::Hotkey(HotkeyEvent::Pressed)).unwrap();
+        cmd_tx
+            .send(CoordinatorCommand::Hotkey(HotkeyEvent::Pressed))
+            .unwrap();
         // Since start_recording might fail in unit test without audio device, let's verify coordinator builds and channels work
     }
 }

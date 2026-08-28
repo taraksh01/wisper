@@ -1,19 +1,45 @@
 use arboard::Clipboard;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
 /// Returns true if the given command is available on PATH.
 fn command_exists(tool: &str) -> bool {
-    Command::new("sh")
-        .args(["-c", &format!("command -v {}", tool)])
+    // Use `which`-style lookup without shell to avoid injection
+    if tool.contains('/') || tool.contains(';') || tool.contains('&') || tool.contains('|') {
+        return false;
+    }
+    Command::new("which")
+        .arg(tool)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
+        .unwrap_or_else(|_| {
+            // Fallback: try `command -v` via direct PATH search
+            std::env::var_os("PATH").map_or(false, |paths| {
+                std::env::split_paths(&paths).any(|dir| {
+                    let full = dir.join(tool);
+                    full.is_file() && is_executable(&full)
+                })
+            })
+        })
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
+}
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// Detects the current display server session: "wayland", "x11", or "unknown".
@@ -109,22 +135,97 @@ pub fn get_paste_environment(preference: &str) -> PasteEnvironment {
 /// Resolves the paste backend to use right now, re-checking installed tools on
 /// every call so a newly installed wtype/ydotool is picked up without a restart.
 fn active_backend() -> String {
-    let preference = crate::coordinator::PASTE_TOOL.lock().unwrap().clone();
-    let backend = if preference.is_empty() {
-        // Fall back to the cached backend if no preference has been set yet.
-        crate::coordinator::PASTE_BACKEND.lock().unwrap().clone()
+    let preference = crate::coordinator::PASTE_TOOL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if preference.is_empty() || preference == "auto" {
+        detect_paste_backend()
     } else {
         resolve_paste_backend(&preference)
-    };
-    backend
+    }
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[paste] paste_text method={} len={} backend={}",
+            method,
+            text.len(),
+            active_backend()
+        );
+    }
+    if text.trim().is_empty() {
+        if cfg!(debug_assertions) {
+            eprintln!("[paste] empty text — nothing to paste");
+        }
+        return Ok(());
+    }
     let r = match method {
         "Direct Typing" => type_text_directly(text),
         _ => paste_via_clipboard(text, method),
     };
+    match &r {
+        Ok(_) => {
+            if cfg!(debug_assertions) {
+                eprintln!(
+                    "[paste] success method={} backend={}",
+                    method,
+                    active_backend()
+                );
+            }
+        }
+        Err(e) => eprintln!(
+            "[paste] failed method={} backend={} err={}",
+            method,
+            active_backend(),
+            e
+        ),
+    }
     r
+}
+
+static CLIPBOARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A single Enigo instance reused across pastes instead of allocating a fresh
+/// display connection on every call (enigo creation is relatively heavy and
+/// flaky when done repeatedly). Created lazily on first use; if it ever fails to
+/// construct it stays None and the call returns an error, retrying next time.
+static ENIGO: Lazy<Mutex<Option<Enigo>>> = Lazy::new(|| Mutex::new(None));
+
+fn with_enigo(f: impl FnOnce(&mut Enigo) -> Result<(), String>) -> Result<(), String> {
+    {
+        let g = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+        if g.is_some() {
+            drop(g);
+        } else {
+            drop(g);
+            for i in 0..3 {
+                if i > 0 {
+                    thread::sleep(Duration::from_millis(200));
+                }
+                if let Ok(enigo) = Enigo::new(&Settings {
+                    linux_delay: 1,
+                    ..Default::default()
+                }) {
+                    let mut gg = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+                    if gg.is_none() {
+                        *gg = Some(enigo);
+                    }
+                    break;
+                }
+                let check = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+                if check.is_some() {
+                    break;
+                }
+            }
+        }
+    }
+    let mut g = ENIGO.lock().unwrap_or_else(|e| e.into_inner());
+    match g.as_mut() {
+        Some(e) => f(e),
+        None => Err("Failed to create Enigo".into()),
+    }
 }
 
 fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
@@ -134,48 +235,125 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     };
 
     let original_text = clipboard.get_text().ok();
+    let expected = text.to_string();
+    let gen = CLIPBOARD_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
 
-    if let Err(e) = clipboard.set_text(text.to_string()) {
+    if let Err(e) = clipboard.set_text(expected.clone()) {
         return Err(format!("Failed to set clipboard text: {}", e));
     }
 
-    thread::sleep(Duration::from_millis(50));
+    let mut ready = false;
+    for _ in 0..20 {
+        if let Ok(cur) = clipboard.get_text() {
+            if cur == expected {
+                ready = true;
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    if ready {
+        thread::sleep(Duration::from_millis(30));
+    }
 
     let paste_result = simulate_key_combo(method);
 
-    if let Some(orig) = original_text {
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(250));
-            if let Ok(mut c) = Clipboard::new() {
-                let _ = c.set_text(orig);
+    let restore_text: Option<String> = original_text.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(250));
+        // Only restore if no newer dictation has overwritten the clipboard
+        if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
+            return;
+        }
+        if let Ok(mut c) = Clipboard::new() {
+            if let Ok(cur) = c.get_text() {
+                if cur == expected {
+                    if let Some(orig) = restore_text {
+                        let _ = c.set_text(orig);
+                    } else {
+                        let _ = c.set_text(String::new());
+                    }
+                }
             }
-        });
-    }
+        }
+    });
 
     paste_result
 }
 
 fn simulate_key_combo(method: &str) -> Result<(), String> {
     let backend = active_backend();
-    let r = match backend.as_str() {
-        "wtype" => wtype_paste(method),
-        "ydotool" => ydotool_paste(method),
-        _ => enigo_paste(method),
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[paste] simulate_key_combo method={} backend={}",
+            method, backend
+        );
+    }
+    // Try preferred backend first, then fall back through the chain
+    let mut last_err = String::new();
+    let order: Vec<&str> = match backend.as_str() {
+        "wtype" => vec!["wtype", "ydotool", "enigo"],
+        "ydotool" => vec!["ydotool", "wtype", "enigo"],
+        _ => vec!["enigo", "wtype", "ydotool"],
     };
-    r
+    for b in order {
+        if cfg!(debug_assertions) {
+            eprintln!("[paste] trying backend={} method={}", b, method);
+        }
+        let r = match b {
+            "wtype" => wtype_paste(method),
+            "ydotool" => ydotool_paste(method),
+            _ => enigo_paste(method),
+        };
+        match r {
+            Ok(_) => {
+                if cfg!(debug_assertions) {
+                    eprintln!("[paste] backend {} succeeded", b);
+                }
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("[paste] backend {} failed: {}", b, e);
+                last_err = e;
+                // try next backend
+            }
+        }
+    }
+    Err(last_err)
+}
+
+fn run_with_timeout(
+    mut cmd: Command,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, String> {
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn: {}", e))?;
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(s) => return Ok(s),
+            None if start.elapsed() > timeout => {
+                let _ = child.kill();
+                // Reap the child so it doesn't linger as a zombie
+                let _ = child.wait();
+                return Err("Command timed out".into());
+            }
+            None => thread::sleep(Duration::from_millis(10)),
+        }
+    }
 }
 
 fn wtype_paste(method: &str) -> Result<(), String> {
     let args: Vec<&str> = match method {
-        "Ctrl+Shift+V" => vec!["-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"],
+        "Ctrl+Shift+V" => vec![
+            "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl",
+        ],
         "Shift+Insert" => vec!["-M", "shift", "-k", "Insert", "-m", "shift"],
         _ => vec!["-M", "ctrl", "-k", "v", "-m", "ctrl"],
     };
 
-    let status = Command::new("wtype")
-        .args(args)
-        .stderr(Stdio::null())
-        .status()
+    let mut cmd = Command::new("wtype");
+    cmd.args(args).stderr(Stdio::null());
+    let status = run_with_timeout(cmd, Duration::from_secs(5))
         .map_err(|e| format!("Failed to run wtype: {}", e))?;
 
     if status.success() {
@@ -192,11 +370,9 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
         _ => vec!["29:1", "47:1", "47:0", "29:0"],
     };
 
-    let status = Command::new("ydotool")
-        .arg("key")
-        .args(args)
-        .stderr(Stdio::null())
-        .status()
+    let mut cmd = Command::new("ydotool");
+    cmd.arg("key").args(args).stderr(Stdio::null());
+    let status = run_with_timeout(cmd, Duration::from_secs(5))
         .map_err(|e| format!("Failed to run ydotool: {}", e))?;
 
     if status.success() {
@@ -207,62 +383,92 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
 }
 
 fn enigo_paste(method: &str) -> Result<(), String> {
-    let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
-
-    match method {
-        "Ctrl+Shift+V" => {
-            let _ = enigo.key(Key::Control, Direction::Press);
-            let _ = enigo.key(Key::Shift, Direction::Press);
-            let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-            let _ = enigo.key(Key::Shift, Direction::Release);
-            let _ = enigo.key(Key::Control, Direction::Release);
-        }
-        "Shift+Insert" => {
-            let _ = enigo.key(Key::Shift, Direction::Press);
-            let _ = enigo.key(Key::Insert, Direction::Click);
-            let _ = enigo.key(Key::Shift, Direction::Release);
-        }
-        _ => {
-            let _ = enigo.key(Key::Control, Direction::Press);
-            let _ = enigo.key(Key::Unicode('v'), Direction::Click);
-            let _ = enigo.key(Key::Control, Direction::Release);
-        }
-    }
-
-    Ok(())
+    with_enigo(|enigo| {
+        let res: Result<(), String> = match method {
+            "Ctrl+Shift+V" => {
+                enigo
+                    .key(Key::Control, Direction::Press)
+                    .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
+                enigo
+                    .key(Key::Shift, Direction::Press)
+                    .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| format!("Enigo V failed: {:?}", e))
+            }
+            "Shift+Insert" => {
+                enigo
+                    .key(Key::Shift, Direction::Press)
+                    .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
+                enigo
+                    .key(Key::Insert, Direction::Click)
+                    .map_err(|e| format!("Enigo Insert failed: {:?}", e))
+            }
+            _ => {
+                enigo
+                    .key(Key::Control, Direction::Press)
+                    .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| format!("Enigo V failed: {:?}", e))
+            }
+        };
+        // Always release modifiers — never leave Ctrl/Shift stuck on partial failure.
+        // Releasing a non-pressed key is harmless.
+        let _ = enigo.key(Key::Shift, Direction::Release);
+        let _ = enigo.key(Key::Control, Direction::Release);
+        res
+    })
 }
 
 fn type_text_directly(text: &str) -> Result<(), String> {
     let backend = active_backend();
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[paste] type_text_directly backend={} len={}",
+            backend,
+            text.len()
+        );
+    }
     match backend.as_str() {
         "wtype" => {
-            let status = Command::new("wtype")
-                .arg(text)
-                .stderr(Stdio::null())
-                .status()
+            let mut cmd = Command::new("wtype");
+            cmd.args(["-d", "0", text]).stderr(Stdio::null());
+            let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run wtype: {}", e))?;
             if status.success() {
+                if cfg!(debug_assertions) {
+                    eprintln!("[paste] wtype type succeeded");
+                }
                 return Ok(());
+            } else if cfg!(debug_assertions) {
+                eprintln!("[paste] wtype type non-zero status");
             }
         }
         "ydotool" => {
-            let status = Command::new("ydotool")
-                .args(["type", "-d", "0", text])
-                .stderr(Stdio::null())
-                .status()
+            let mut cmd = Command::new("ydotool");
+            cmd.args(["type", "-d", "0", "-H", "0", text])
+                .stderr(Stdio::null());
+            let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
             if status.success() {
+                if cfg!(debug_assertions) {
+                    eprintln!("[paste] ydotool type succeeded");
+                }
                 return Ok(());
+            } else if cfg!(debug_assertions) {
+                eprintln!("[paste] ydotool type non-zero status");
             }
         }
         _ => {}
     }
 
-    let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("Failed to create Enigo: {:?}", e))?;
-
-    enigo
-        .text(text)
-        .map_err(|e| format!("Failed to type text: {:?}", e))
+    if cfg!(debug_assertions) {
+        eprintln!("[paste] falling back to enigo type");
+    }
+    with_enigo(|enigo| {
+        enigo
+            .text(text)
+            .map_err(|e| format!("Failed to type text: {:?}", e))
+    })
 }

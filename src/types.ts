@@ -58,27 +58,44 @@ export interface AppSettings {
   process_api_key_glm: string;
   process_api_key_openrouter: string;
   process_api_key_ollama: string;
+  process_api_key_opencode_go: string;
   process_api_key_custom: string;
   process_model: string;
+  process_endpoint: string;
+  process_timeout_secs: number;
   process_max_tokens: number;
+  process_min_words: number;
   process_agent_profile: string;
   process_agent_name: string;
   process_agent_prompt: string;
   words_enabled: boolean;
+  words_auto_scan: boolean;
   hotkey: string;
   hotkey_mode: string;
   paste_method: string;
   paste_tool: string;
   vad_enabled: boolean;
   vad_threshold: number;
+  noise_suppression_enabled: boolean;
+  noise_suppression_level: number;
   language: string;
+  enabled_languages: string[];
   keep_recordings: boolean;
   launch_to_tray: boolean;
   autostart: boolean;
   overlay_enabled: boolean;
   overlay_position: string;
+  sound_enabled: boolean;
+  sound_on_start: boolean;
+  sound_on_done: boolean;
+  sound_on_cancel: boolean;
+  sound_on_error: boolean;
   input_device: string;
   time_saved_sec: number;
+  lifetime_dictations: number;
+  lifetime_words: number;
+  max_history_entries: number;
+  history_retention_mode: string;
 }
 
 export interface ModelInfo {
@@ -110,7 +127,12 @@ export const modelCatalog: Record<string, ModelInfo> = {
     accuracy: 96,
     speed: 72,
     source: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
-    languages: ["en", "es", "fr", "de", "it", "pt", "nl"],
+    // Full 25-language set from NVIDIA parakeet-tdt-0.6b-v3 model card
+    languages: [
+      "en", "es", "fr", "de", "it", "pt", "nl", "ru",
+      "bg", "hr", "cs", "da", "et", "fi", "el", "hu",
+      "lv", "lt", "mt", "pl", "ro", "sk", "sl", "sv", "uk",
+    ],
     format: "onnx",
     quantization: "int8",
     streaming: false,
@@ -131,25 +153,250 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
+  // ── Indian languages — IndicConformer 120M per-language ONNX (sherpa-onnx) ──
+  // 120M params, ~188 MB int8, sherpa-ready (metadata baked in), validated end-to-end. Source: parismitaglobalsolutions/indicconformer-sherpa-onnx
+  "indicconformer-120m-hi": {
+    name: "IndicConformer Hindi 120M",
+    size: "~188 MB",
+    accuracy: 93,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/hi/model.int8.onnx",
+    languages: ["hi"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-bn": {
+    name: "IndicConformer Bengali 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/bn/model.int8.onnx",
+    languages: ["bn"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-ta": {
+    name: "IndicConformer Tamil 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/ta/model.int8.onnx",
+    languages: ["ta"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-te": {
+    name: "IndicConformer Telugu 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/te/model.int8.onnx",
+    languages: ["te"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-mr": {
+    name: "IndicConformer Marathi 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/mr/model.int8.onnx",
+    languages: ["mr"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-gu": {
+    name: "IndicConformer Gujarati 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/gu/model.int8.onnx",
+    languages: ["gu"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-kn": {
+    name: "IndicConformer Kannada 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/kn/model.int8.onnx",
+    languages: ["kn"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-ml": {
+    name: "IndicConformer Malayalam 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/ml/model.int8.onnx",
+    languages: ["ml"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "indicconformer-120m-pa": {
+    name: "IndicConformer Punjabi 120M",
+    size: "~188 MB",
+    accuracy: 92,
+    speed: 82,
+    source: "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
+    languages: ["pa"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  // Efficient 8-lang multi (188 MB total for 8 Indian langs — best for low disk)
+  "indicconformer-8lang": {
+    name: "IndicConformer 8-Lang Multi (188 MB for 8 languages)",
+    size: "~188 MB",
+    accuracy: 90,
+    speed: 80,
+    source: "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
+    languages: ["as", "bn", "brx", "gu", "hi", "kn", "ks", "mr"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  // AI4Bharat 600M Multi — all 22 scheduled Indian languages in one bundle (Vernacular repackaging)
+  "indicconformer-600m-multi": {
+    name: "IndicConformer 600M Multi (22 Indian languages)",
+    size: "~2.45 GB",
+    accuracy: 95,
+    speed: 70,
+    source: "https://huggingface.co/christopherthompson81/indicconformer-600m-onnx",
+    languages: [
+      "as", "bn", "brx", "doi", "gu", "hi", "kn", "kok",
+      "ks", "mai", "ml", "mni", "mr", "ne", "or", "pa",
+      "sa", "sat", "sd", "ta", "te", "ur",
+    ],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+    recommended: true,
+  },
+  // Local Whisper large-v3 multilingual int8 — English + 99 languages, offline
+  "whisper-large-v3-int8": {
+    name: "Whisper Large V3 Multilingual (local, int8)",
+    size: "~1.69 GB",
+    accuracy: 96,
+    speed: 50,
+    source: "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3",
+    languages: [
+      "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr",
+      "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi",
+      "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+      "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk",
+      "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk",
+      "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+      "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc",
+      "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
+      "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+      "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su",
+    ],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+    recommended: true,
+  },
+  // Moonshine base (English) — merged decoder + tokenizer bundle, transcribe-rs native layout
+  "moonshine-base": {
+    name: "Moonshine Base (English)",
+    size: "~56 MB",
+    accuracy: 90,
+    speed: 95,
+    source: "https://blob.handy.computer/moonshine-base.tar.gz",
+    languages: ["en"],
+    format: "onnx",
+    quantization: "fp32",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
 };
 
 export const allModelKeys = Object.keys(modelCatalog);
 
-export const languages = [
-  { value: "auto", label: "Auto-detect" },
+// All supported languages, sorted alphabetically by label (auto pinned first by consumers)
+const RAW_LANGUAGES = [
+  { value: "ar", label: "Arabic" },
+  { value: "as", label: "Assamese" },
+  { value: "bn", label: "Bengali" },
+  { value: "brx", label: "Bodo" },
+  { value: "bg", label: "Bulgarian" },
+  { value: "zh", label: "Chinese" },
+  { value: "hr", label: "Croatian" },
+  { value: "cs", label: "Czech" },
+  { value: "da", label: "Danish" },
+  { value: "nl", label: "Dutch" },
   { value: "en", label: "English" },
-  { value: "es", label: "Spanish" },
+  { value: "et", label: "Estonian" },
+  { value: "fi", label: "Finnish" },
   { value: "fr", label: "French" },
   { value: "de", label: "German" },
-  { value: "it", label: "Italian" },
-  { value: "pt", label: "Portuguese" },
-  { value: "nl", label: "Dutch" },
-  { value: "ja", label: "Japanese" },
-  { value: "ko", label: "Korean" },
-  { value: "zh", label: "Chinese" },
-  { value: "ar", label: "Arabic" },
+  { value: "el", label: "Greek" },
+  { value: "gu", label: "Gujarati" },
   { value: "hi", label: "Hindi" },
+  { value: "hu", label: "Hungarian" },
+  { value: "it", label: "Italian" },
+  { value: "ja", label: "Japanese" },
+  { value: "ks", label: "Kashmiri" },
+  { value: "kn", label: "Kannada" },
+  { value: "ko", label: "Korean" },
+  { value: "lv", label: "Latvian" },
+  { value: "lt", label: "Lithuanian" },
+  { value: "ml", label: "Malayalam" },
+  { value: "mt", label: "Maltese" },
+  { value: "mr", label: "Marathi" },
+  { value: "pl", label: "Polish" },
+  { value: "pt", label: "Portuguese" },
+  { value: "pa", label: "Punjabi" },
+  { value: "ro", label: "Romanian" },
   { value: "ru", label: "Russian" },
+  { value: "sk", label: "Slovak" },
+  { value: "sl", label: "Slovenian" },
+  { value: "es", label: "Spanish" },
+  { value: "sv", label: "Swedish" },
+  { value: "ta", label: "Tamil" },
+  { value: "te", label: "Telugu" },
+  { value: "uk", label: "Ukrainian" },
+];
+
+export const languages = [
+  { value: "auto", label: "Auto-detect" },
+  ...RAW_LANGUAGES,
 ];
 
 export const tabs = [
@@ -166,6 +413,19 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
   const map: Record<string, string> = {
     "parakeet-onnx-tdt-0.6b-v3": "parakeet-tdt-0.6b-v3-int8",
     "parakeet-onnx-tdt-0.6b-v2": "parakeet-tdt-0.6b-v2-int8",
+    "indicconformer-120m-hi": "indicconformer-120m-hi",
+    "indicconformer-120m-bn": "indicconformer-120m-bn",
+    "indicconformer-120m-ta": "indicconformer-120m-ta",
+    "indicconformer-120m-te": "indicconformer-120m-te",
+    "indicconformer-120m-mr": "indicconformer-120m-mr",
+    "indicconformer-120m-gu": "indicconformer-120m-gu",
+    "indicconformer-120m-kn": "indicconformer-120m-kn",
+    "indicconformer-120m-ml": "indicconformer-120m-ml",
+    "indicconformer-120m-pa": "indicconformer-120m-pa",
+    "indicconformer-8lang": "indicconformer-8lang",
+    "indicconformer-600m-multi": "indicconformer-600m-multi",
+    "whisper-large-v3-int8": "whisper-large-v3-int8",
+    "moonshine-base": "moonshine-base",
   };
   return map[key] || key;
 }
@@ -174,68 +434,39 @@ export interface ProcessProvider {
   name: string;
   label: string;
   base_url: string;
+  endpoint: string;
   models: string[];
 }
+
+export const PROCESS_MIN_WORDS_DEFAULT = 6;
 
 export const PROCESS_PROVIDERS: ProcessProvider[] = [
   {
     name: "openai",
     label: "OpenAI",
     base_url: "https://api.openai.com/v1",
+    endpoint: "/chat/completions",
     models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-nano"],
   },
   {
     name: "anthropic",
     label: "Anthropic",
     base_url: "https://api.anthropic.com/v1",
+    endpoint: "/messages",
     models: ["claude-haiku-3-5-20241022", "claude-sonnet-4-20250514"],
-  },
-  {
-    name: "google",
-    label: "Google Gemini",
-    base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-    models: ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"],
   },
   {
     name: "groq",
     label: "Groq",
     base_url: "https://api.groq.com/openai/v1",
+    endpoint: "/chat/completions",
     models: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"],
-  },
-  {
-    name: "together",
-    label: "Together AI",
-    base_url: "https://api.together.xyz/v1",
-    models: ["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "meta-llama/Llama-3.3-70B-Instruct-Turbo"],
-  },
-  {
-    name: "deepseek",
-    label: "DeepSeek",
-    base_url: "https://api.deepseek.com/v1",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
-  },
-  {
-    name: "kimi",
-    label: "Kimi (Moonshot)",
-    base_url: "https://api.moonshot.ai/v1",
-    models: ["kimi-k2.6", "kimi-k2.5"],
-  },
-  {
-    name: "qwen",
-    label: "Qwen (Alibaba)",
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    models: ["qwen3.6-flash", "qwen3.6-plus", "qwen3.7-max"],
-  },
-  {
-    name: "glm",
-    label: "GLM (Zhipu AI)",
-    base_url: "https://api.z.ai/api/v1",
-    models: ["glm-4.7-flashx", "glm-5.1", "glm-5.2"],
   },
   {
     name: "openrouter",
     label: "OpenRouter",
     base_url: "https://openrouter.ai/api/v1",
+    endpoint: "/chat/completions",
     models: [
       "openrouter/auto",
       "meta-llama/llama-3.2-3b-instruct:free",
@@ -249,12 +480,21 @@ export const PROCESS_PROVIDERS: ProcessProvider[] = [
     name: "ollama",
     label: "Ollama (Local)",
     base_url: "http://localhost:11434/v1",
+    endpoint: "/chat/completions",
     models: ["llama3.2", "mistral", "phi4", "qwen2.5"],
+  },
+  {
+    name: "opencode_go",
+    label: "OpenCode Go",
+    base_url: "https://opencode.ai/zen/go/v1",
+    endpoint: "/chat/completions",
+    models: ["muse-spark-1.2-contributor", "deepseek-v4-flash"],
   },
   {
     name: "custom",
     label: "Custom",
     base_url: "",
+    endpoint: "/chat/completions",
     models: [],
   },
 ];

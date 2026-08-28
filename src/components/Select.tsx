@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId } from "react";
 import { createPortal } from "react-dom";
+import { IconChevronDown } from "./ui/icons";
+import { Input } from "./ui/Input";
 
 export function Select({
   value,
@@ -7,14 +9,20 @@ export function Select({
   onChange,
   label,
   className,
+  searchable = false,
+  compact = false,
 }: {
   value: string;
   options: { value: string; label: string }[];
   onChange: (v: string) => void;
   label?: string;
   className?: string;
+  /** Show a search input inside the dropdown (for long lists) */
+  searchable?: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [, setForceRender] = useState(0);
   const [pos, setPos] = useState<{
     top: number;
@@ -25,71 +33,125 @@ export function Select({
   } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const autoId = useId();
+  const buttonId = label ? `select-${label.replace(/\s+/g, "-").toLowerCase()}` : `select-${autoId}`;
+  const listId = `select-list-${buttonId}`;
 
   const selected = options.find((o) => o.value === value);
   const enabledOptions = options;
-  const activeIndexRef = useRef(Math.max(0, enabledOptions.findIndex((o) => o.value === value)));
+
+  // Filtered options when searchable
+  const visibleOptions = searchable && query
+    ? enabledOptions.filter(
+        (o) =>
+          o.label.toLowerCase().includes(query.toLowerCase()) ||
+          o.value.toLowerCase().includes(query.toLowerCase())
+      )
+    : enabledOptions;
+
+  const activeIndexRef = useRef(Math.max(0, visibleOptions.findIndex((o) => o.value === value)));
+
+  useEffect(() => {
+    activeIndexRef.current = Math.max(0, visibleOptions.findIndex((o) => o.value === value));
+  }, [value, visibleOptions]);
+
+  // Keep active index in bounds when filter shrinks
+  useEffect(() => {
+    if (activeIndexRef.current >= visibleOptions.length) {
+      activeIndexRef.current = Math.max(0, visibleOptions.length - 1);
+      setForceRender((r) => r + 1);
+    }
+  }, [visibleOptions.length]);
 
   const moveActive = useCallback((dir: 1 | -1) => {
-    if (enabledOptions.length === 0) return;
-    const next = (activeIndexRef.current + dir + enabledOptions.length) % enabledOptions.length;
+    if (visibleOptions.length === 0) return;
+    const next = (activeIndexRef.current + dir + visibleOptions.length) % visibleOptions.length;
     activeIndexRef.current = next;
-    const list = document.getElementById(`select-list-${buttonRef.current?.id ?? ""}`);
+    const list = document.getElementById(listId);
     list?.querySelectorAll<HTMLElement>("[data-opt]")[next]?.scrollIntoView({ block: "nearest" });
     setForceRender((r) => r + 1);
-  }, [enabledOptions.length]);
+  }, [visibleOptions.length, listId]);
 
   const updatePos = useCallback(() => {
     if (!buttonRef.current) return;
     const r = buttonRef.current.getBoundingClientRect();
-    const margin = 8;
     const gap = 4;
-    const spaceBelow = window.innerHeight - r.bottom - margin;
-    const spaceAbove = r.top - margin;
-    // Prefer opening downward; flip up only when there's clearly more room above.
-    const placeTop = spaceBelow < 160 && spaceAbove > spaceBelow;
-    const maxHeight = Math.max(96, (placeTop ? spaceAbove : spaceBelow) - gap);
+    const fixedHeight = 220;
+    const spaceBelow = window.innerHeight - r.bottom - 8;
+    const spaceAbove = r.top - 8;
+    const placeTop = spaceBelow < fixedHeight && spaceAbove > spaceBelow;
+    const width = r.width;
+    let left = r.left;
+    if (left + width > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - width - 8);
+    }
     setPos({
       top: placeTop ? r.top - gap : r.bottom + gap,
-      left: r.left,
-      width: r.width,
-      maxHeight,
+      left,
+      width,
+      maxHeight: fixedHeight,
       placement: placeTop ? "top" : "bottom",
     });
   }, []);
 
   useEffect(() => {
     if (!open) return;
+    const esc = (typeof CSS !== "undefined" && (CSS as any).escape) ? (CSS as any).escape(listId) : listId.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        !(target instanceof Element && target.closest(`#${esc}`))
+      ) {
         setOpen(false);
+        setQuery("");
       }
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+    document.addEventListener("touchstart", handler as unknown as EventListener);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler as unknown as EventListener);
+    };
+  }, [open, listId]);
 
   useLayoutEffect(() => {
     if (!open) return;
     updatePos();
-    // Reposition while open: scroll (capture catches nested scroll containers) and resize.
+    if (searchable) {
+      // Focus search input on open
+      setTimeout(() => searchRef.current?.focus(), 0);
+    }
     window.addEventListener("scroll", updatePos, true);
     window.addEventListener("resize", updatePos);
     return () => {
       window.removeEventListener("scroll", updatePos, true);
       window.removeEventListener("resize", updatePos);
     };
-  }, [open, updatePos]);
+  }, [open, updatePos, searchable]);
+
+  // Reset query and active index when opening
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      activeIndexRef.current = Math.max(0, visibleOptions.findIndex((o) => o.value === value));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   return (
     <div className={className}>
       {label && <label className="label-soft block mb-1">{label}</label>}
       <div className="relative w-full" ref={containerRef}>
         <button
-          id={label ? `select-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined}
+          id={buttonId}
           ref={buttonRef}
           aria-haspopup="listbox"
           aria-expanded={open}
+          aria-controls={listId}
+          aria-activedescendant={open && visibleOptions[activeIndexRef.current] ? `${listId}-opt-${activeIndexRef.current}` : undefined}
           onClick={() => setOpen((p) => !p)}
           onKeyDown={(e) => {
             if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
@@ -103,31 +165,29 @@ export function Select({
               moveActive(-1);
             } else if (open && e.key === "Enter") {
               e.preventDefault();
-              onChange(enabledOptions[activeIndexRef.current].value);
-              setOpen(false);
+              if (visibleOptions[activeIndexRef.current]) {
+                onChange(visibleOptions[activeIndexRef.current].value);
+                setOpen(false);
+                setQuery("");
+              }
             } else if (e.key === "Escape") {
               setOpen(false);
+              setQuery("");
             }
           }}
-          className="w-full bg-elevated rounded-md px-2.5 py-1.5 text-xs font-mono text-ink text-left outline-none ring-1 ring-stroke focus:ring-accent/40 transition-all cursor-pointer flex items-center justify-between gap-2"
+          className={`w-full bg-surface border border-stroke rounded-xl text-xs font-medium text-ink text-left outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150 cursor-pointer flex items-center justify-between gap-2 ${compact ? "px-3 py-2 text-[11px]" : "px-3.5 py-2.5"}`}
         >
           <span className="truncate">{selected?.label ?? value}</span>
-          <svg
-            className={`shrink-0 w-3 h-3 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
+          <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-elevated border border-stroke">
+            <IconChevronDown className={`w-3 h-3 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+          </span>
         </button>
 
         {open && pos && createPortal(
           <div
-            id={buttonRef.current?.id ? `select-list-${buttonRef.current.id}` : undefined}
+            id={listId}
             role="listbox"
-            className="fixed z-[9999] bg-surface border border-stroke rounded-md shadow-lg overflow-y-auto custom-scrollbar py-1"
+            className="fixed z-[9999] bg-surface border border-stroke rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.16)] flex flex-col overflow-hidden p-1"
             style={{
               left: pos.left,
               width: pos.width,
@@ -136,19 +196,57 @@ export function Select({
                 ? { bottom: window.innerHeight - pos.top }
                 : { top: pos.top }),
             }}
-            onWheel={(e) => {
-              const el = e.currentTarget;
-              const atTop = el.scrollTop === 0;
-              const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight;
-              if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) return;
-              e.stopPropagation();
-            }}
           >
-            {options.map((opt, i) => {
+            {searchable && (
+              <div className="shrink-0 bg-surface p-1 pb-2 border-b border-stroke/60">
+                <Input
+                  ref={searchRef}
+                  value={query}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    setQuery(e.target.value);
+                    activeIndexRef.current = 0;
+                  }}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      moveActive(1);
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      moveActive(-1);
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (visibleOptions[activeIndexRef.current]) {
+                        onChange(visibleOptions[activeIndexRef.current].value);
+                        setOpen(false);
+                        setQuery("");
+                      }
+                    } else if (e.key === "Escape") {
+                      setOpen(false);
+                      setQuery("");
+                    }
+                  }}
+                  placeholder="Search languages…"
+                  variant="surface"
+                  className="w-full"
+                />
+              </div>
+            )}
+            <div
+              className="flex-1 min-h-0 overflow-y-auto custom-scrollbar"
+              onWheel={(e) => {
+                const el = e.currentTarget;
+                const atTop = el.scrollTop === 0;
+                const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight;
+                if ((atTop && e.deltaY < 0) || (atBottom && e.deltaY > 0)) return;
+                e.stopPropagation();
+              }}
+            >
+            {visibleOptions.map((opt, i) => {
               const isActive = i === activeIndexRef.current && open;
               return (
                 <button
                   key={opt.value}
+                  id={`${listId}-opt-${i}`}
                   data-opt
                   role="option"
                   aria-selected={value === opt.value}
@@ -156,11 +254,12 @@ export function Select({
                     e.preventDefault();
                     onChange(opt.value);
                     setOpen(false);
+                    setQuery("");
                   }}
                   onMouseEnter={() => { activeIndexRef.current = i; }}
-                  className={`w-full text-left px-2.5 py-1.5 text-xs font-mono transition-colors cursor-pointer truncate ${
+                  className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer truncate ${
                     value === opt.value
-                      ? "bg-accent text-white"
+                      ? "bg-accent/10 text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]"
                       : isActive
                       ? "bg-elevated text-ink"
                       : "text-muted hover:bg-elevated hover:text-ink"
@@ -171,6 +270,10 @@ export function Select({
                 </button>
               );
             })}
+            {visibleOptions.length === 0 && (
+              <p className="px-3 py-4 text-center text-xs text-muted">No matches</p>
+            )}
+            </div>
           </div>,
           document.body
         )}

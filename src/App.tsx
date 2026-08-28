@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { Onboarding } from "./components/Onboarding";
@@ -13,6 +13,7 @@ import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ToastProvider, useToast } from "./components/ToastContext";
+import { storageKey } from "./appConfig";
 import "./styles.css";
 
 function useSystemTheme() {
@@ -25,77 +26,140 @@ function useSystemTheme() {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
+  // Sync theme class onto <html> so portaled elements (Select dropdown,
+  // ConfirmModal, toasts) inherit the correct CSS variables.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", dark);
+    root.classList.toggle("light", !dark);
+    return () => {
+      root.classList.remove("dark", "light");
+    };
+  }, [dark]);
   return dark;
+}
+
+function safeStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function safeStorageSet(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable (private mode) */
+  }
 }
 
 function AppShell() {
   const dark = useSystemTheme();
   const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem("wisper:active-tab");
+    const saved = safeStorageGet(storageKey("active-tab"));
     return saved && tabs.some((t) => t.id === saved) ? saved : "general";
   });
   const [appState, setAppState] = useState("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [stats, setStats] = useState<[number, number, number]>([0, 0, 0]);
   const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
   const [currentModelName, setCurrentModelName] = useState("");
   const [onboarded, setOnboarded] = useState(
-    () => localStorage.getItem("wisper:onboarded") === "1"
+    () => safeStorageGet(storageKey("onboarded")) === "1"
   );
   const [pasteEnv, setPasteEnv] = useState<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean } | null>(null);
 
   const toast = useToast();
 
   useEffect(() => {
-    localStorage.setItem("wisper:active-tab", activeTab);
+    safeStorageSet(storageKey("active-tab"), activeTab);
   }, [activeTab]);
 
   useEffect(() => {
-    invoke<AppSettings>("load_settings").then(setSettings).catch((e) => { console.error(e); });
+    let alive = true;
+    invoke<AppSettings>("load_settings").then((v) => alive && setSettings(v)).catch((e) => { console.error(e); });
     fetchHistory();
     fetchAgentProfiles();
-    invoke<string>("get_current_state").then(setAppState).catch((e) => { console.error(e); });
-    invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
-    invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment")
-      .then(setPasteEnv)
+    invoke<string>("get_current_state").then((v) => alive && setAppState(v)).catch((e) => { console.error(e); });
+    invoke<string>("get_current_model").then((v) => alive && setCurrentModelName(v)).catch(() => {});
+    invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment", { preference: "auto" })
+      .then((v) => alive && setPasteEnv(v))
       .catch(() => {});
 
-    let unlisten: UnlistenFn | undefined;
-    let unlistenTab: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen<string>("wisper:state", (event) => {
-        setAppState(event.payload);
-      });
-      unlistenTab = await listen<string>("wisper:open-tab", (event) => {
-        setActiveTab(event.payload);
-      });
-    })();
+    const unlistenStatePromise = listen<string>("wisper:state", (event) => {
+      if (alive) setAppState(event.payload);
+    });
+    const unlistenTabPromise = listen<string>("wisper:open-tab", (event) => {
+      if (alive) setActiveTab(event.payload);
+    });
+    const unlistenSettingsPromise = listen<AppSettings>("wisper:settings-changed", (event) => {
+      if (alive) {
+        setSettings(event.payload);
+        // Single source: settings.local_model_file — refresh display name
+        if (!event.payload.local_model_file) {
+          setCurrentModelName("");
+        } else {
+          invoke<string>("get_current_model").then((v) => alive && setCurrentModelName(v)).catch(() => {});
+        }
+      }
+    });
 
     return () => {
-      if (unlisten) unlisten();
-      if (unlistenTab) unlistenTab();
+      alive = false;
+      unlistenStatePromise.then((fn) => fn()).catch(() => {});
+      unlistenTabPromise.then((fn) => fn()).catch(() => {});
+      unlistenSettingsPromise.then((fn) => fn()).catch(() => {});
     };
   }, []);
 
+  const PAGE_SIZE = 50;
+
   const fetchHistory = useCallback(async () => {
     try {
-      const h = await invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
+      const [h, s, c] = await Promise.all([
+        invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 }),
+        invoke<[number, number, number]>("get_history_stats"),
+        invoke<number>("get_history_count"),
+      ]);
       setHistory(h);
-      const s = await invoke<[number, number, number]>("get_history_stats");
       setStats(s);
+      setHistoryTotal(c);
     } catch {}
   }, []);
 
+  const loadOlder = useCallback(async () => {
+    if (loadingOlder || history.length >= historyTotal) return;
+    setLoadingOlder(true);
+    try {
+      const older = await invoke<HistoryEntry[]>("get_history_entries", {
+        limit: PAGE_SIZE,
+        offset: history.length,
+      });
+      setHistory((prev) => [...prev, ...older]);
+    } catch {}
+    setLoadingOlder(false);
+  }, [history.length, historyTotal, loadingOlder]);
+
+  const hasMounted = useRef(false);
   useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
     if (appState === "idle") {
-      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: 50 });
+      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 });
       const s = invoke<[number, number, number]>("get_history_stats");
-      const settings = invoke<AppSettings>("load_settings");
-      Promise.all([h, s, settings]).then(([entries, stats, st]) => {
+      const c = invoke<number>("get_history_count");
+      const settingsReq = invoke<AppSettings>("load_settings");
+      Promise.all([h, s, c, settingsReq]).then(([entries, st, count, stt]) => {
         setHistory(entries);
-        setStats(stats);
-        setSettings(st);
+        setStats(st);
+        setHistoryTotal(count);
+        setSettings(stt);
       }).catch(() => {});
     }
   }, [appState]);
@@ -111,27 +175,65 @@ function AppShell() {
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
   };
 
+  const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const settingsRef = useRef<AppSettings | null>(null);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   const saveSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    if (!settings) return;
-    const updated = { ...settings, [key]: value };
-    setSettings(updated);
-    console.log("[saveSetting]", key, value);
+    if (!settingsRef.current) return;
     const msg = settingToast(key, value);
-    invoke("save_settings", { settings: updated })
-      .then(() => { if (msg) toast.addToast(msg, "success"); })
-      .catch((e) => { console.error("[saveSetting]", e); toast.addToast("Failed to save settings", "error"); });
-    refreshCurrentModel();
+    setSettings((prev) => (prev ? ({ ...prev, [key]: value } as AppSettings) : prev));
+    const task = async () => {
+      const base = settingsRef.current;
+      if (!base) return;
+      const updated = { ...base, [key]: value } as AppSettings;
+      try {
+        const trimmed = await invoke<number>("save_settings", { settings: updated });
+        if (key === "max_history_entries" || key === "history_retention_mode") {
+          fetchHistory();
+          if (typeof trimmed === "number" && trimmed > 0) {
+            toast.addToast(`Trimmed ${trimmed} oldest entries`, "success");
+          } else {
+            if (msg) toast.addToast(msg, "success");
+            else toast.addToast("History limit updated", "success");
+          }
+        } else {
+          if (msg) toast.addToast(msg, "success");
+        }
+      } catch (e) {
+        console.error("[saveSetting]", e);
+        try {
+          const fresh = await invoke<AppSettings>("load_settings");
+          setSettings(fresh);
+        } catch {}
+        toast.addToast("Failed to save settings", "error");
+      }
+      if ((MODEL_KEYS as string[]).includes(key as string)) refreshCurrentModel();
+    };
+    saveQueueRef.current = saveQueueRef.current.then(task, task);
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
-    if (!settings) return;
-    const merged = { ...settings, ...updates };
-    setSettings(merged);
-    console.log("[saveAllSettings]", updates);
-    invoke("save_settings", { settings: merged })
-      .then(() => { toast.addToast("Settings saved", "success"); })
-      .catch((e) => { console.error("[saveAllSettings]", e); toast.addToast("Failed to save settings", "error"); });
-    refreshCurrentModel();
+    if (!settingsRef.current) return;
+    setSettings((prev) => (prev ? ({ ...prev, ...updates } as AppSettings) : prev));
+    const task = async () => {
+      const base = settingsRef.current;
+      if (!base) return;
+      const merged = { ...base, ...updates } as AppSettings;
+      try {
+        await invoke("save_settings", { settings: merged });
+        toast.addToast("Settings saved", "success");
+      } catch (e) {
+        console.error("[saveAllSettings]", e);
+        try {
+          const fresh = await invoke<AppSettings>("load_settings");
+          setSettings(fresh);
+        } catch {}
+        toast.addToast("Failed to save settings", "error");
+      }
+      if (Object.keys(updates).some((k) => (MODEL_KEYS as string[]).includes(k))) refreshCurrentModel();
+    };
+    saveQueueRef.current = saveQueueRef.current.then(task, task);
   };
 
   const settingToast = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): string | null => {
@@ -145,14 +247,21 @@ function AppShell() {
       case "keep_recordings": return `Keep recordings ${on(Boolean(value))}`;
       case "overlay_enabled": return `Recording overlay ${on(Boolean(value))}`;
       case "overlay_position": return `Overlay position: ${String(value)}`;
-      case "hotkey": return `Shortcut: ${String(value)}`;
+      case "sound_enabled": return `Sound feedback ${on(Boolean(value))}`;
+      case "sound_on_start": return `Sound on start ${on(Boolean(value))}`;
+      case "sound_on_done": return `Sound when done ${on(Boolean(value))}`;
+      case "sound_on_cancel": return `Sound on cancel ${on(Boolean(value))}`;
+      case "sound_on_error": return `Sound on error ${on(Boolean(value))}`;
+      case "hotkey": return null; // handled inline in GeneralTab to avoid double toast + to allow rollback on failure
       case "hotkey_mode": return `Mode: ${String(value)}`;
       case "paste_tool": return `Paste tool: ${String(value)}`;
       case "input_device": return value ? `Microphone: ${String(value)}` : "Microphone: System default";
       case "process_enabled": return `AI processing ${on(Boolean(value))}`;
-      case "words_enabled": return `Custom words ${on(Boolean(value))}`;
+      case "words_enabled": return `Your dictionary ${on(Boolean(value))}`;
       case "local_model_file": return "Local model changed";
       case "engine_mode": return `Engine: ${String(value)}`;
+      case "max_history_entries": return value === 0 ? "History: unlimited" : `History limit: ${String(value)} entries`;
+      case "history_retention_mode": return String(value) === "both" ? "Retention: delete both" : "Retention: keep transcripts";
       default: return null;
     }
   };
@@ -160,6 +269,9 @@ function AppShell() {
   const unloadModel = async () => {
     try {
       await invoke("unload_model");
+      // Single source is settings.local_model_file — clear it locally too
+      setSettings((prev) => (prev ? { ...prev, local_model_file: "" } : prev));
+      setCurrentModelName("");
       refreshCurrentModel();
     } catch (e) {
       console.error(e);
@@ -172,10 +284,10 @@ function AppShell() {
   };
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
-    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "overlay_enabled", "overlay_position", "input_device"],
-    engine: ["engine_mode", "engine_model", "local_model_file"],
-    process: ["process_enabled", "process_provider", "process_base_url", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
-    words: ["words_enabled"],
+    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "noise_suppression_enabled", "noise_suppression_level", "overlay_enabled", "overlay_position", "sound_enabled", "sound_on_start", "sound_on_done", "sound_on_cancel", "sound_on_error", "input_device", "max_history_entries", "history_retention_mode", "keep_recordings"],
+    engine: ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"],
+    process: ["process_enabled", "process_provider", "process_base_url", "process_endpoint", "process_timeout_secs", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_opencode_go", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
+    words: ["words_enabled", "words_auto_scan"],
   };
 
   const resetTab = async (tab: string) => {
@@ -212,7 +324,7 @@ function AppShell() {
   const renderTab = () => {
     switch (activeTab) {
       case "general":
-        return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
+        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
       case "engine":
         return (
           <EngineTab
@@ -232,23 +344,23 @@ function AppShell() {
           />
         );
       case "history":
-        return <HistoryTab history={history} stats={stats} settings={settings} onSave={saveSetting} onRefresh={fetchHistory} />;
+        return <HistoryTab history={history} stats={stats} settings={settings} historyTotal={historyTotal} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onSave={saveSetting} onRefresh={fetchHistory} />;
       case "about":
         return <AboutTab />;
       case "donate":
         return <DonateTab />;
       default:
-        return <GeneralTab settings={settings} onSave={saveSetting} onReset={() => resetTab("general")} />;
+        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
     }
   };
 
   return (
-    <div className={`h-screen ${dark ? "dark" : "light"} bg-base text-ink flex font-sans select-none`}>
+    <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex font-sans selection:bg-accent/20`}>
         {!onboarded && settings && (
           <Onboarding
             env={pasteEnv}
             onDone={() => {
-              localStorage.setItem("wisper:onboarded", "1");
+              localStorage.setItem(storageKey("onboarded"), "1");
               setOnboarded(true);
             }}
           />
@@ -264,17 +376,25 @@ function AppShell() {
         />
 
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
-            <UpdateBanner />
-            <div key={activeTab} className="tab-enter">
-              {renderTab()}
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="max-w-[var(--content-max)] mx-auto w-full px-6 py-6">
+              <UpdateBanner />
+              <div className="tab-enter">
+                {renderTab()}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 px-6 py-2 border-t border-stroke text-[10px] font-mono text-muted">
-            <span>{stats[0]} dictations</span>
-            <span className="w-1 h-1 rounded-full bg-stroke" />
-            <span className="capitalize">{settings.engine_mode} mode</span>
+          <div className="shrink-0 px-6 py-3 border-t border-stroke/80 bg-surface/60 backdrop-blur-[6px] flex items-center gap-2.5 text-[11px] font-mono">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-elevated border border-stroke text-muted">
+              <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
+              {stats[0]} dictations
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft border border-accent/15 text-ink/80 capitalize">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              {settings.engine_mode}
+            </span>
+            <span className="ml-auto text-muted/50 text-[10px] tracking-widest uppercase hidden sm:inline">private · on-device</span>
           </div>
         </div>
       </div>

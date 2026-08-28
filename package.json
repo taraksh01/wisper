@@ -1,7 +1,7 @@
 {
   "name": "wisper",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Turn your voice into text right on your device, with your privacy always in your hands.",
   "author": "Tarak Shaw <taraksh01@gmail.com>",
   "engines": {
@@ -13,7 +13,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.json",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -21,22 +23,19 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "qrcode": "^1.5.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.2",
     "@tauri-apps/cli": "2.11.4",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.3.2",
     "typescript": "5.8.3",
     "vite": "7.3.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
   }
 }

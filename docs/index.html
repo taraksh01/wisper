@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wisper — Voice dictation for Linux that runs on your device</title>
-  <meta name="description" content="Wisper: privacy-first voice dictation for Linux. Speak and your words are typed at your cursor. Local Whisper transcription, optional AI cleanup. Wayland and X11." />
-  <meta name="theme-color" content="#15110d" />
+  <title>Wisper: Voice dictation for Linux that runs on your device</title>
+  <meta name="description" content="Wisper: privacy-first voice dictation for Linux. Speak and your words are typed at your cursor. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup. Wayland and X11." />
+  <meta name="theme-color" content="#100d0a" />
   <meta name="color-scheme" content="light dark" />
   <script>
     // Pin theme before paint to avoid a flash. Mirrors script.js init.
@@ -24,16 +24,16 @@
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Wisper" />
-  <meta property="og:title" content="Wisper — Voice dictation for Linux, on your device" />
-  <meta property="og:description" content="Speak and your words are typed where your cursor sits. Local Whisper transcription, optional AI cleanup, zero data sent by default. For Wayland and X11." />
+  <meta property="og:title" content="Wisper: Voice dictation for Linux, on your device" />
+  <meta property="og:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default. For Wayland and X11." />
   <meta property="og:url" content="https://taraksh01.github.io/wisper/" />
   <meta property="og:image" content="https://taraksh01.github.io/wisper/assets/wisper-og.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="Wisper — local voice dictation for Linux" />
+  <meta property="og:image:alt" content="Wisper: local voice dictation for Linux" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Wisper — Voice dictation for Linux, on your device" />
-  <meta name="twitter:description" content="Speak and your words are typed where your cursor sits. Local Whisper transcription, optional AI cleanup, zero data sent by default." />
+  <meta name="twitter:title" content="Wisper: Voice dictation for Linux, on your device" />
+  <meta name="twitter:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default." />
   <meta name="twitter:image" content="https://taraksh01.github.io/wisper/assets/wisper-og.png" />
 
   <link rel="icon" type="image/svg+xml" href="assets/wisper.svg" />
@@ -50,8 +50,8 @@
     "operatingSystem": "Linux",
     "applicationCategory": "UtilitiesApplication",
     "applicationSubCategory": "Voice dictation",
-    "description": "Privacy-first voice dictation for Linux. Local Whisper ONNX transcription, optional AI cleanup, types at your cursor. Works on Wayland and X11.",
-    "softwareVersion": "3.0.0",
+    "description": "Privacy-first voice dictation for Linux. Local ONNX transcription (Parakeet, Moonshine, IndicConformer), optional AI cleanup, types at your cursor. Works on Wayland and X11.",
+    "softwareVersion": "3.1.0",
     "url": "https://taraksh01.github.io/wisper/",
     "downloadUrl": "https://github.com/taraksh01/wisper/releases/latest",
     "license": "https://opensource.org/licenses/MIT",
@@ -95,8 +95,8 @@
       <span>Wisper</span>
     </a>
     <nav class="nav-links" aria-label="Primary">
-      <a href="#features">Features</a>
       <a href="#how">How it works</a>
+      <a href="#features">Features</a>
       <a href="#setup">Setup</a>
       <a href="#faq">FAQ</a>
       <a class="btn btn-ghost gh-link" href="https://github.com/taraksh01/wisper" target="_blank" rel="noopener noreferrer">
@@ -109,133 +109,179 @@
   </header>
 
   <main id="main" tabindex="-1">
-    <!-- Hero -->
+    <!-- Hero: a Linux terminal, a Wisper session in progress, the pill on the line being dictated. -->
     <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Local voice dictation for Linux</p>
-        <h1 class="hero-title">Talk to your computer.<br />It types what you say.</h1>
+      <div class="hero-head">
+        <p class="hero-tag mono">Wisper 3.1.0 &middot; Linux &middot; MIT</p>
+        <h1 class="hero-title">Dictation, at your cursor.</h1>
         <p class="hero-sub">
-          Wisper listens through a global hotkey, transcribes on your machine with Whisper,
-          and drops the text right where your cursor is. No cloud required. No keystrokes sent anywhere.
+          Hold a key, talk, and your words type where you were going to type them anyway.
         </p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="#download">Download for Linux</a>
-          <a class="btn btn-ghost" href="#how">See how it works</a>
-        </div>
-        <ul class="hero-facts" aria-label="At a glance">
-          <li><span class="mono">100%</span> on-device by default</li>
-          <li><span class="mono">Wayland</span> &amp; X11</li>
-          <li><span class="mono">MIT</span> licensed</li>
-        </ul>
       </div>
 
-      <div class="hero-visual" aria-hidden="true">
-        <div class="overlay-pill">
+      <div class="terminal" aria-hidden="true">
+        <div class="t-bar">
+          <span class="t-title mono">taraksh01@linux: ~/wisper</span>
+          <span class="t-close" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </span>
+        </div>
+        <div class="t-body">
+          <p class="t-line t-dim mono"><span class="prompt">$</span>cargo test --quiet</p>
+          <p class="t-line t-dim mono"><span class="prompt">&gt;</span>ok · 14 passed</p>
+          <p class="t-line t-dim mono"><span class="prompt">$</span>git status --short</p>
+          <p class="t-line t-dim mono"><span class="prompt">&gt;</span>M docs/index.html</p>
+          <p class="t-line t-typed mono"><span class="prompt">$</span><span class="t-stream"><span id="t-text"></span><span class="t-caret" id="t-caret"></span></span></p>
+        </div>
+        <div class="overlay-pill" data-beam>
           <svg class="ov-wave" width="78" height="40" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="ov-wave-grad" x1="156" y1="20" x2="156" y2="140" gradientUnits="userSpaceOnUse">
+              <linearGradient id="wisper-wave" x1="156" y1="20" x2="156" y2="140" gradientUnits="userSpaceOnUse">
                 <stop stop-color="#fb923c" />
                 <stop offset="1" stop-color="#ea580c" />
               </linearGradient>
             </defs>
-            <g class="ov-bars" id="ov-bars"></g>
+            <g class="ov-bars-g js-bars"></g>
           </svg>
-          <span class="ov-text"><span id="transcript">press the hotkey and start talking…</span><span class="caret"></span></span>
+          <span class="ov-divider"></span>
+          <span class="ov-cancel">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </span>
         </div>
-        <p class="ov-caption mono">F9 · system tray · on your Linux desktop</p>
+      </div>
+
+      <div class="hero-foot">
+        <a class="btn btn-primary btn-lg" href="#download">Download for Linux</a>
+        <ul class="hero-facts mono" aria-label="At a glance">
+          <li><span class="dot-ok"></span>on-device by default</li>
+          <li>Wayland &amp; X11</li>
+          <li>free &middot; MIT</li>
+        </ul>
       </div>
     </section>
 
-    <!-- How it works -->
+    <!-- How it works: the signal chain -->
     <section class="section" id="how">
       <header class="section-head">
+        <p class="eyebrow mono"># how it works</p>
         <h2 class="section-title">From voice to text in one breath</h2>
-        <p class="section-lead">A short pipeline with no round trip to a server. You speak, the local model listens, your words land.</p>
+        <p class="section-lead">A short pipeline with no round trip to a server. You speak, a local model listens, your words land.</p>
       </header>
       <ol class="pipeline">
         <li class="step">
           <span class="step-num mono">01</span>
           <h3>Speak</h3>
-          <p>Hold the global hotkey (push-to-talk) or tap for toggle mode. Your mic records locally.</p>
+          <p>Hold the global hotkey for push-to-talk, or tap it to toggle. Your mic records locally, and the overlay pill shows a live waveform.</p>
         </li>
         <li class="step">
           <span class="step-num mono">02</span>
           <h3>Transcribe</h3>
-          <p>Whisper ONNX models turn speech into text on your machine. Leading and trailing silence is trimmed so pauses don't linger.</p>
+          <p>Local ONNX engines: Parakeet, Moonshine, or IndicConformer. They turn speech into text on your machine, silence is trimmed, and models stay loaded so your next dictation starts instantly.</p>
         </li>
         <li class="step">
           <span class="step-num mono">03</span>
           <h3>Insert</h3>
-          <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland or X11.</p>
+          <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland or X11. Optionally polished by AI first.</p>
         </li>
       </ol>
     </section>
 
-    <!-- Features -->
+    <!-- Features: bento with live artifacts -->
     <section class="section" id="features">
       <header class="section-head">
+        <p class="eyebrow mono"># features</p>
         <h2 class="section-title">Everything you need to stop typing</h2>
         <p class="section-lead">Wisper does one job and stays out of your way. These are the controls you actually get.</p>
       </header>
-      <ul class="feature-grid">
-        <li class="card">
-          <h3>Speak instead of type</h3>
-          <p>A global hotkey captures your voice and drops the text where you are working. Hold to talk, or tap to toggle.</p>
+      <ul class="bento">
+        <li class="cell cell-demo span-7">
+          <h3>The overlay that follows you</h3>
+          <p>A small pill floats at the bottom of whichever monitor your cursor is on. The voice-reactive waveform, a rotating radiant beam, and one button to cancel.</p>
+          <div class="demo-pill" data-beam aria-hidden="true">
+            <svg class="ov-wave" width="56" height="30" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg"><g class="ov-bars-g js-bars ov-bars-dim"></g></svg>
+            <span class="ov-divider"></span>
+            <span class="ov-cancel"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg></span>
+          </div>
+          <p class="err-chip mono" aria-hidden="true">No speech detected. Try speaking closer to the mic.</p>
         </li>
-        <li class="card">
-          <h3>Runs on your device</h3>
-          <p>Transcription uses local Whisper ONNX models. Nothing leaves your computer unless you point it at a cloud provider.</p>
+        <li class="cell span-5">
+          <h3>Hear it work</h3>
+          <p>Subtle sounds mark recording start and text ready. Master toggle plus per-event controls. Silence it whenever you want.</p>
+          <div class="snd-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
         </li>
-        <li class="card">
+        <li class="cell span-4">
+          <h3>Push-to-talk</h3>
+          <p>Hold to record, release to transcribe. Prefer toggle? One tap. Any key or key combo works.</p>
+          <span class="keycap" aria-hidden="true">F9</span>
+        </li>
+        <li class="cell span-4">
+          <h3>Nothing leaves</h3>
+          <p>Transcription runs on your machine. Cloud is strictly opt-in.</p>
+          <p class="stat mono" aria-hidden="true"><span class="dot-ok"></span>0 bytes sent</p>
+        </li>
+        <li class="cell span-4">
           <h3>Pick your microphone</h3>
-          <p>Choose a specific input device or leave it on the system default. Virtual sinks are filtered out so you don't pick the wrong one.</p>
+          <p>Choose a specific input device or stay on system default. Virtual sinks are filtered out. Test the level before you rely on it.</p>
         </li>
-        <li class="card">
-          <h3>AI cleanup</h3>
-          <p>An optional step reformats and polishes the transcript. Profiles include Email, Developer, Messaging, Formal, Clean-up, and your own custom instructions.</p>
+        <li class="cell span-6">
+          <h3>AI cleanup, your voice</h3>
+          <p>An optional pass reformats and polishes the transcript. It never answers for you. Six writing styles: Auto, Clean-up, Email, Developer, Messaging, Formal, plus custom instructions.</p>
         </li>
-        <li class="card">
+        <li class="cell span-6">
           <h3>Your words, your way</h3>
           <p>Custom vocabulary turns shortcuts into proper terms. Say "gpt", get "GPT". Scan past dictations to find new words worth saving.</p>
         </li>
-        <li class="card">
+        <li class="cell span-4">
           <h3>Look back</h3>
-          <p>Searchable history lets you replay the recording, re-transcribe, or edit any past dictation. It also shows how much typing time you saved.</p>
+          <p>Searchable history: replay the recording, re-transcribe, edit, copy. Set retention limits. See typing time saved.</p>
         </li>
-        <li class="card">
-          <h3>Live overlay</h3>
-          <p>A small indicator follows your cursor while recording, showing a voice-reactive waveform. If transcription fails, it flashes a clear mark.</p>
+        <li class="cell span-4">
+          <h3>Local or cloud</h3>
+          <p>Stay fully offline, or plug in a cloud speech key: OpenAI, Groq, or any OpenAI-compatible endpoint. Switch any time.</p>
         </li>
-        <li class="card">
+        <li class="cell span-4">
           <h3>Out of the way</h3>
-          <p>Lives in the system tray. Close the window and it keeps running, ready for the next hotkey. Unload the model from the tray when you don't need it.</p>
+          <p>Lives in the system tray. Close the window and it keeps running, ready for the next hotkey.</p>
         </li>
-        <li class="card">
+        <li class="cell span-6">
           <h3>Updates itself</h3>
-          <p>Checks GitHub releases and installs new versions in-app, with signed auto-updates. You stay current without hunting for downloads.</p>
+          <p>Checks GitHub releases and installs new versions in-app, with signed auto-updates. No hunting for downloads.</p>
         </li>
-        <li class="card">
-          <h3>Local or cloud, your call</h3>
-          <p>Run everything on your device, or skip the model download and point Wisper at a cloud speech provider you configure (OpenAI, Groq, or your own). Switch any time from the Engine tab.</p>
-        </li>
-        <li class="card">
+        <li class="cell span-6">
           <h3>Starts with you</h3>
-          <p>Launch at login and start hidden in the tray. First run walks you through the model download and the difference between push-to-talk and toggle.</p>
+          <p>Launch at login, start hidden in the tray. First run walks you through the model download and push-to-talk vs toggle.</p>
         </li>
       </ul>
+    </section>
+
+    <!-- Engines strip -->
+    <section class="engines" aria-label="Speech engines">
+      <div class="engines-inner">
+        <p class="eyebrow mono"># engines</p>
+        <h2 class="engines-title">Pick the engine that fits your machine</h2>
+        <p class="engines-lead">Thirteen local ONNX models across three families, pocket-sized to max-accuracy, or bring a cloud key. One toggle in the Engine tab.</p>
+        <ul class="engine-row mono" aria-label="Local engine families">
+          <li class="engine-chip"><span class="dot-ok"></span>Parakeet<span class="engine-count">2</span></li>
+          <li class="engine-chip"><span class="dot-ok"></span>Moonshine<span class="engine-count">1</span></li>
+          <li class="engine-chip"><span class="dot-ok"></span>IndicConformer<span class="engine-count">10</span></li>
+          <li class="engine-chip engine-chip-cloud">or a cloud key</li>
+        </ul>
+        <p class="engines-examples mono">Parakeet TDT 0.6B covers 25 languages · Moonshine base is 56 MB · IndicConformer 8-Lang Multi is 188 MB for 8 Indian languages</p>
+      </div>
     </section>
 
     <!-- Download -->
     <section class="section download" id="download">
       <header class="section-head">
+        <p class="eyebrow mono"># download</p>
         <h2 class="section-title">Download for Linux</h2>
-        <p class="section-lead">Wisper <span class="mono" id="version">v3.0.0</span> — the site fetches the latest release when it loads. Auto-update is built in.</p>
+        <p class="section-lead">Wisper <span class="mono" id="version">v3.1.0</span>. The site fetches the latest release when it loads. Auto-update is built in.</p>
       </header>
       <div class="download-grid" id="download-grid" data-repo="taraksh01/wisper">
         <p class="download-loading">Loading the latest release…</p>
       </div>
       <p class="download-note">
-        All releases are signed. Prefer the AppImage if your distro isn't DEB based.
+        All releases are signed. Prefer the AppImage if your distro isn't DEB or RPM based.
         <a href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">View all releases →</a>
       </p>
     </section>
@@ -243,17 +289,18 @@
     <!-- Setup -->
     <section class="section" id="setup">
       <header class="section-head">
+        <p class="eyebrow mono"># setup</p>
         <h2 class="section-title">First-run setup</h2>
-        <p class="section-lead">Three steps and you're dictating. The hard part is picking a good microphone.</p>
+        <p class="section-lead">Three steps and you're dictating.</p>
       </header>
       <div class="setup-grid">
         <div class="setup-card">
-          <h3><span class="setup-num">1</span> Pick an engine</h3>
-          <p>On first launch, open <strong>Engine</strong>. Download a local speech model (about 1.4 GB), or skip it and connect a cloud provider like OpenAI or Groq. Nothing transcribes until one is active.</p>
-          <p class="setup-foot">Engine tab · local or cloud</p>
+          <h3><span class="setup-num mono">1</span> Pick an engine</h3>
+          <p>On first launch, open <strong>Engine</strong>. Download a local ONNX model: Parakeet for breadth, Moonshine for speed (56 MB), or IndicConformer for Indian languages, or skip it and connect a cloud provider like OpenAI or Groq. Nothing transcribes until one is active.</p>
+          <p class="setup-foot mono">Engine tab · local or cloud</p>
         </div>
         <div class="setup-card">
-          <h3><span class="setup-num">2</span> Paste backend</h3>
+          <h3><span class="setup-num mono">2</span> Paste backend</h3>
           <p>Wisper inserts text by simulating a paste at your cursor. On Wayland, install <code class="mono">ydotool</code> for prompt-free pasting:</p>
           <div class="cmd">
             <pre class="mono"><code>sudo systemctl enable --now ydotoold
@@ -265,12 +312,12 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
             </button>
           </div>
           <p class="muted">wtype also works on compositors that support the Wayland virtual-keyboard protocol. enigo is built in but prompts for the RemoteDesktop portal once on Wayland.</p>
-          <p class="setup-foot">Wayland · ydotool recommended</p>
+          <p class="setup-foot mono">Wayland · ydotool recommended</p>
         </div>
         <div class="setup-card">
-          <h3><span class="setup-num">3</span> Pick your mic</h3>
+          <h3><span class="setup-num mono">3</span> Pick your mic</h3>
           <p>In <strong>General</strong> settings, choose a specific input device or leave it on system default. Test the level before you rely on it.</p>
-          <p class="setup-foot">General tab · input device</p>
+          <p class="setup-foot mono">General tab · input device</p>
         </div>
       </div>
     </section>
@@ -278,13 +325,14 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
     <!-- FAQ -->
     <section class="section" id="faq">
       <header class="section-head">
+        <p class="eyebrow mono"># faq</p>
         <h2 class="section-title">Questions people ask</h2>
         <p class="section-lead">The honest answers, including the Linux-specific rough edges.</p>
       </header>
       <div class="faq">
         <details>
           <summary>Is my audio sent to the cloud?</summary>
-          <p>No, not by default. Transcription runs on your machine with local Whisper ONNX models. Cloud providers are optional and only used if you add a key in Engine or Process settings.</p>
+          <p>No, not by default. Transcription runs on your machine with local ONNX models. Cloud providers are optional and only used if you add a key in Engine or Process settings.</p>
         </details>
         <details>
           <summary>Which Linux desktops are supported?</summary>
@@ -296,7 +344,7 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
         </details>
         <details>
           <summary>Do I need to download a model?</summary>
-          <p>Only if you want to stay fully local. On first launch, open the Engine tab and download a speech model (about 1.4 GB). Prefer not to? Connect a cloud provider like OpenAI or Groq instead. Wisper can't transcribe until one engine is active, and you can cancel a download mid-way.</p>
+          <p>Only if you want to stay fully local. On first launch, open the Engine tab and pick a local ONNX model: Moonshine (56 MB) for speed, Parakeet for breadth, or IndicConformer for Indian languages. Prefer not to? Connect a cloud provider like OpenAI or Groq instead. Wisper can't transcribe until one engine is active, and you can cancel a download mid-way.</p>
         </details>
         <details>
           <summary>What is the cloud option?</summary>
@@ -304,7 +352,7 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
         </details>
         <details>
           <summary>What does the AI cleanup actually change?</summary>
-          <p>It re-formats and polishes the transcript through an OpenAI-compatible chat model you configure. It rewrites only what you said, never answers for you. Profiles cover email, developer, messaging, formal, and plain cleanup.</p>
+          <p>It re-formats and polishes the transcript through the chat model you configure: OpenAI, Anthropic, Groq, OpenRouter, Ollama, OpenCode Go, or your own endpoint. It rewrites only what you said, never answers for you. Profiles cover auto, cleanup, email, developer, messaging, and formal writing.</p>
         </details>
         <details>
           <summary>Is Wisper free and open source?</summary>

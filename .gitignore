@@ -26,6 +26,7 @@ pnpm-debug.log*
 
 # Personal notes (never commit)
 IDEAS.md
+docs/superpowers/
 
 # Tauri
 /src-tauri/WixTools/
@@ -46,3 +47,8 @@ bun.lockb
 *.rpm
 *.dmg
 *.exe
+.superpowers/
+
+# Local verification harnesses (homelab URL/key, not for CI)
+scripts/test_process_*.mjs
+scripts/test_process_*.results.json

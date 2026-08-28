@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wisper",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "identifier": "com.taraksh01.wisper",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -11,23 +11,26 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "enableGTKAppId": true,
     "windows": [
       {
         "title": "Wisper",
-        "width": 780,
-        "height": 680,
-        "minWidth": 780,
-        "minHeight": 680,
-        "visible": false
+        "width": 900,
+        "height": 700,
+        "resizable": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://api.openai.com https://api.groq.com https://api.anthropic.com https://api.together.xyz https://api.deepseek.com https://openrouter.ai https://api.sarvam.ai https://github.com https://blob.handy.computer https://huggingface.co http://localhost:* ws://localhost:* https: wss:"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb", "rpm"],
+    "targets": [
+      "appimage",
+      "deb",
+      "rpm"
+    ],
     "publisher": "Tarak Shaw",
     "shortDescription": "Turn your voice into text right on your device, with your privacy always in your hands.",
     "longDescription": "Turn your voice into text right on your device, with your privacy always in your hands. Just speak, and your words are ready to paste anywhere. Everything stays on your computer by default, with optional cloud providers available whenever you choose to use them.",

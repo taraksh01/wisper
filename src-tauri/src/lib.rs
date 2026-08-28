@@ -1,3 +1,4 @@
+pub mod app_info;
 pub mod audio;
 pub mod coordinator;
 pub mod engine;
@@ -7,8 +8,9 @@ pub mod models;
 pub mod paste;
 pub mod process;
 pub mod settings;
-pub mod words;
+pub mod tray;
 pub mod whisper_keys;
+pub mod words;
 
 use audio::AudioRecorder;
 use coordinator::{CoordinatorCommand, CoordinatorState, TranscriptionCoordinator};
@@ -18,24 +20,55 @@ use std::thread;
 
 const DEFAULT_HOTKEY: &str = "F9";
 
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent,
-};
+/// Temporarily silence C-level stderr (fd 2) around a closure.
+///
+/// Some native libraries (libayatana-appindicator, handy-keys) print harmless
+/// deprecation/info warnings straight to the C stderr stream, which can't be
+/// captured by Rust's `eprintln!` redirection. This dup2's fd 2 to /dev/null
+#[cfg(target_os = "linux")]
+static SILENCE_LOCK: once_cell::sync::Lazy<std::sync::Mutex<()>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(()));
+
+#[cfg(target_os = "linux")]
+pub fn silence_stderr<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    use std::os::unix::io::AsRawFd;
+    let _g = SILENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
+    let null = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/null")
+        .ok();
+    if saved != -1 {
+        if let Some(ref n) = null {
+            unsafe {
+                libc::dup2(n.as_raw_fd(), libc::STDERR_FILENO);
+            }
+        }
+    }
+    let result = f();
+    if saved != -1 {
+        unsafe {
+            libc::dup2(saved, libc::STDERR_FILENO);
+            libc::close(saved);
+        }
+    }
+    result
+}
+
+use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
-static UNLOAD_ITEM: once_cell::sync::Lazy<std::sync::Mutex<Option<MenuItem<tauri::Wry>>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
-
-static APP_HANDLE: once_cell::sync::Lazy<std::sync::Mutex<Option<tauri::AppHandle>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
-
-static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
+use crate::tray::STATE_LOCK;
 
 type HotkeySender = Arc<Mutex<mpsc::Sender<hotkey::HotkeyEvent>>>;
 static HOTKEY_SENDER: once_cell::sync::Lazy<Mutex<Option<HotkeySender>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+/// Handle for overlay-window operations (owned by lib, not tray).
+static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
@@ -50,11 +83,15 @@ static OVERLAY_POSITION: once_cell::sync::Lazy<Mutex<String>> =
 static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+// The human-readable reason shown in the error overlay's pill.
+static OVERLAY_ERROR_REASON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
 #[tauri::command]
 fn get_input_level() -> f32 {
     RECORDER
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map(|r| r.current_level())
         .unwrap_or(0.0)
@@ -62,11 +99,18 @@ fn get_input_level() -> f32 {
 
 #[tauri::command]
 fn start_mic_preview() -> Result<(), String> {
-    let device = crate::coordinator::INPUT_DEVICE.lock().unwrap().clone();
-    let device = if device.is_empty() { None } else { Some(device) };
+    let device = crate::coordinator::INPUT_DEVICE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let device = if device.is_empty() {
+        None
+    } else {
+        Some(device)
+    };
     RECORDER
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .map(|r| r.start_preview(device))
         .unwrap_or(Err("Recorder not initialized".into()))
@@ -79,7 +123,7 @@ fn list_audio_devices() -> Vec<(String, String)> {
 
 #[tauri::command]
 fn stop_mic_preview() {
-    if let Some(r) = RECORDER.lock().unwrap().as_ref() {
+    if let Some(r) = RECORDER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         r.stop_preview();
     }
 }
@@ -95,48 +139,67 @@ fn get_paste_environment(preference: String) -> paste::PasteEnvironment {
 }
 
 #[tauri::command]
+fn cancel_recording() {
+    coordinator::cancel_all();
+}
+
+#[tauri::command]
 fn get_current_state() -> String {
-    let state = STATE_LOCK.lock().unwrap();
-    format!("{:?}", *state)
+    let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    match *state {
+        CoordinatorState::Idle => "idle".into(),
+        CoordinatorState::Recording => "recording".into(),
+        CoordinatorState::Processing => "processing".into(),
+        CoordinatorState::Error => "error".into(),
+    }
 }
 
 #[tauri::command]
 fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
-    whisper_keys::register(&key)
+    let res = whisper_keys::register(&key);
+    if res.is_ok() {
+        settings::apply(&_app, |s| s.hotkey = key);
+    }
+    res
 }
 
 #[tauri::command]
 fn get_current_model() -> String {
-    coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone()
+    coordinator::MODEL_DISPLAY_NAME
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 #[tauri::command]
-fn unload_model(_app: tauri::AppHandle) {
-    let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
+fn unload_model(app: tauri::AppHandle) {
+    let mode = coordinator::ENGINE_MODE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     if mode == "cloud" {
-        if let Some(win) = _app.get_webview_window("main") {
+        if let Some(win) = app.get_webview_window("main") {
             let _ = win.show();
             let _ = win.set_focus();
         }
-        let _ = _app.emit("wisper:open-tab", "engine");
+        let _ = app.emit("wisper:open-tab", "engine");
     } else {
-        {
-            let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
-            *current = None;
-        }
-        {
-            let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
-            name.clear();
-        }
-        update_tray_menu_text();
+        settings::unload_local_model(&app);
     }
 }
 
 fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
     let label = match state {
-        CoordinatorState::Idle => "idle",
+        CoordinatorState::Idle => {
+            if crate::coordinator::active_job_count() > 0 {
+                "processing"
+            } else {
+                "idle"
+            }
+        }
         CoordinatorState::Recording => "recording",
         CoordinatorState::Processing => "processing",
+        CoordinatorState::Error => "error",
     };
     let _ = app.emit("wisper:state", label);
     update_overlay(app, state);
@@ -146,63 +209,133 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
 /// Tauri webview showing the recording indicator (public/overlay.html).
 /// Created hidden, shown during recording/processing, destroyed when idle.
 const OVERLAY_LABEL: &str = "wisper-overlay";
-const OVERLAY_WIDTH: f64 = 260.0;
-const OVERLAY_HEIGHT: f64 = 56.0;
-const OVERLAY_TOP_OFFSET: f64 = 4.0;
-const OVERLAY_BOTTOM_OFFSET: f64 = 40.0;
+const OVERLAY_WIDTH: f64 = 172.0;
+const OVERLAY_HEIGHT: f64 = 60.0;
+const OVERLAY_TOP_OFFSET: f64 = 0.0;
+const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 
 #[cfg(target_os = "linux")]
 use enigo::Mouse;
 
-/// Cursor position on Wayland: Tauri's cursor_position() returns (0,0), so ask
-/// enigo (which talks to the compositor) for the real pointer location.
-#[cfg(target_os = "linux")]
+/// Cursor position fallback. On Wayland, Tauri's cursor_position() can return
+/// (0,0), so ask enigo (which talks to the compositor) for the real pointer
+/// location. On other platforms Tauri's cursor_position() is reliable, so we
+/// just return None and rely on it directly.
 fn cursor_pos() -> Option<(i32, i32)> {
-    enigo::Enigo::new(&enigo::Settings::default()).ok().and_then(|e| e.location().ok())
+    #[cfg(target_os = "linux")]
+    {
+        enigo::Enigo::new(&enigo::Settings::default())
+            .ok()
+            .and_then(|e| e.location().ok())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
 }
 
-#[cfg(target_os = "linux")]
+/// Resolves the monitor the cursor is currently on, using Tauri's
+/// cursor_position() (cross-platform) with an enigo fallback on Linux/Wayland,
+/// then the primary monitor as a last resort.
+///
+/// Wayland bug: `cursor_position()` often returns `Ok(0,0)` instead of `Err`,
+/// so `or_else` never fires and we always pick the primary monitor. We must
+/// detect that case and prefer Enigo when it yields a different non-zero point.
 fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
-    if let Some((mx, my)) = cursor_pos() {
+    let tauri_pos = app
+        .cursor_position()
+        .ok()
+        .map(|p| (p.x as i32, p.y as i32));
+    let enigo_pos = cursor_pos();
+
+    // Prefer a non-zero Enigo result on Linux; if both are present and differ,
+    // the Enigo value is the Wayland-correct one. Otherwise use whichever is Some.
+    let cursor = match (tauri_pos, enigo_pos) {
+        (Some(tp), Some(ep)) => {
+            // If Tauri says (0,0) but Enigo disagrees, trust Enigo.
+            if tp == (0, 0) && ep != (0, 0) {
+                Some(ep)
+            } else if ep == (0, 0) && tp != (0, 0) {
+                Some(tp)
+            } else {
+                // Both non-zero and disagree — Enigo is more reliable on X11/Wayland.
+                #[cfg(target_os = "linux")]
+                { Some(ep) }
+                #[cfg(not(target_os = "linux"))]
+                { Some(tp) }
+            }
+        }
+        (Some(p), None) | (None, Some(p)) => Some(p),
+        (None, None) => None,
+    };
+
+    if let Some((mx, my)) = cursor {
         if let Ok(monitors) = app.available_monitors() {
             for m in monitors {
                 let p = m.position();
                 let s = m.size();
-                if mx >= p.x && mx < p.x + s.width as i32 && my >= p.y && my < p.y + s.height as i32 {
+                if mx >= p.x && mx < p.x + s.width as i32 && my >= p.y && my < p.y + s.height as i32
+                {
                     return Some(m);
                 }
             }
+            eprintln!(
+                "[overlay] cursor ({},{}) not in any monitor, monitors={:?}",
+                mx,
+                my,
+                app.available_monitors()
+                    .ok()
+                    .map(|v| v
+                        .iter()
+                        .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
+                        .collect::<Vec<_>>())
+            );
         }
+    } else {
+        eprintln!("[overlay] no cursor pos: tauri={:?} enigo={:?}", tauri_pos, enigo_pos);
     }
     app.primary_monitor().ok().flatten()
 }
 
 /// Create the detached overlay window (hidden until recording).
 fn create_overlay(app: &tauri::AppHandle) {
-    create_overlay_with(app, "overlay.html");
+    create_overlay_with(app, crate::app_info::overlay_url());
 }
 
 fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
     if app.get_webview_window(OVERLAY_LABEL).is_some() {
         return;
     }
-    if !*OVERLAY_ENABLED.lock().unwrap() {
+    if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
-    let builder = tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
-        .title("Wisper")
-        .resizable(false)
-        .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .transparent(true)
-        .focusable(false)
-        .focused(false)
-        .visible(false);
+    let pos = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT);
+    let mut builder =
+        tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
+            .title(crate::app_info::display_name())
+            .resizable(false)
+            .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .transparent(true)
+            .focusable(false)
+            .focused(false)
+            .visible(false);
+    if let Some((x, y)) = pos {
+        builder = builder.position(x, y);
+    }
     match builder.build() {
         Ok(win) => {
             let _ = win.hide();
+            let pos = OVERLAY_POSITION
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let _ = win.eval(&format!(
+                "window.__setPosition && window.__setPosition('{}')",
+                pos
+            ));
         }
         Err(e) => {
             eprintln!("create_overlay: BUILD FAILED: {}", e);
@@ -210,130 +343,221 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
     }
 }
 
-/// Show/hide the overlay, mirroring Handy's show_overlay_state positioning.
-fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
-    let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
-        if *OVERLAY_ENABLED.lock().unwrap() {
-            create_overlay(app);
-            return update_overlay(app, state);
-        }
-        return;
-    };
-    if !*OVERLAY_ENABLED.lock().unwrap() {
-        let _ = win.hide();
-        return;
+/// Last computed overlay position (logical px). Cached during the recording/
+/// processing phase so the error overlay can reuse it and never drift to the
+/// window-manager's default (centered) placement when the window is recreated.
+static LAST_OVERLAY_POS: once_cell::sync::Lazy<std::sync::Mutex<Option<(f64, f64)>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
+/// Computes the overlay's (x, y) logical position for a window of the given
+/// size. When `prefer_cache` is true it reuses the last recording position (so
+/// an error/recreated window stays put); otherwise it tracks the live cursor
+/// monitor and caches the result so the error state can reuse it. `win_w`/
+/// `win_h` are the window's ACTUAL size (read from the live window) so the
+/// bottom-center math stays correct even if the HTML/content size differs from
+/// the `OVERLAY_*` constants.
+fn overlay_pos_for(
+    app: &tauri::AppHandle,
+    prefer_cache: bool,
+    win_w: f64,
+    win_h: f64,
+) -> Option<(f64, f64)> {
+    let top = *OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner()) == "top";
+    let cached = LAST_OVERLAY_POS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let pos = if prefer_cache { cached } else { None };
+    if let Some(p) = pos {
+        return Some(p);
     }
-    match state {
-        CoordinatorState::Idle => {
-            // Don't destroy while the error glyph is flashing — the error
-            // thread owns that window and destroys it after ~1.5s.
-            if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
-                return;
-            }
-            let _ = win.destroy();
-        }
-        CoordinatorState::Recording | CoordinatorState::Processing => {
-            let top = *OVERLAY_POSITION.lock().unwrap() == "top";
-            #[cfg(not(target_os = "linux"))]
-            let _ = top;
-            #[cfg(target_os = "linux")]
-            {
-                if let Some(monitor) = monitor_with_cursor(app) {
-                    let scale = monitor.scale_factor();
-                    let mx = monitor.position().x as f64 / scale;
-                    let my = monitor.position().y as f64 / scale;
-                    let mw = monitor.size().width as f64 / scale;
-                    let mh = monitor.size().height as f64 / scale;
-                    let x = mx + (mw - OVERLAY_WIDTH) / 2.0;
-                    let y = if top { my + OVERLAY_TOP_OFFSET } else { my + mh - OVERLAY_HEIGHT - OVERLAY_BOTTOM_OFFSET };
-                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+    let monitor = monitor_with_cursor(app)?;
+    let scale = monitor.scale_factor();
+    let mx = monitor.position().x as f64 / scale;
+    let my = monitor.position().y as f64 / scale;
+    let mw = monitor.size().width as f64 / scale;
+    let mh = monitor.size().height as f64 / scale;
+    let x = mx + (mw - win_w) / 2.0;
+    let y = if top {
+        my + OVERLAY_TOP_OFFSET
+    } else {
+        my + mh - win_h - OVERLAY_BOTTOM_OFFSET
+    };
+    let p = (x, y);
+    if !prefer_cache {
+        *LAST_OVERLAY_POS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(p);
+    }
+    Some(p)
+}
+
+/// Positions the overlay. `set_position` is called AFTER `show` because on
+/// X11/Wayland a position set on a not-yet-mapped window is ignored by the WM
+/// and overridden to the default (centered) at map time — the root cause of the
+/// position drift. Uses the window's real size. Must be called on the main thread.
+fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_cache: bool) {
+    let size = win
+        .inner_size()
+        .unwrap_or(tauri::PhysicalSize::new(OVERLAY_WIDTH as u32, OVERLAY_HEIGHT as u32));
+    let (win_w, win_h) = (size.width as f64, size.height as f64);
+    if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h) {
+        let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+    }
+}
+
+/// Show/hide the overlay, mirroring Handy's show_overlay_state positioning.
+/// Window ops must run on the main thread in Tauri v2, so the whole body is
+/// dispatched there. Running off-thread (e.g. from the state-listener thread)
+/// silently no-ops set_position/show/destroy and the window falls back to
+/// Tauri's default centered placement — the recurring position-drift bug.
+fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
+    let app_clone = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let app = &app_clone;
+        let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
+            if *OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
+                create_overlay(app);
+                // Guard against infinite recursion if build() failed (e.g. compositor rejects transparent window)
+                if app.get_webview_window(OVERLAY_LABEL).is_some() {
+                    return update_overlay(app, state);
                 }
             }
-            let shown = win.show();
-            let _ = shown;
+            return;
+        };
+        if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = win.hide();
+            return;
         }
-    }
+        match state {
+            CoordinatorState::Idle => {
+                // Don't destroy while the error glyph is flashing — the error
+                // thread owns that window and destroys it after ~1.5s.
+                if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+                if crate::coordinator::active_job_count() > 0 {
+                    let _ = win.eval("window.__mode && window.__mode('processing')");
+                } else {
+                    let _ = win.destroy();
+                }
+            }
+            CoordinatorState::Recording | CoordinatorState::Processing => {
+                let _ = win.eval("window.__mode && window.__mode('recording')");
+                let _ = win.show();
+                position_overlay(app, &win, false);
+            }
+            CoordinatorState::Error => {
+                // Error reuses the live window and keeps the exact recording
+                // position (cached) so it never drifts if the window is recreated.
+                let reason = OVERLAY_ERROR_REASON
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let reason_json = serde_json::to_string(&reason).unwrap_or_else(|_| "null".into());
+                let _ = win.eval(&format!(
+                    "window.__errReason = {reason_json}; window.__mode && window.__mode('error', {reason_json})"
+                ));
+                let _ = win.show();
+                position_overlay(app, &win, true);
+            }
+        }
+    });
 }
 
 /// Hide the overlay window (used before pasting so keyboard focus
 /// returns to the target app instead of the overlay).
 pub fn hide_overlay() {
-    if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
-        if let Some(win) = handle.get_webview_window(OVERLAY_LABEL) {
+    let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    else {
+        return;
+    };
+    let hide_handle = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(win) = hide_handle.get_webview_window(OVERLAY_LABEL) {
             let _ = win.hide();
         }
-    }
+    });
 }
 
-/// Briefly flash the overlay error glyph (~1.5s) to signal a failed
-/// transcription. The window is destroyed afterwards so it can never get
-/// stuck in the error state; the next recording builds a fresh normal one.
-pub fn show_overlay_error() {
-    let Some(handle) = APP_HANDLE.lock().unwrap().as_ref().cloned() else { return };
-    if !*OVERLAY_ENABLED.lock().unwrap() {
+pub fn is_overlay_visible() -> bool {
+    let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    else {
+        return false;
+    };
+    handle
+        .get_webview_window(OVERLAY_LABEL)
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false)
+}
+
+/// Briefly flash the overlay error state (~1.5s) to signal a failed
+/// transcription, showing `reason` (if any) in a pill. The window is destroyed
+/// afterwards so it can never get stuck in the error state.
+pub fn show_overlay_error(reason: Option<String>) {
+    let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    else {
+        return;
+    };
+    if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
     OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
-    // The overlay is already shown (we're in the Processing state when this
-    // fires), so flash the live window instead of destroying + recreating —
-    // Tauri's destroy is async and the recreate would early-return against the
-    // still-present label, leaving a tombstone that never loads overlay.html.
-    // Window ops must run on the main thread in Tauri v2, so eval/destroy both
-    // go through run_on_main_thread; a plain OS thread only does the timing.
-    let flash_handle = handle.clone();
-    let _ = handle.run_on_main_thread(move || {
-        if let Some(win) = flash_handle.get_webview_window(OVERLAY_LABEL) {
-            let _ = win.eval("window.__mode && window.__mode('error')");
-        }
-    });
+    *OVERLAY_ERROR_REASON
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = reason;
+    {
+        let mut lock = crate::tray::STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        *lock = CoordinatorState::Error;
+    }
+    emit_state(&handle, CoordinatorState::Error);
+    let handle_clone = handle.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(1500));
-        let h = handle.clone();
-        let _ = handle.run_on_main_thread(move || {
+        let h = handle_clone.clone();
+        let _ = handle_clone.run_on_main_thread(move || {
             OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
-            if let Some(win) = h.get_webview_window(OVERLAY_LABEL) {
-                let _ = win.destroy();
+            *OVERLAY_ERROR_REASON
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            let still_error = {
+                let mut lock = crate::tray::STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+                if *lock == CoordinatorState::Error {
+                    *lock = CoordinatorState::Idle;
+                    true
+                } else {
+                    false
+                }
+            };
+            if still_error {
+                emit_state(&h, CoordinatorState::Idle);
             }
         });
     });
 }
 
-pub fn update_tray_menu_text() {
-    if let Some(item) = UNLOAD_ITEM.lock().unwrap().as_ref() {
-        let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
-        let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
-        let text = if name.is_empty() {
-            "No model loaded".into()
-        } else if mode == "cloud" {
-            name.clone()
-        } else {
-            format!("✕  {}", name.clone())
-        };
-        let _ = item.set_text(&text);
-
-        // Update tooltip too
-        if let Some(handle) = APP_HANDLE.lock().unwrap().as_ref() {
-            if let Some(tray) = handle.tray_by_id("main") {
-                let state = STATE_LOCK.lock().unwrap();
-                let label = match *state {
-                    CoordinatorState::Idle => {
-                        if name.is_empty() {
-                            "Wisper - Idle".into()
-                        } else {
-                            format!("Wisper - Idle [{}]", name)
-                        }
-                    }
-                    CoordinatorState::Recording => "Wisper - Recording...".into(),
-                    CoordinatorState::Processing => "Wisper - Processing...".into(),
-                };
-                let _ = tray.set_tooltip(Some(&label));
-            }
-        }
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("GDK_BACKEND").is_none() {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+    // Dev desktop file is written in setup (needs app resource path), but we also
+    // set GTK app_id via tauri's enableGTKAppId (identifier from merged config).
+    // For `pnpm tauri dev` we merge tauri.dev.json via --config flag so identifier
+    // becomes com.taraksh01.wisper-dev, which tao uses as Wayland app_id / X11 WM_CLASS.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -346,90 +570,28 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
             {
-                let mut guard = APP_HANDLE.lock().unwrap();
+                let mut guard = APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(app_handle.clone());
             }
 
-            let quit_i = MenuItem::with_id(app, "quit", "Quit Wisper", true, None::<&str>)?;
-            let settings_i =
-                MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-            let unload_i =
-                MenuItem::with_id(app, "unload", "Unload Model", true, None::<&str>)?;
-            {
-                let mut guard = UNLOAD_ITEM.lock().unwrap();
-                *guard = Some(unload_i.clone());
-            }
-            // Set initial text if model is loaded
-            {
-                let name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
-                if !name.is_empty() {
-                    let _ = unload_i.set_text(&format!("✕  {}", name));
-                }
-            }
-            let menu = Menu::with_items(app, &[&settings_i, &unload_i, &quit_i])?;
-
-            let tray = TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .tooltip("Wisper - Idle")
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "quit" => {
-                        app.exit(0);
+            let tray: Option<tauri::tray::TrayIcon> =
+                match crate::tray::build_tray(&app_handle.clone()) {
+                    Ok(t) => Some(t),
+                    Err(e) => {
+                        eprintln!("Tray build failed (running without tray): {}", e);
+                        None
                     }
-                    "settings" => {
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                    }
-                    "unload" => {
-                        let mode = coordinator::ENGINE_MODE.lock().unwrap().clone();
-                        if mode == "cloud" {
-                            if let Some(win) = app.get_webview_window("main") {
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
-                            let _ = app.emit("wisper:open-tab", "engine");
-                        } else {
-                            {
-                                let mut current = coordinator::CURRENT_MODEL.lock().unwrap();
-                                *current = None;
-                            }
-                            {
-                                let mut name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap();
-                                name.clear();
-                            }
-                            update_tray_menu_text();
-                            if let Some(tray) = app.tray_by_id("main") {
-                                let _ = tray.set_tooltip(Some("Wisper - No model loaded"));
-                            }
-                        }
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        ..
-                    } = event
-                    {
-                        let app = tray.app_handle();
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
+                };
 
             let (cmd_tx, cmd_rx) = mpsc::channel();
             let (state_tx, state_rx) = mpsc::channel();
+            // Overlay ✕ / Escape land here (see coordinator::send_cancel)
+            coordinator::set_cancel_sender(cmd_tx.clone());
 
             let (hk_tx, hk_rx) = mpsc::channel();
             {
                 let sender: HotkeySender = Arc::new(Mutex::new(hk_tx.clone()));
-                *HOTKEY_SENDER.lock().unwrap() = Some(sender);
+                *HOTKEY_SENDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(sender);
             }
             thread::spawn(move || {
                 while let Ok(event) = hk_rx.recv() {
@@ -437,68 +599,34 @@ pub fn run() {
                 }
             });
 
-    // Load saved settings
-    let saved_settings = settings::AppSettings::load();
-    coordinator::HOTKEY_MODE.store(
-        saved_settings.hotkey_mode != "toggle",
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    coordinator::KEEP_RECORDINGS.store(saved_settings.keep_recordings, std::sync::atomic::Ordering::Relaxed);
-    coordinator::VAD_ENABLED.store(saved_settings.vad_enabled, std::sync::atomic::Ordering::Relaxed);
-    coordinator::VAD_THRESHOLD.store(saved_settings.vad_threshold.to_bits(), std::sync::atomic::Ordering::Relaxed);
-    coordinator::PROCESS_ENABLED.store(saved_settings.process_enabled, std::sync::atomic::Ordering::Relaxed);
-    coordinator::WORDS_ENABLED.store(saved_settings.words_enabled, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut v) = coordinator::INPUT_DEVICE.lock() {
-        *v = saved_settings.input_device.clone();
-    }
-    if let Ok(mut v) = coordinator::PROCESS_BASE_URL.lock() {
-        *v = saved_settings.process_base_url.clone();
-    }
-    if let Ok(mut v) = coordinator::PROCESS_API_KEY.lock() {
-        *v = saved_settings.process_api_key.clone();
-    }
-    if let Ok(mut v) = coordinator::PROCESS_MODEL.lock() {
-        *v = saved_settings.process_model.clone();
-    }
-    coordinator::PROCESS_MAX_TOKENS.store(saved_settings.process_max_tokens, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut method) = coordinator::PASTE_METHOD.lock() {
-        *method = saved_settings.paste_method.clone();
-    }
-    if let Ok(mut backend) = coordinator::PASTE_BACKEND.lock() {
-        *backend = paste::resolve_paste_backend(&saved_settings.paste_tool);
-    }
-    if let Ok(mut tool) = coordinator::PASTE_TOOL.lock() {
-        *tool = saved_settings.paste_tool.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_PROVIDER.lock() {
-        *v = saved_settings.engine_provider.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_BASE_URL.lock() {
-        *v = saved_settings.engine_base_url.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_API_KEY.lock() {
-        *v = saved_settings.voice_api_key.clone();
-    }
-    if let Ok(mut v) = coordinator::CLOUD_MODEL.lock() {
-        *v = saved_settings.engine_model.clone();
-    }
-
-    // Load current model path and update display name
-    {
-        let model_dir = models::get_models_dir();
-        let model_path = model_dir.join(&saved_settings.local_model_file);
-        if let Ok(mut current) = coordinator::CURRENT_MODEL.lock() {
-            *current = if model_path.exists() { Some(model_path.clone()) } else { None };
-        }
-    }
-    settings::update_display_name(&saved_settings);
-
-            {
-                let mut en = OVERLAY_ENABLED.lock().unwrap();
-                *en = saved_settings.overlay_enabled;
-                let mut pos = OVERLAY_POSITION.lock().unwrap();
-                *pos = if saved_settings.overlay_position == "top" { "top".into() } else { "bottom".into() };
+            let mut saved_settings = settings::AppSettings::load();
+            if saved_settings.lifetime_dictations == 0 && saved_settings.lifetime_words == 0 {
+                if let Ok((total, total_words, _)) =
+                    crate::history::HistoryManager::new().get_stats()
+                {
+                    if total > 0 {
+                        saved_settings.lifetime_dictations = total;
+                        saved_settings.lifetime_words = total_words;
+                        let _ = saved_settings.save();
+                    }
+                }
             }
+            settings::sync_runtime(&saved_settings);
+            crate::tray::refresh();
+            // Enforce history retention limit on startup
+            if saved_settings.max_history_entries > 0 {
+                let mode = if saved_settings.keep_recordings
+                    && saved_settings.history_retention_mode == "recordings_only"
+                {
+                    "recordings_only"
+                } else {
+                    "both"
+                };
+                let _ = crate::history::HistoryManager::new()
+                    .trim_history(saved_settings.max_history_entries as i64, mode);
+            }
+            // Clean up previously saved zero-word entries (polluted history)
+            let _ = crate::history::HistoryManager::new().delete_zero_word_entries();
 
             if saved_settings.autostart {
                 let _ = app.autolaunch().enable();
@@ -506,30 +634,68 @@ pub fn run() {
                 let _ = app.autolaunch().disable();
             }
 
-            // Show the window on startup unless the user prefers launching to
-            // the tray only (they still need the window to configure the app).
-            if !saved_settings.launch_to_tray {
+            // Window visibility is user-controlled via General →
+            // Startup → Launch to system tray (no `visible` in tauri.conf).
+            if saved_settings.launch_to_tray {
                 if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
+                    let _ = win.hide();
+                }
+            } else if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+
+            // Fixed window, but auto-scale for larger displays (e.g. 2K/4K)
+            // so the UI doesn't look tiny on HiDPI/large monitors. Window is
+            // `resizable: false` (user can't drag), but we set a resolution-
+            // aware size at startup. Base 900x700 is designed for 1920x1080
+            // logical; scale is min(width/1920, height/1080) capped 1.0..1.5.
+            if let Some(win) = app.get_webview_window("main") {
+                let scale = win.scale_factor().unwrap_or(1.0);
+                let mon = win
+                    .current_monitor()
+                    .ok()
+                    .flatten()
+                    .or_else(|| win.primary_monitor().ok().flatten());
+                if let Some(m) = mon {
+                    let logical_w = m.size().width as f64 / scale;
+                    let logical_h = m.size().height as f64 / scale;
+                    let scale_w = logical_w / 1920.0;
+                    let scale_h = logical_h / 1080.0;
+                    let auto = scale_w.min(scale_h).clamp(1.0, 1.5);
+                    let target_w = (900.0 * auto).round();
+                    let target_h = (700.0 * auto).round();
+                    let max_w = (logical_w - 24.0).max(900.0);
+                    let max_h = (logical_h - 96.0).max(700.0);
+                    let final_w = target_w.min(max_w);
+                    let final_h = target_h.min(max_h);
+                    if (final_w - 900.0).abs() > 0.5 || (final_h - 700.0).abs() > 0.5 {
+                        let _ = win.set_size(tauri::LogicalSize::new(final_w, final_h));
+                        let _ = win.center();
+                    }
                 }
             }
 
             let recorder = AudioRecorder::new();
             {
-                let mut guard = RECORDER.lock().unwrap();
+                let mut guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
                 *guard = Some(recorder.clone());
             }
-            let coordinator =
-                TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
+            let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
 
             // Spawn Coordinator
-            thread::Builder::new()
+            if let Err(e) = thread::Builder::new()
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
                     coordinator.run();
                 })
-                .unwrap();
+            {
+                eprintln!("Failed to spawn coordinator thread: {}", e);
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to spawn coordinator: {}", e),
+                )));
+            }
 
             // Register the global hotkey via whisper-keys (raw input hook:
             // works uniformly across X11/Wayland and every focused app).
@@ -537,7 +703,10 @@ pub fn run() {
             create_overlay(&app.handle());
             let saved = &saved_settings.hotkey;
             if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {
-                eprintln!("Hotkey {:?} failed to register; using default {:?}", saved, DEFAULT_HOTKEY);
+                eprintln!(
+                    "Hotkey {:?} failed to register; using default {:?}",
+                    saved, DEFAULT_HOTKEY
+                );
                 if let Err(e2) = whisper_keys::register(DEFAULT_HOTKEY) {
                     eprintln!("Failed to register default hotkey: {}", e2);
                 }
@@ -547,21 +716,28 @@ pub fn run() {
             let app_handle_clone = app_handle.clone();
             thread::spawn(move || {
                 while let Ok(state) = state_rx.recv() {
-                    let model_name = coordinator::MODEL_DISPLAY_NAME.lock().unwrap().clone();
+                    let model_name = coordinator::MODEL_DISPLAY_NAME
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    let dn = crate::app_info::display_name();
                     let tooltip = match state {
                         CoordinatorState::Idle => {
                             if model_name.is_empty() {
-                                "Wisper - Idle".into()
+                                format!("{} - Idle", dn)
                             } else {
-                                format!("Wisper - Idle [{}]", model_name)
+                                format!("{} - Idle [{}]", dn, model_name)
                             }
                         }
-                        CoordinatorState::Recording => "Wisper - Recording...".into(),
-                        CoordinatorState::Processing => "Wisper - Processing...".into(),
+                        CoordinatorState::Recording => format!("{} - Recording...", dn),
+                        CoordinatorState::Processing => format!("{} - Processing...", dn),
+                        CoordinatorState::Error => format!("{} - Error", dn),
                     };
-                    let _ = tray.set_tooltip(Some(&tooltip));
+                    if let Some(tray) = tray.as_ref() {
+                        let _ = tray.set_tooltip(Some(&tooltip));
+                    }
                     {
-                        let mut lock = STATE_LOCK.lock().unwrap();
+                        let mut lock = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
                         *lock = state;
                     }
                     emit_state(&app_handle_clone, state);
@@ -572,13 +748,17 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                window.hide().unwrap();
-                api.prevent_close();
+                // Only intercept the main window; overlay is managed via destroy()
+                if window.label() == "main" {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             get_paste_environment,
+            cancel_recording,
             get_input_level,
             get_current_state,
             get_current_model,
@@ -588,7 +768,10 @@ pub fn run() {
             models::download_model,
             models::delete_model,
             models::cancel_download,
+            models::install_model_assets,
+            models::has_model_assets,
             process::get_agent_profiles,
+            process::test_process_connection,
             words::get_words,
             words::add_word_entry,
             words::update_word_entry,
@@ -599,6 +782,7 @@ pub fn run() {
             words::unignore_word_term,
             words::add_ignored_to_dictionary,
             history::get_history_entries,
+            history::get_history_count,
             history::get_history_stats,
             history::delete_history_entry,
             history::update_history_entry,
@@ -613,5 +797,8 @@ pub fn run() {
             list_audio_devices
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| {
+            eprintln!("error while running tauri application: {}", e);
+            std::process::exit(1);
+        });
 }

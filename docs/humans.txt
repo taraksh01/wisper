@@ -1,5 +1,5 @@
 /* humanstxt.org */
-Wisper — voice dictation for Linux.
+Wisper: voice dictation for Linux.
 
 Maintained by:
   Tarak Shaw (taraksh01)

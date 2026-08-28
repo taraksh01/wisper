@@ -1,6 +1,7 @@
 html, body {
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
   background: transparent;
   overflow: hidden;
   display: flex;
@@ -9,18 +10,130 @@ html, body {
   height: 100%;
 }
 #card {
-  display: inline-flex;
+  position: relative;
+  width: 156px;
+  height: 44px;
+  padding: 0 8px 0 14px;
+  border-radius: 22px;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 10, 10, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-sizing: border-box;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  height: 40px;
-  padding: 0 18px;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.8);
-  overflow: hidden;
+  gap: 12px;
+  --beam-sharp: conic-gradient(from var(--beam-angle), #fff7ed 0deg, #fdba74 22deg, #ea580c 62deg, #fdba74 118deg, #ffedd5 158deg, #fdba74 208deg, #ea580c 288deg, #fff7ed 360deg);
+  --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, transparent 18deg, rgba(251, 146, 60, 0.42) 68deg, rgba(234, 88, 12, 0.18) 108deg, transparent 152deg, transparent 360deg);
+}
+[data-dev="true"] #card {
+  --beam-sharp: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);
+  --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, rgba(124, 58, 237, 0) 40deg, rgba(124, 58, 237, 0.55) 110deg, transparent 170deg, transparent 360deg);
+}
+#card.processing {
+  border-color: transparent;
+}
+@property --beam-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+#beam { display: none !important; }
+#card.processing::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 23px;
+  padding: 2px 3px;
+  background: var(--beam-sharp);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(0.4px);
+  will-change: background;
+  transform: translateZ(0);
+  pointer-events: none;
+}
+#card.processing::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 25px;
+  padding: 2px 3px;
+  background: var(--beam-glow);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(3px);
+  will-change: background;
+  transform: translateZ(0);
+  pointer-events: none;
 }
 #wave rect {
   fill: url(#wisper-wave);
   transition: y 60ms linear, height 60ms linear;
+}
+#proc {
+  display: none;
+  width: 78px;
+  gap: 5px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+#proc span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ea580c;
+  animation: procpulse 1s infinite ease-in-out;
+}
+[data-dev="true"] #proc span {
+  background: #7c3aed;
+}
+#proc span:nth-child(2) { animation-delay: 0.15s; }
+#proc span:nth-child(3) { animation-delay: 0.3s; }
+#proc span:nth-child(4) { animation-delay: 0.45s; }
+#proc span:nth-child(5) { animation-delay: 0.6s; }
+@keyframes procpulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+#divider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+#cancel {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+  outline: none;
+  padding: 0;
+}
+#cancel img {
+  width: 10px;
+  height: 10px;
+  opacity: 0.65;
+  pointer-events: none;
+}
+#cancel:hover {
+  background: rgba(239, 68, 68, 0.18);
+}
+#cancel:hover img {
+  opacity: 1;
+}
+#cancel:active {
+  background: #dc2626;
 }
 #err {
   fill: #dc2626;
@@ -29,5 +142,68 @@ html, body {
   dominant-baseline: central;
   display: none;
 }
-#card.err #err { display: block; }
-#card.err #bars { display: none; }
+/* Error state: identical to recording (waveform + controls visible) with a
+   blinking red gradient border instead of the accent border. The `!` glyph and
+   reason pill are handled separately. */
+#card.err {
+  border-color: transparent;
+}
+#card.err #err { display: none; }
+#card.err::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 23px;
+  padding: 2px 3px;
+  background: linear-gradient(135deg, #fca5a5, #ef4444, #b91c1c, #ef4444, #fca5a5);
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(0.4px);
+  will-change: background, opacity;
+  transform: translateZ(0);
+  pointer-events: none;
+  animation: errblink 0.9s infinite ease-in-out;
+}
+#card.err::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 25px;
+  padding: 2px 3px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.6), rgba(185, 28, 28, 0.1), rgba(239, 68, 68, 0.6));
+  background-size: 300% 300%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(3px);
+  will-change: opacity;
+  transform: translateZ(0);
+  pointer-events: none;
+  animation: errblink 0.9s infinite ease-in-out;
+}
+@keyframes errblink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+#err-reason {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 600 11px system-ui, -apple-system, sans-serif;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.96);
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  border-radius: 8px;
+  padding: 2px 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 2;
+}

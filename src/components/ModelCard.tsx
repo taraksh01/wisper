@@ -1,4 +1,10 @@
-import { ModelInfo, formatModelFilename } from "../types";
+import { IconStack, IconClose, IconDownload, IconTrash, IconGlobe, IconWave, IconTranslate, IconLink } from "./ui/icons";
+import { ModelInfo, formatModelFilename, languages } from "../types";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect } from "react";
+import { Input } from "./ui/Input";
 
 interface ModelCardProps {
   modelKey: string;
@@ -7,16 +13,32 @@ interface ModelCardProps {
   isActive: boolean;
   isDownloading: boolean;
   progress?: number;
+  speedBps?: number;
+  downloaded?: number;
+  total?: number;
   justDownloaded?: boolean;
+  /** Downloaded Indic model missing tokens/vocab — shows repair button */
+  missingAssets?: boolean;
+  installingAssets?: boolean;
   onActivate: (filename: string) => void;
   onDownload: (modelKey: string) => void;
   onDelete: (filename: string) => void;
   onCancel: (modelKey: string) => void;
+  onInstallAssets: (modelKey: string) => void;
 }
 
-const chip = (label: string, style: string) => (
-  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm leading-none ${style}`}>{label}</span>
-);
+function formatSpeed(bps?: number): string {
+  if (!bps || bps <= 0) return "";
+  if (bps > 1024 * 1024) return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`;
+  if (bps > 1024) return `${(bps / 1024).toFixed(0)} KB/s`;
+  return `${bps.toFixed(0)} B/s`;
+}
+function formatBytes(bytes?: number): string {
+  if (!bytes) return "";
+  if (bytes > 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes > 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
 
 function ModelCard({
   modelKey,
@@ -25,148 +47,244 @@ function ModelCard({
   isActive,
   isDownloading,
   progress,
+  speedBps,
+  downloaded,
+  total,
   justDownloaded,
+  missingAssets = false,
+  installingAssets = false,
   onActivate,
   onDownload,
   onDelete,
   onCancel,
+  onInstallAssets,
 }: ModelCardProps) {
   const filename = formatModelFilename(modelKey, info.format);
+  const [showLangs, setShowLangs] = useState(false);
+  const [langQuery, setLangQuery] = useState("");
+
+  useEffect(() => {
+    if (!showLangs) return;
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") { setShowLangs(false); setLangQuery(""); } };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [showLangs]);
+
+  const langLabel = (code: string) => languages.find((l) => l.value === code)?.label ?? code;
+  const filteredLangs = langQuery
+    ? info.languages.filter((c) => langLabel(c).toLowerCase().includes(langQuery.toLowerCase()))
+    : info.languages;
 
   return (
-    <div
-      onClick={() => { if (isInstalled) onActivate(filename); }}
-      className={`rounded-lg px-3 py-2.5 transition-all duration-150 cursor-pointer ${
-        isActive
-          ? "bg-accent/10 ring-1 ring-accent/30"
-          : isInstalled
-            ? "bg-elevated/40 hover:bg-elevated/60"
-            : "bg-elevated/40"
-      }`}
-    >
-      {/* Row 1: name + size + badges + action */}
-      <div className="flex items-center gap-3 mb-2">
-        <svg className="w-5 h-5 shrink-0 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-        </svg>
-        <span className="text-xs font-mono font-medium text-ink">{info.name}</span>
-        {info.recommended && (
-          <span className="text-[9px] font-mono text-warning bg-warning/10 px-1.5 py-0.5 rounded-sm leading-none">Recommended</span>
-        )}
-        <span className="text-[10px] font-mono text-muted">{info.size}</span>
-        <div className="flex items-center gap-1 ml-auto">
-          {isActive && chip("Active", "bg-accent/15 text-accent")}
-          {justDownloaded && chip("Downloaded", "bg-ready/15 text-ready animate-pulse")}
-        </div>
-        {!isInstalled ? (
-          <div className="flex items-center gap-2">
-            {isDownloading && progress !== undefined ? (
-              <div className="flex items-center gap-1.5">
-                <div className="w-12 h-1.5 bg-elevated rounded-full overflow-hidden">
-                  <div className="h-full rounded-full bg-accent transition-all duration-200" style={{ width: `${progress}%` }} />
+    <>
+      {showLangs && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => { setShowLangs(false); setLangQuery(""); }}
+          role="dialog" aria-modal="true" aria-label={`${info.name} supported languages`}
+        >
+          <div
+            className="bg-surface border border-stroke rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.24)] w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            role="document"
+          >
+            <div className="px-5 pt-5 pb-4 border-b border-stroke">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-ink">Supported languages</h3>
+                  <p className="text-xs text-muted mt-1">{info.name} · {info.languages.length} {info.languages.length === 1 ? "language" : "languages"}</p>
                 </div>
-                <span className="text-[10px] font-mono text-accent tabular-nums">{progress}%</span>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onCancel(modelKey); }}
-                  className="shrink-0 p-1.5 text-muted hover:text-recording transition-colors rounded hover:bg-recording/10"
-                  title="Cancel download"
+                  onClick={() => { setShowLangs(false); setLangQuery(""); }}
+                  aria-label="Close"
+                  className="shrink-0 w-7 h-7 grid place-items-center rounded-full bg-elevated border border-stroke text-muted hover:text-ink transition-colors"
                 >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
-                  </svg>
+                  <IconClose className="w-3.5 h-3.5" />
                 </button>
               </div>
+              <Input
+                value={langQuery}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLangQuery(e.target.value)}
+                placeholder="Search languages…"
+                autoFocus
+                variant="surface"
+                className="mt-3"
+              />
+            </div>
+            <div className="max-h-[280px] overflow-y-auto custom-scrollbar p-2">
+              {filteredLangs.map((code) => (
+                <div
+                  key={code}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-elevated transition-colors"
+                >
+                  <span className="text-xs font-medium text-ink truncate">{langLabel(code)}</span>
+                  <span className="text-[10px] font-mono text-muted uppercase">{code}</span>
+                </div>
+              ))}
+              {filteredLangs.length === 0 && (
+                <p className="px-3 py-6 text-center text-xs text-muted">No languages match “{langQuery}”</p>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+      <div
+        role={isInstalled ? "button" : undefined}
+        tabIndex={isInstalled ? 0 : undefined}
+        aria-pressed={isInstalled ? isActive : undefined}
+        onClick={() => { if (isInstalled) onActivate(filename); }}
+        onKeyDown={(e) => {
+          if (!isInstalled) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onActivate(filename);
+          }
+        }}
+        className={`group rounded-xl border p-4 transition-all duration-150 ${isInstalled ? "cursor-pointer" : "cursor-default"} ${
+          isActive
+            ? "bg-accent-soft border-accent/20 shadow-sm"
+            : "bg-surface border-stroke hover:border-accent/25 hover:shadow-sm"
+        }`}
+      >
+        {/* Header — icon | name+badges | action */}
+        <div className="flex items-start gap-3">
+          <span className={`shrink-0 w-8 h-8 grid place-items-center rounded-lg border ${isActive ? "bg-accent border-accent text-white" : "bg-elevated border-stroke text-muted"}`}>
+            <IconStack className="w-4 h-4" />
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[13px] font-medium text-ink tracking-[-0.01em]">{info.name}</span>
+              {info.recommended && (
+                <span className="text-[10px] font-medium tracking-widest uppercase bg-warning/15 text-warning border border-warning/20 px-1.5 py-0.5 rounded-full leading-none">Recommended</span>
+              )}
+              {isActive && <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-accent text-white leading-none">Active</span>}
+              {justDownloaded && <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-ready/15 text-ready border border-ready/20 animate-pulse leading-none">New</span>}
+            </div>
+            <p className="text-[11px] font-mono text-muted mt-1">
+              {info.size} · {info.quantization.toUpperCase()} · {info.runtime}
+            </p>
+          </div>
+
+          <div className="shrink-0 ml-2">
+            {!isInstalled ? (
+              isDownloading ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCancel(modelKey); }}
+                  className="w-7 h-7 grid place-items-center rounded-full bg-recording/10 border border-recording/20 text-recording hover:bg-recording/15 transition-colors"
+                  title="Cancel download"
+                >
+                  <IconClose className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDownload(modelKey); }}
+                  className="w-7 h-7 grid place-items-center rounded-full bg-accent text-white shadow-sm hover:bg-accent-dim transition-colors"
+                  title="Download model"
+                >
+                  <IconDownload className="w-3.5 h-3.5" />
+                </button>
+              )
             ) : (
-              <button
-                onClick={(e) => { e.stopPropagation(); onDownload(modelKey); }}
-                disabled={isDownloading}
-                className="shrink-0 p-1.5 text-muted hover:text-accent transition-colors rounded hover:bg-accent/10 disabled:opacity-30"
-                title="Download model"
-              >
-                {isDownloading ? (
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v8m0 0l-3-3m3 3l3-3M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-                  </svg>
+              <div className="flex items-center gap-1.5">
+                {missingAssets && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onInstallAssets(modelKey); }}
+                    disabled={installingAssets}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-warning/15 border border-warning/25 text-warning hover:bg-warning/20 transition-colors text-[10px] font-medium disabled:opacity-50"
+                    title="Download missing tokens/vocab so this model can transcribe"
+                  >
+                    {installingAssets ? (
+                      <>
+                        <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-warning border-t-transparent animate-spin" />
+                        Installing…
+                      </>
+                    ) : (
+                      "Install language data"
+                    )}
+                  </button>
                 )}
-              </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDelete(filename); }}
+                  className="w-7 h-7 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 hover:bg-recording/10 transition-colors"
+                  title="Delete model"
+                >
+                  <IconTrash className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
           </div>
-        ) : (
+        </div>
+
+        {/* Progress with real-time speed */}
+        {isDownloading && (
+          <div className="mt-3 space-y-1.5 pl-[44px]">
+            <div className="flex items-center justify-between text-[11px] font-mono">
+              <span className="text-muted">
+                {progress !== undefined ? `${progress}%` : "Starting…"}
+                {downloaded && total ? ` · ${formatBytes(downloaded)} / ${formatBytes(total)}` : ""}
+              </span>
+              <span className="text-accent tabular-nums">{formatSpeed(speedBps)}</span>
+            </div>
+            <div className="h-1.5 bg-elevated rounded-full overflow-hidden border border-stroke/50">
+              <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${progress ?? 0}%` }} />
+            </div>
+          </div>
+        )}
+
+        {/* Accuracy / Speed progress bars with labels */}
+        <div className="flex items-center gap-4 mt-3 pl-[44px]">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-[10px] font-medium tracking-widest uppercase text-muted shrink-0">Accuracy</span>
+            <div className="flex-1 h-1.5 bg-elevated rounded-full overflow-hidden border border-stroke/50">
+              <div className="h-full bg-accent rounded-full" style={{ width: `${info.accuracy}%` }} />
+            </div>
+            <span className="text-[10px] font-mono text-muted tabular-nums w-8 text-right">{info.accuracy}%</span>
+          </div>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <span className="text-[10px] font-medium tracking-widest uppercase text-muted shrink-0">Speed</span>
+            <div className="flex-1 h-1.5 bg-elevated rounded-full overflow-hidden border border-stroke/50">
+              <div className="h-full bg-ready rounded-full" style={{ width: `${info.speed}%` }} />
+            </div>
+            <span className="text-[10px] font-mono text-muted tabular-nums w-8 text-right">{info.speed}%</span>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-stroke/60 mt-3 pt-3 pl-[44px] flex items-center gap-3 flex-wrap">
           <button
-            onClick={(e) => { e.stopPropagation(); onDelete(filename); }}
-            className="shrink-0 p-1.5 text-muted hover:text-recording transition-colors rounded hover:bg-recording/10"
-            title="Delete model"
+            onClick={(e) => { e.stopPropagation(); setShowLangs(true); }}
+            className="inline-flex items-center gap-1.5 text-[11px] font-mono text-muted hover:text-accent transition-colors"
+            title="View supported languages"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+            <IconGlobe className="w-3 h-3" />
+            {info.languages.length} {info.languages.length === 1 ? "language" : "languages"}
           </button>
-        )}
-      </div>
-
-      {/* Row 2: accuracy + speed bars */}
-      <div className="flex items-center gap-3 pl-8 mb-2">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-muted font-mono">Accuracy</span>
-          <div className="w-16 h-1.5 bg-elevated rounded-full overflow-hidden">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${info.accuracy}%` }} />
-          </div>
+          {info.streaming && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-ready" title="Supports streaming transcription">
+              <IconWave className="w-3 h-3" /> Streaming
+            </span>
+          )}
+          {info.translate && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono text-accent" title="Can translate speech to English">
+              <IconTranslate className="w-3 h-3" /> Translate
+            </span>
+          )}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openUrl(info.source).catch(() => window.open(info.source, "_blank"));
+            }}
+            className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-muted hover:text-accent transition-colors"
+          >
+            <IconLink className="w-3 h-3" />
+            Source
+          </button>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-muted font-mono">Speed</span>
-          <div className="w-16 h-1.5 bg-elevated rounded-full overflow-hidden">
-            <div className="h-full rounded-full bg-ready" style={{ width: `${info.speed}%` }} />
-          </div>
-        </div>
       </div>
-
-      {/* Separator */}
-      <div className="border-t border-stroke/50 mb-2" />
-
-      {/* Row 3: quantization + runtime + languages + features + source */}
-      <div className="flex items-center gap-3 pl-8">
-        {chip(info.quantization.toUpperCase(), "bg-elevated text-muted")}
-        {chip(info.runtime, "bg-elevated text-muted")}
-        <span className="text-[10px] font-mono text-muted flex items-center gap-1">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          {info.languages.length} languages
-        </span>
-        {info.streaming && (
-          <span className="text-[10px] font-mono text-ready flex items-center gap-1">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2 14 Q4 7 6 14 Q8 21 10 14 Q12 7 14 14 Q16 21 18 14 Q20 7 22 14" />
-            </svg>
-            Streaming
-          </span>
-        )}
-        {info.translate && (
-          <span className="text-[10px] font-mono text-accent flex items-center gap-1">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 21l5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 016-.371m0 0c0-1.457.038-2.913.119-4.363M9 5.25a48.474 48.474 0 016-.242m0 0a48.726 48.726 0 006.857-.292" />
-            </svg>
-            Translate
-          </span>
-        )}
-        <a
-          href={info.source}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="ml-auto inline-flex items-center gap-1 text-[10px] font-mono text-muted hover:text-accent transition-colors"
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-          </svg>
-          Source
-        </a>
-      </div>
-    </div>
+    </>
   );
 }
 
