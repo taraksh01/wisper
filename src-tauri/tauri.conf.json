@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https: http://localhost:* ws://localhost:*"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: asset: https://asset.localhost; connect-src 'self' ipc: http://ipc.localhost https://api.openai.com https://api.groq.com https://api.anthropic.com https://api.together.xyz https://api.deepseek.com https://openrouter.ai https://api.sarvam.ai https://github.com https://blob.handy.computer https://huggingface.co http://localhost:* ws://localhost:* https: wss:"
     }
   },
   "bundle": {
