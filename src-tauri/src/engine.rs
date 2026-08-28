@@ -808,8 +808,8 @@ fn decode_indic_600m_multi(
     let encoder_out = sess
         .encoder
         .run(ort::inputs![
-            "audio_signal" => t_features,
-            "length" => t_features_lens
+            "features" => t_features,
+            "features_lens" => t_features_lens
         ])
         .map_err(|e| format!("encoder run: {}", e))?;
     let encoded = encoder_out
@@ -830,7 +830,7 @@ fn decode_indic_600m_multi(
     let decoder_out = sess
         .decoder
         .run(ort::inputs![
-            "encoder_outputs" => t_encoded
+            "encoded" => t_encoded
         ])
         .map_err(|e| format!("decoder run: {}", e))?;
     let logits_arr = decoder_out
