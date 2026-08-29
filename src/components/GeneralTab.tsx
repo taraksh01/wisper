@@ -239,51 +239,210 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
 
 function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: number; onChange: (v: number) => void; inputDevice: string }) {
   const [level, setLevel] = useState(0);
-  const [testing, setTesting] = useState(false);
+  const [levelHistory, setLevelHistory] = useState<number[]>([]);
+  const maxHistory = 30;
 
+  // Single source of truth: keep the mic preview alive while this control is
+  // mounted AND it reflects the currently-selected device. Pass the selected
+  // device explicitly so the meter updates immediately without waiting for the
+  // async settings save to propagate to the INPUT_DEVICE global. Also re-arm
+  // after recording (hotkey) which tears down the preview stream.
   useEffect(() => {
-    if (!testing) return;
     let alive = true;
     let raf = 0;
-    invoke("start_mic_preview").catch(() => {});
-    async function loop() {
+    const deviceArg = inputDevice || null;
+    // Reset stale levels when switching devices so new mic isn't judged by old data
+    setLevel(0);
+    setLevelHistory([]);
+
+    const start = () => {
+      if (!alive) return;
+      invoke("start_mic_preview", { device: deviceArg }).catch((e) => {
+        console.error("start_mic_preview failed:", e);
+      });
+    };
+
+    const loop = async () => {
+      if (!alive) return;
       try {
         const l = await invoke<number>("get_input_level");
-        if (alive) setLevel(l);
-      } catch {}
+        if (alive) {
+          setLevel(l);
+          setLevelHistory(prev => {
+            const next = [...prev, l];
+            return next.length > maxHistory ? next.slice(-maxHistory) : next;
+          });
+        }
+      } catch (e) {
+        console.error("get_input_level failed:", e);
+      }
       if (alive) raf = requestAnimationFrame(loop);
-    }
+    };
+
+    start();
     loop();
+
+    // Preview is torn down during hotkey recording (start_recording clears
+    // preview_stream). Re-arm when coordinator returns to idle.
+    let unlistenState: (() => void) | null = null;
+    listen<string>("wisper:state", (e) => {
+      if (!alive) return;
+      if (e.payload === "idle") {
+        setTimeout(() => {
+          if (alive) start();
+        }, 120);
+      }
+    })
+      .then((fn) => {
+        if (alive) unlistenState = fn;
+        else fn();
+      })
+      .catch(() => {});
+
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
+      if (unlistenState) unlistenState();
       invoke("stop_mic_preview").catch(() => {});
     };
-  }, [testing, inputDevice]);
+  }, [inputDevice]);
 
-  useEffect(() => {
-    if (!testing) return;
-    invoke("stop_mic_preview").catch(() => {});
-    invoke("start_mic_preview").catch(() => {});
-  }, [inputDevice, testing]);
+  // Compute level stats
+  const bars = 20;
+  const peak = levelHistory.length > 0 ? Math.max(...levelHistory) : level;
+  const avg = levelHistory.length > 0
+    ? levelHistory.reduce((a, b) => a + b, 0) / levelHistory.length
+    : level;
+  const filled = Math.max(0, Math.min(bars, Math.round((avg / 0.3) * bars)));
+  const filledIdx = Math.max(0, Math.min(bars - 1, Math.round(threshold * bars)));
+  const levelPercent = Math.round(avg * 100);
+  const peakPercent = Math.round(peak * 100);
+  const threshPercent = Math.round(threshold * 100);
 
-  const startToggle = () => {
-    if (testing) {
-      setTesting(false);
-    } else {
-      setLevel(0);
-      setTesting(true);
-    }
-  };
+  const isAboveThreshold = avg > threshold;
+  const isTooLoud = peak > 0.85;
+  const isClipping = peak > 0.95;
+  const isTooQuiet = levelHistory.length > 8 && avg < 0.02 && peak < 0.05;
+  const hasSignal = peak > 0.05;
 
-  const barCount = 10;
-  const filled = Math.max(0, Math.round((level / 0.3) * barCount));
-  const threshIdx = Math.max(0, Math.min(barCount - 1, Math.round(threshold * barCount)));
+  let liveColor: "idle" | "quiet" | "good" | "loud" | "clipping" = "idle";
+  if (isClipping) liveColor = "clipping";
+  else if (isTooLoud) liveColor = "loud";
+  else if (hasSignal && isTooQuiet) liveColor = "quiet";
+  else if (hasSignal) liveColor = "good";
+
+  let qualityLabel: string;
+  let qualityColor: string;
+  let qualityBg: string;
+  let recommendation: string;
+  if (isClipping) {
+    qualityLabel = "Clipping";
+    qualityColor = "text-recording";
+    qualityBg = "bg-recording/10";
+    recommendation = "Reduce input volume or move away from mic";
+  } else if (isTooLoud) {
+    qualityLabel = "Too loud";
+    qualityColor = "text-recording";
+    qualityBg = "bg-recording/10";
+    recommendation = "Lower mic gain or speak softer";
+  } else if (isTooQuiet && levelHistory.length > 8) {
+    qualityLabel = "Too quiet";
+    qualityColor = "text-muted";
+    qualityBg = "bg-elevated";
+    recommendation = "Increase mic gain or move closer to mic";
+  } else if (hasSignal) {
+    qualityLabel = "Good";
+    qualityColor = "text-ready";
+    qualityBg = "bg-ready/10";
+    recommendation = "This microphone is working well";
+  } else if (avg < 0.01 && peak < 0.02 && levelHistory.length > 0) {
+    qualityLabel = "Listening…";
+    qualityColor = "text-muted";
+    qualityBg = "bg-elevated";
+    recommendation = "";
+  } else {
+    qualityLabel = "Speak to test";
+    qualityColor = "text-muted";
+    qualityBg = "bg-elevated";
+    recommendation = "";
+  }
 
   return (
-    <div className="mt-3 space-y-2">
+    <div className="mt-3 space-y-3">
+      {/* Live status banner - always on now that the mic is always live */}
+      <div
+        className={`rounded-lg ring-1 ring-stroke px-3 py-2.5 flex items-center justify-between gap-2 transition-colors duration-200 ${qualityBg}`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              liveColor === "clipping" || liveColor === "loud"
+                ? "bg-recording"
+                : liveColor === "good"
+                ? "bg-ready"
+                : "bg-muted"
+            } ${hasSignal ? "animate-pulse" : ""}`}
+            aria-hidden
+          />
+          <span className={`text-sm font-semibold ${qualityColor}`}>{qualityLabel}</span>
+        </div>
+        {recommendation && (
+          <span className="text-[10px] font-mono text-muted/80 text-right truncate max-w-[60%]">
+            {recommendation}
+          </span>
+        )}
+      </div>
+
+      {/* Level meter with bar visualization */}
+      <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5 space-y-2">
+        <div className="flex items-end gap-0.5 h-10">
+          {[...Array(bars)].map((_, i) => {
+            const isLit = i < filled;
+            const isThreshBar = i === filledIdx;
+            let cls = "bg-elevated";
+            if (isLit) {
+              // Color based on level: green (good) → yellow (loud) → red (clipping)
+              if (liveColor === "clipping" || i >= bars * 0.85) cls = "bg-recording";
+              else if (liveColor === "loud" || i >= bars * 0.7) cls = "bg-yellow-500";
+              else cls = "bg-ready";
+            } else if (isThreshBar) {
+              cls = "bg-accent/60";
+            }
+            return (
+              <div
+                key={i}
+                className={`flex-1 rounded-sm transition-colors duration-75 ${cls}`}
+                style={{ height: `${20 + (i * 2)}%` }}
+              />
+            );
+          })}
+        </div>
+
+        {/* Numeric feedback row */}
+        <div className="flex items-center justify-between text-[10px] font-mono text-muted/70">
+          <span title="Average loudness right now">
+            Level: <span className="text-ink">{levelPercent}%</span>
+          </span>
+          <span title="Loudest moment in the recent window">
+            Peak: <span className="text-ink">{peakPercent}%</span>
+          </span>
+          <span title="Noise cutoff threshold">
+            Cutoff: <span className="text-ink">{threshPercent}%</span>
+          </span>
+        </div>
+
+        {/* Status row: threshold */}
+        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-stroke/50">
+          <span className={`text-[10px] font-mono ${isAboveThreshold ? "text-ready" : "text-muted"}`}>
+            {isAboveThreshold ? "✓ Above cutoff" : "○ Below cutoff"}
+          </span>
+          <span className="text-[10px] font-mono text-muted/80 text-right">Speak — bars should hit green, not red</span>
+        </div>
+      </div>
+
+      {/* Noise cutoff slider */}
       <div className="flex items-center gap-2">
-        <label className="label-soft">Noise cutoff</label>
+        <label className="label-soft whitespace-nowrap">Noise cutoff</label>
         <input
           type="range"
           min="0"
@@ -294,34 +453,8 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
           className="flex-1 accent-accent"
           aria-label="VAD threshold"
         />
-        <span className="text-xs font-mono text-muted w-10 text-right">{Math.round(threshold * 100)}%</span>
+        <span className="text-xs font-mono text-muted w-10 text-right">{threshPercent}%</span>
       </div>
-      <div className="flex items-end gap-1 h-6">
-        {[...Array(barCount)].map((_, i) => {
-          const aboveThresh = i >= threshIdx;
-          const active = i < filled && aboveThresh;
-          const cls = active
-            ? "bg-accent"
-            : i === threshIdx
-            ? "bg-accent/50"
-            : aboveThresh
-            ? "bg-elevated"
-            : "bg-elevated/40";
-          return (
-            <div
-              key={i}
-              className={`flex-1 rounded transition-colors ${cls}`}
-              style={{ height: `${Math.max(4, (i + 1) * 3)}px` }}
-            />
-          );
-        })}
-      </div>
-      <button
-        onClick={startToggle}
-        className="text-xs font-mono text-muted hover:text-ink transition-colors"
-      >
-        {testing ? "Stop testing" : "Test microphone level"}
-      </button>
     </div>
   );
 }
@@ -482,23 +615,6 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
           )}
 
           <div className="grid gap-3 grid-cols-1">
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <label className="label-soft">Microphone</label>
-                <button type="button" onClick={() => fetchDevices(true)} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
-              </div>
-              <Select
-                value={settings.input_device}
-                options={(() => {
-                  const opts: { value: string; label: string }[] = [{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))];
-                  if (settings.input_device && !opts.some((o) => o.value === settings.input_device)) {
-                    opts.push({ value: settings.input_device, label: `${settings.input_device} - not found` });
-                  }
-                  return opts;
-                })()}
-                onChange={(v) => onSave("input_device", v)}
-              />
-            </div>
             <div>
               <label className="label-soft block mb-1.5">Transcription languages</label>
               <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5">
@@ -673,6 +789,23 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
               <span className="text-xs font-mono text-muted w-8 text-right">{Math.round(settings.noise_suppression_level * 100)}%</span>
             </div>
           )}
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="label-soft">Microphone</label>
+              <button type="button" onClick={() => fetchDevices(true)} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
+            </div>
+            <Select
+              value={settings.input_device}
+              options={(() => {
+                const opts: { value: string; label: string }[] = [{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))];
+                if (settings.input_device && !opts.some((o) => o.value === settings.input_device)) {
+                  opts.push({ value: settings.input_device, label: `${settings.input_device} - not found` });
+                }
+                return opts;
+              })()}
+              onChange={(v) => onSave("input_device", v)}
+            />
+          </div>
           <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
             <span className="text-xs text-muted">Trim silence</span>
             <Switch label="Trim silence" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
