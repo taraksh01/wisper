@@ -497,6 +497,7 @@ pub fn add_time_saved(delta: i64) {
     let mut s = AppSettings::load();
     s.time_saved_sec = s.time_saved_sec.saturating_add(delta);
     let _ = s.save();
+    crate::emit_settings_changed(&s);
 }
 
 pub fn add_lifetime_stats(words: i64) {
@@ -508,6 +509,27 @@ pub fn add_lifetime_stats(words: i64) {
     s.lifetime_dictations = s.lifetime_dictations.saturating_add(1);
     s.lifetime_words = s.lifetime_words.saturating_add(words);
     let _ = s.save();
+    crate::emit_settings_changed(&s);
+}
+
+/// Atomic helper: update both lifetime counters and time saved in a single
+/// load→save→emit cycle. Used by the coordinator to avoid double I/O and
+/// double `wisper:settings-changed` emissions per dictation.
+pub fn add_dictation_stats(words: i64, time_saved_delta: i64) {
+    if words < 0 && time_saved_delta <= 0 {
+        return;
+    }
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut s = AppSettings::load();
+    if words >= 0 {
+        s.lifetime_dictations = s.lifetime_dictations.saturating_add(1);
+        s.lifetime_words = s.lifetime_words.saturating_add(words);
+    }
+    if time_saved_delta > 0 {
+        s.time_saved_sec = s.time_saved_sec.saturating_add(time_saved_delta);
+    }
+    let _ = s.save();
+    crate::emit_settings_changed(&s);
 }
 
 // ── Shared engine operations ────────────────────────────────────────────────

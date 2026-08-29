@@ -697,14 +697,11 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     ) {
                         eprintln!("Failed to log history: {}", e);
                     } else {
-                        crate::settings::add_lifetime_stats(raw_words as i64);
                         let words = raw_words as f64;
                         let typing_sec = words / 1.0; // ~60 WPM
                         let speak_sec = duration_ms as f64 / 1000.0;
                         let saved = (typing_sec - speak_sec).max(0.0) as i64;
-                        if saved > 0 {
-                            crate::settings::add_time_saved(saved);
-                        }
+                        crate::settings::add_dictation_stats(raw_words as i64, saved);
                         if WORDS_ENABLED.load(Ordering::Relaxed)
                             && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
                             && text != final_text

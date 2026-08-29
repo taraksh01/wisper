@@ -67,9 +67,19 @@ type HotkeySender = Arc<Mutex<mpsc::Sender<hotkey::HotkeyEvent>>>;
 static HOTKEY_SENDER: once_cell::sync::Lazy<Mutex<Option<HotkeySender>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
 
-/// Handle for overlay-window operations (owned by lib, not tray).
-static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
+pub(crate) static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+pub(crate) fn emit_settings_changed(settings: &crate::settings::AppSettings) {
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    {
+        let _ = handle.emit("wisper:settings-changed", settings);
+    }
+}
 
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
@@ -397,10 +407,28 @@ fn overlay_pos_for(
 /// and overridden to the default (centered) at map time — the root cause of the
 /// position drift. Uses the window's real size. Must be called on the main thread.
 fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_cache: bool) {
-    let size = win
-        .inner_size()
-        .unwrap_or(tauri::PhysicalSize::new(OVERLAY_WIDTH as u32, OVERLAY_HEIGHT as u32));
-    let (win_w, win_h) = (size.width as f64, size.height as f64);
+    // Use the window's own scale factor for correct physical→logical conversion;
+    // fall back to cursor monitor's scale only if the window query fails (e.g. not yet mapped).
+    let scale = win.scale_factor().unwrap_or_else(|_| {
+        monitor_with_cursor(app)
+            .or_else(|| app.primary_monitor().ok().flatten())
+            .as_ref()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0)
+    });
+    let (win_w, win_h) = match win.inner_size() {
+        Ok(phys) => {
+            let logical = phys.to_logical::<f64>(scale);
+            let w = logical.width;
+            let h = logical.height;
+            if w <= 0.0 || h <= 0.0 {
+                (OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            } else {
+                (w, h)
+            }
+        }
+        Err(_) => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
+    };
     if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h) {
         let _ = win.set_position(tauri::LogicalPosition::new(x, y));
     }

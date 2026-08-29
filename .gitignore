@@ -52,3 +52,6 @@ bun.lockb
 # Local verification harnesses (homelab URL/key, not for CI)
 scripts/test_process_*.mjs
 scripts/test_process_*.results.json
+
+# Local runtime (hub port, not for CI)
+hub.runtime.json
