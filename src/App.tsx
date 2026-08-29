@@ -144,6 +144,17 @@ function AppShell() {
     setLoadingOlder(false);
   }, [history.length, historyTotal, loadingOlder]);
 
+  useEffect(() => {
+    let alive = true;
+    const unlistenPromise = listen("wisper:history-changed", () => {
+      if (alive) fetchHistory();
+    });
+    return () => {
+      alive = false;
+      unlistenPromise.then((fn) => fn()).catch(() => {});
+    };
+  }, [fetchHistory]);
+
   const hasMounted = useRef(false);
   useEffect(() => {
     if (!hasMounted.current) {

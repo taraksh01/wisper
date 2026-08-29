@@ -722,6 +722,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                                 eprintln!("Failed to trim history: {}", e);
                             }
                         }
+                        crate::emit_history_changed();
                     }
                 }
             }

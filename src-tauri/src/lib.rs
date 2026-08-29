@@ -81,6 +81,17 @@ pub(crate) fn emit_settings_changed(settings: &crate::settings::AppSettings) {
     }
 }
 
+pub(crate) fn emit_history_changed() {
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    {
+        let _ = handle.emit("wisper:history-changed", ());
+    }
+}
+
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
