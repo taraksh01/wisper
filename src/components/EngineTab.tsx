@@ -157,6 +157,9 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
     try {
       await invoke("delete_model", { modelName: name });
       await fetchModels();
+      if (settings.local_model_file === name) {
+        onSave("local_model_file", "");
+      }
       toast.addToast(`Deleted ${name}`, "success");
     } catch (e) {
       console.error("Delete failed:", e);
@@ -177,12 +180,13 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
     } catch (e) {
       console.error("Asset install failed:", e);
       toast.addToast(`Failed to install language data: ${String(e)}`, "error");
+    } finally {
+      setInstallingAssets((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
     }
-    setInstallingAssets((prev) => {
-      const next = new Set(prev);
-      next.delete(name);
-      return next;
-    });
   };
 
   const cancelDownload = async (modelName: string) => {
@@ -223,7 +227,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
       <SectionCard className="card-enter">
         <p className="text-[11px] text-muted leading-relaxed -mt-1 mb-3">
           {isLocal
-            ? "Speech is converted to text entirely on your computer — private and offline."
+            ? "Speech is converted to text entirely on your computer - private and offline."
             : "Audio is sent to a speech service for the best accuracy. Requires an API key and internet."}
         </p>
         <div className="relative bg-elevated/40 rounded-xl p-1 flex">
@@ -397,7 +401,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
               secret
               placeholder={settings.engine_provider === "openai" ? "sk-..." : settings.engine_provider === "groq" ? "gsk_..." : "API key"}
             />
-            <p className="text-[10px] text-muted/70 mt-1">Saved on this device only — it's sent nowhere except to your chosen service.</p>
+            <p className="text-[10px] text-muted/70 mt-1">Saved on this device only - it's sent nowhere except to your chosen service.</p>
           </SectionCard>
         </>
       )}

@@ -1,4 +1,4 @@
-/** App flavour helpers — single branch, no hardcoding.
+/** App flavour helpers - single branch, no hardcoding.
  *  DEV (vite dev / tauri dev / cargo debug) -> Wisper Dev / wisper-dev (violet)
  *  PROD (vite build / tauri build / cargo release) -> Wisper / wisper (orange)
  *  Lets both installs run side-by-side: separate XDG dirs, localStorage keys, and accent.

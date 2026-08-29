@@ -11,8 +11,6 @@ import { Switch } from "./Switch";
 import { SectionCard } from "./SectionCard";
 import { ConfirmModal } from "./ConfirmModal";
 import { Input } from "./ui/Input";
-import { useWindowSize } from "../hooks/useWindowSize";
-
 interface GeneralTabProps {
   settings: AppSettings;
   historyTotal?: number;
@@ -194,9 +192,9 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
     CtrlRight: "Ctrl R", AltLeft: "Alt L", SuperLeft: "Meta L",
   };
   const rows: { keys: string[]; desc: string }[] = [
-    { keys: ["F9"], desc: "Single key — works in every app, best for push-to-talk. Try F9, F13, or any F-key." },
+    { keys: ["F9"], desc: "Single key - works in every app, best for push-to-talk. Try F9, F13, or any F-key." },
     { keys: ["ScrollLock"], desc: "Rarely used by apps, so it never conflicts." },
-    { keys: ["CtrlRight", "Space"], desc: "Modifier + key — side-specific modifiers work." },
+    { keys: ["CtrlRight", "Space"], desc: "Modifier + key - side-specific modifiers work." },
     { keys: ["AltLeft", "K"], desc: "Any modifier plus any key." },
   ];
   return createPortal(
@@ -207,7 +205,7 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
             <IconKeyboard className="w-6 h-6 text-accent" />
           </div>
           <h3 className="text-base font-bold font-mono text-ink">Example hotkeys</h3>
-          <p className="text-[11px] font-mono text-muted mt-1 leading-relaxed">Anything your keyboard can send works — these are just ideas.</p>
+          <p className="text-[11px] font-mono text-muted mt-1 leading-relaxed">Anything your keyboard can send works - these are just ideas.</p>
         </div>
 
         <div className="space-y-2 mb-6">
@@ -329,7 +327,6 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
 }
 
 export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onReset }: GeneralTabProps) {
-  useWindowSize();
   const [listening, setListening] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
@@ -495,7 +492,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
                 options={(() => {
                   const opts: { value: string; label: string }[] = [{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))];
                   if (settings.input_device && !opts.some((o) => o.value === settings.input_device)) {
-                    opts.push({ value: settings.input_device, label: `${settings.input_device} — not found` });
+                    opts.push({ value: settings.input_device, label: `${settings.input_device} - not found` });
                   }
                   return opts;
                 })()}
@@ -585,6 +582,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
                 <Select
                   value=""
                   searchable
+                  placeholder="Add language…"
                   onChange={(v) => {
                     if (!v) return;
                     const current = settings.enabled_languages && settings.enabled_languages.length > 0 ? settings.enabled_languages : ["auto"];
@@ -604,7 +602,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
                   }}
                   options={[{ value: "auto", label: "Auto-detect" }, ...languages.filter((l) => l.value !== "auto")].filter((opt) => !(settings.enabled_languages || ["auto"]).includes(opt.value))}
                 />
-                <p className="text-[10px] font-mono text-muted/60 mt-2 leading-relaxed">Auto is default. Add languages to constrain multilingual models; drag the handle to set priority (top = first try, then fallback). No hand cursor on the pill — only the handle grabs.</p>
+                <p className="text-[10px] font-mono text-muted/60 mt-2 leading-relaxed">Auto is default. Add languages to constrain multilingual models; drag the handle to set priority (top = first try, then fallback). No hand cursor on the pill - only the handle grabs.</p>
               </div>
             </div>
           </div>

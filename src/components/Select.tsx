@@ -11,15 +11,17 @@ export function Select({
   className,
   searchable = false,
   compact = false,
+  placeholder,
 }: {
   value: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; disabled?: boolean; title?: string }[];
   onChange: (v: string) => void;
   label?: string;
   className?: string;
   /** Show a search input inside the dropdown (for long lists) */
   searchable?: boolean;
   compact?: boolean;
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -41,7 +43,6 @@ export function Select({
   const selected = options.find((o) => o.value === value);
   const enabledOptions = options;
 
-  // Filtered options when searchable
   const visibleOptions = searchable && query
     ? enabledOptions.filter(
         (o) =>
@@ -53,25 +54,44 @@ export function Select({
   const activeIndexRef = useRef(Math.max(0, visibleOptions.findIndex((o) => o.value === value)));
 
   useEffect(() => {
-    activeIndexRef.current = Math.max(0, visibleOptions.findIndex((o) => o.value === value));
+    let idx = visibleOptions.findIndex((o) => o.value === value);
+    if (idx === -1 || visibleOptions[idx]?.disabled) {
+      idx = visibleOptions.findIndex((o) => !o.disabled);
+      if (idx === -1) idx = 0;
+    }
+    activeIndexRef.current = Math.max(0, idx);
   }, [value, visibleOptions]);
 
-  // Keep active index in bounds when filter shrinks
   useEffect(() => {
     if (activeIndexRef.current >= visibleOptions.length) {
       activeIndexRef.current = Math.max(0, visibleOptions.length - 1);
+      if (visibleOptions[activeIndexRef.current]?.disabled) {
+        const first = visibleOptions.findIndex((o) => !o.disabled);
+        if (first !== -1) activeIndexRef.current = first;
+      }
       setForceRender((r) => r + 1);
+    } else if (visibleOptions[activeIndexRef.current]?.disabled) {
+      const first = visibleOptions.findIndex((o) => !o.disabled);
+      if (first !== -1) {
+        activeIndexRef.current = first;
+        setForceRender((r) => r + 1);
+      }
     }
   }, [visibleOptions.length]);
 
   const moveActive = useCallback((dir: 1 | -1) => {
     if (visibleOptions.length === 0) return;
-    const next = (activeIndexRef.current + dir + visibleOptions.length) % visibleOptions.length;
+    let next = activeIndexRef.current;
+    for (let i = 0; i < visibleOptions.length; i++) {
+      next = (next + dir + visibleOptions.length) % visibleOptions.length;
+      if (!visibleOptions[next]?.disabled) break;
+    }
+    if (visibleOptions[next]?.disabled) return;
     activeIndexRef.current = next;
     const list = document.getElementById(listId);
     list?.querySelectorAll<HTMLElement>("[data-opt]")[next]?.scrollIntoView({ block: "nearest" });
     setForceRender((r) => r + 1);
-  }, [visibleOptions.length, listId]);
+  }, [visibleOptions, listId]);
 
   const updatePos = useCallback(() => {
     if (!buttonRef.current) return;
@@ -121,7 +141,6 @@ export function Select({
     if (!open) return;
     updatePos();
     if (searchable) {
-      // Focus search input on open
       setTimeout(() => searchRef.current?.focus(), 0);
     }
     window.addEventListener("scroll", updatePos, true);
@@ -132,11 +151,15 @@ export function Select({
     };
   }, [open, updatePos, searchable]);
 
-  // Reset query and active index when opening
   useEffect(() => {
     if (open) {
       setQuery("");
-      activeIndexRef.current = Math.max(0, visibleOptions.findIndex((o) => o.value === value));
+      let idx = visibleOptions.findIndex((o) => o.value === value);
+      if (idx === -1 || visibleOptions[idx]?.disabled) {
+        idx = visibleOptions.findIndex((o) => !o.disabled);
+        if (idx === -1) idx = 0;
+      }
+      activeIndexRef.current = Math.max(0, idx);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -165,8 +188,9 @@ export function Select({
               moveActive(-1);
             } else if (open && e.key === "Enter") {
               e.preventDefault();
-              if (visibleOptions[activeIndexRef.current]) {
-                onChange(visibleOptions[activeIndexRef.current].value);
+              const opt = visibleOptions[activeIndexRef.current];
+              if (opt && !opt.disabled) {
+                onChange(opt.value);
                 setOpen(false);
                 setQuery("");
               }
@@ -177,7 +201,7 @@ export function Select({
           }}
           className={`w-full bg-surface border border-stroke rounded-xl text-xs font-medium text-ink text-left outline-none focus:border-accent/40 focus:ring-2 focus:ring-accent/15 shadow-[inset_0_1px_0_var(--color-stroke-soft)] transition-[border-color,box-shadow] duration-150 cursor-pointer flex items-center justify-between gap-2 ${compact ? "px-3 py-2 text-[11px]" : "px-3.5 py-2.5"}`}
         >
-          <span className="truncate">{selected?.label ?? value}</span>
+          <span className={`truncate ${!selected && placeholder ? "text-muted" : ""}`}>{selected?.label ?? placeholder ?? value}</span>
           <span className="shrink-0 w-6 h-6 grid place-items-center rounded-full bg-elevated border border-stroke">
             <IconChevronDown className={`w-3 h-3 text-muted transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
           </span>
@@ -215,8 +239,9 @@ export function Select({
                       moveActive(-1);
                     } else if (e.key === "Enter") {
                       e.preventDefault();
-                      if (visibleOptions[activeIndexRef.current]) {
-                        onChange(visibleOptions[activeIndexRef.current].value);
+                      const opt = visibleOptions[activeIndexRef.current];
+                      if (opt && !opt.disabled) {
+                        onChange(opt.value);
                         setOpen(false);
                         setQuery("");
                       }
@@ -243,6 +268,7 @@ export function Select({
             >
             {visibleOptions.map((opt, i) => {
               const isActive = i === activeIndexRef.current && open;
+              const isDisabled = !!opt.disabled;
               return (
                 <button
                   key={opt.value}
@@ -250,21 +276,26 @@ export function Select({
                   data-opt
                   role="option"
                   aria-selected={value === opt.value}
+                  aria-disabled={isDisabled || undefined}
+                  disabled={isDisabled}
                   onMouseDown={(e) => {
                     e.preventDefault();
+                    if (isDisabled) return;
                     onChange(opt.value);
                     setOpen(false);
                     setQuery("");
                   }}
-                  onMouseEnter={() => { activeIndexRef.current = i; }}
-                  className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer truncate ${
-                    value === opt.value
-                      ? "bg-accent/10 text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)]"
+                  onMouseEnter={() => { if (!isDisabled) activeIndexRef.current = i; }}
+                  className={`w-full text-left px-3 py-2 text-xs font-medium rounded-lg transition-colors truncate ${
+                    isDisabled
+                      ? "opacity-40 cursor-not-allowed text-muted"
+                      : value === opt.value
+                      ? "bg-accent/10 text-accent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-accent)_20%,transparent)] cursor-pointer"
                       : isActive
-                      ? "bg-elevated text-ink"
-                      : "text-muted hover:bg-elevated hover:text-ink"
+                      ? "bg-elevated text-ink cursor-pointer"
+                      : "text-muted hover:bg-elevated hover:text-ink cursor-pointer"
                   }`}
-                  title={opt.label}
+                  title={opt.title ?? opt.label}
                 >
                   {opt.label}
                 </button>

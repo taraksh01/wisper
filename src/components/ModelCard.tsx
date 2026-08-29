@@ -17,7 +17,7 @@ interface ModelCardProps {
   downloaded?: number;
   total?: number;
   justDownloaded?: boolean;
-  /** Downloaded Indic model missing tokens/vocab — shows repair button */
+  /** Downloaded Indic model missing tokens/vocab - shows repair button */
   missingAssets?: boolean;
   installingAssets?: boolean;
   onActivate: (filename: string) => void;
@@ -130,30 +130,25 @@ function ModelCard({
         document.body
       )}
       <div
-        role={isInstalled ? "button" : undefined}
-        tabIndex={isInstalled ? 0 : undefined}
-        aria-pressed={isInstalled ? isActive : undefined}
-        onClick={() => { if (isInstalled) onActivate(filename); }}
-        onKeyDown={(e) => {
-          if (!isInstalled) return;
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onActivate(filename);
-          }
-        }}
-        className={`group rounded-xl border p-4 transition-all duration-150 ${isInstalled ? "cursor-pointer" : "cursor-default"} ${
+        className={`group rounded-xl border p-4 transition-all duration-150 ${
           isActive
             ? "bg-accent-soft border-accent/20 shadow-sm"
             : "bg-surface border-stroke hover:border-accent/25 hover:shadow-sm"
         }`}
       >
-        {/* Header — icon | name+badges | action */}
+        {/* Header - icon | name+badges | action */}
         <div className="flex items-start gap-3">
           <span className={`shrink-0 w-8 h-8 grid place-items-center rounded-lg border ${isActive ? "bg-accent border-accent text-white" : "bg-elevated border-stroke text-muted"}`}>
             <IconStack className="w-4 h-4" />
           </span>
 
-          <div className="flex-1 min-w-0">
+          <button
+            onClick={() => { if (isInstalled) onActivate(filename); }}
+            disabled={!isInstalled}
+            aria-pressed={isInstalled ? isActive : undefined}
+            aria-label={isInstalled ? `Activate ${info.name}` : undefined}
+            className={`flex-1 min-w-0 text-left ${isInstalled ? "cursor-pointer" : "cursor-default"}`}
+          >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[13px] font-medium text-ink tracking-[-0.01em]">{info.name}</span>
               {info.recommended && (
@@ -165,7 +160,7 @@ function ModelCard({
             <p className="text-[11px] font-mono text-muted mt-1">
               {info.size} · {info.quantization.toUpperCase()} · {info.runtime}
             </p>
-          </div>
+          </button>
 
           <div className="shrink-0 ml-2">
             {!isInstalled ? (

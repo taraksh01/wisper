@@ -35,7 +35,7 @@
   --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.16), 0 8px 24px rgba(0,0,0,0.18);
 }
 
-/* Dev flavour accent (violet) — toggled by data-dev attribute on <html> via appConfig */
+/* Dev flavour accent (violet) - toggled by data-dev attribute on <html> via appConfig */
 [data-dev="true"] {
   --color-accent: #7c3aed;
   --color-accent-dim: #6d28d9;
@@ -74,7 +74,7 @@
   color-scheme: light;
 }
 
-/* ─── Font rendering — crisp text on Linux/WebKitGTK ─── */
+/* ─── Font rendering - crisp text on Linux/WebKitGTK ─── */
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -86,7 +86,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ─── App canvas — paper + tape texture (10/10 signature) ─── */
+/* ─── App canvas - paper + tape texture (10/10 signature) ─── */
 .app-canvas {
   background-color: var(--color-base);
   background-image:
@@ -197,7 +197,7 @@ body {
   55% { transform: scaleY(0.9); }
 }
 
-/* Gentle idle equalizer — hero brand moment on the About page.
+/* Gentle idle equalizer - hero brand moment on the About page.
    Same keyframes as the processing state, slowed down so it feels calm. */
 .logo-idle-eq .wisper-bar:nth-child(1) { animation: wisper-eq-a 3.2s ease-in-out infinite; }
 .logo-idle-eq .wisper-bar:nth-child(2) { animation: wisper-eq-c 3.6s ease-in-out infinite; }
@@ -246,7 +246,7 @@ body {
   opacity: 0;
 }
 
-/* Toast auto-dismiss progress bar — depletes over lifetime (duration set inline) */
+/* Toast auto-dismiss progress bar - depletes over lifetime (duration set inline) */
 .toast-progress {
   transform-origin: left center;
   animation-name: toast-bar;

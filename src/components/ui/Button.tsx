@@ -6,7 +6,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 /**
- * Single source for all icon/action buttons — audio player, history rows, etc.
+ * Single source for all icon/action buttons - audio player, history rows, etc.
  * Size and shape come from the caller via className.
  */
 export function Button({ variant = "ghost", className = "", children, ...rest }: ButtonProps) {

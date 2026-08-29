@@ -3,7 +3,7 @@ import type { SVGProps } from "react";
 type IconProps = SVGProps<SVGSVGElement> & { className?: string };
 
 /**
- * Single source for all tab icons — sidebar and page headers must use the SAME component.
+ * Single source for all tab icons - sidebar and page headers must use the SAME component.
  * Change here, updates everywhere (plug-and-play, no hard-coded duplication).
  * All use currentColor + strokeWidth 1.5, size via className (w-4 h-4 sidebar, w-5 h-5 page header).
  */
