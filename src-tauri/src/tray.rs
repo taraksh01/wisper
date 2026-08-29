@@ -8,7 +8,7 @@ use tauri::{
 use crate::coordinator::CoordinatorState;
 use crate::{app_info, settings};
 
-/// Runtime-only state (recording/processing) — config lives in AppSettings.
+/// Runtime-only state (recording/processing) - config lives in AppSettings.
 pub static STATE_LOCK: once_cell::sync::Lazy<Arc<Mutex<CoordinatorState>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(CoordinatorState::Idle)));
 
@@ -69,7 +69,7 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         None::<&str>,
     )?;
 
-    // 2. ONE action row — Load or Unload depending on state
+    // 2. ONE action row - Load or Unload depending on state
     let model_i = if !s.local_model_file.is_empty() {
         MenuItem::with_id(
             app,

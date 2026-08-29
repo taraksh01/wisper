@@ -35,8 +35,21 @@ where
     F: FnOnce() -> R,
 {
     use std::os::unix::io::AsRawFd;
+    struct RestoreFd(i32);
+    impl Drop for RestoreFd {
+        fn drop(&mut self) {
+            if self.0 != -1 {
+                unsafe {
+                    libc::dup2(self.0, libc::STDERR_FILENO);
+                    libc::close(self.0);
+                }
+            }
+        }
+    }
     let _g = SILENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
+    // RAII guard restores even if f() panics
+    let _restore = RestoreFd(saved);
     let null = std::fs::OpenOptions::new()
         .write(true)
         .open("/dev/null")
@@ -48,14 +61,7 @@ where
             }
         }
     }
-    let result = f();
-    if saved != -1 {
-        unsafe {
-            libc::dup2(saved, libc::STDERR_FILENO);
-            libc::close(saved);
-        }
-    }
-    result
+    f()
 }
 
 use tauri::{Emitter, Manager, WindowEvent};
@@ -279,7 +285,7 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
             } else if ep == (0, 0) && tp != (0, 0) {
                 Some(tp)
             } else {
-                // Both non-zero and disagree — Enigo is more reliable on X11/Wayland.
+                // Both non-zero and disagree - Enigo is more reliable on X11/Wayland.
                 #[cfg(target_os = "linux")]
                 { Some(ep) }
                 #[cfg(not(target_os = "linux"))]
@@ -415,7 +421,7 @@ fn overlay_pos_for(
 
 /// Positions the overlay. `set_position` is called AFTER `show` because on
 /// X11/Wayland a position set on a not-yet-mapped window is ignored by the WM
-/// and overridden to the default (centered) at map time — the root cause of the
+/// and overridden to the default (centered) at map time - the root cause of the
 /// position drift. Uses the window's real size. Must be called on the main thread.
 fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_cache: bool) {
     // Use the window's own scale factor for correct physical→logical conversion;
@@ -449,7 +455,7 @@ fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_c
 /// Window ops must run on the main thread in Tauri v2, so the whole body is
 /// dispatched there. Running off-thread (e.g. from the state-listener thread)
 /// silently no-ops set_position/show/destroy and the window falls back to
-/// Tauri's default centered placement — the recurring position-drift bug.
+/// Tauri's default centered placement - the recurring position-drift bug.
 fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     let app_clone = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -470,9 +476,9 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
         }
         match state {
             CoordinatorState::Idle => {
-                // Don't destroy while the error glyph is flashing — the error
+                // Don't destroy while the error glyph is flashing - the error
                 // thread owns that window and destroys it after ~1.5s.
-                if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+                if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
                     return;
                 }
                 if crate::coordinator::active_job_count() > 0 {
@@ -553,7 +559,7 @@ pub fn show_overlay_error(reason: Option<String>) {
     if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
-    OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
     *OVERLAY_ERROR_REASON
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = reason;
@@ -567,7 +573,7 @@ pub fn show_overlay_error(reason: Option<String>) {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         let h = handle_clone.clone();
         let _ = handle_clone.run_on_main_thread(move || {
-            OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+            OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
             *OVERLAY_ERROR_REASON
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = None;

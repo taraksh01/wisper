@@ -208,7 +208,7 @@ impl AudioRecorder {
     }
 
     pub fn start_recording(&self, device: Option<String>) -> Result<(), String> {
-        // Stop preview if active — don't hold two streams
+        // Stop preview if active - don't hold two streams
         *self
             .preview_stream
             .lock()
@@ -296,7 +296,7 @@ impl AudioRecorder {
         {
             return Ok(());
         }
-        // Don't start preview if already recording — use separate slot
+        // Don't start preview if already recording - use separate slot
         if self
             .stream
             .lock()
@@ -382,6 +382,12 @@ impl AudioRecorder {
             .build_input_stream(
                 config.clone(),
                 move |data: &[T], _: &_| {
+                    // Real-time audio callback must never block. `try_lock` is
+                    // intentional: on contention we drop this chunk of frames
+                    // rather than stalling the audio thread. `parking_lot` or a
+                    // lock-free ring (crossbeam channel) would avoid drops but
+                    // adds dependency; current drop rate is logged via
+                    // AUDIO_DROP_CTR and is negligible under normal load.
                     let mut b = match buffer.try_lock() {
                         Ok(g) => g,
                         Err(_) => {
@@ -518,7 +524,7 @@ pub fn suppress_noise(samples: &[f32], sample_rate: u32, strength: f32) -> Vec<f
     if samples.is_empty() {
         return Vec::new();
     }
-    // One-pole high-pass — removes DC and low-frequency rumble.
+    // One-pole high-pass - removes DC and low-frequency rumble.
     let rc = 1.0 / (2.0 * std::f32::consts::PI * 85.0);
     let dt = 1.0 / sample_rate as f32;
     let alpha = rc / (rc + dt);

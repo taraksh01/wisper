@@ -20,7 +20,7 @@ pub struct AppSettings {
     pub engine_model: String,
     pub local_model_file: String,
     /// Last local model that was loaded; used by "Load last model" in the tray.
-    /// Persisted so it survives restarts — there is no separate in-memory copy.
+    /// Persisted so it survives restarts - there is no separate in-memory copy.
     #[serde(default)]
     pub last_local_model_file: String,
     pub process_enabled: bool,
@@ -263,7 +263,7 @@ pub fn load_settings() -> AppSettings {
 }
 
 /// Derive ALL runtime state from settings. This is the single place where
-/// mirrors of `AppSettings` are written — never set those statics elsewhere.
+/// mirrors of `AppSettings` are written - never set those statics elsewhere.
 pub fn sync_runtime(settings: &AppSettings) {
     // Hotkey / recording behaviour
     crate::coordinator::HOTKEY_MODE.store(
@@ -295,7 +295,7 @@ pub fn sync_runtime(settings: &AppSettings) {
         std::sync::atomic::Ordering::Relaxed,
     );
     // Process settings are read per-dictation from AppSettings::load() in the
-    // coordinator — no mirrors needed (single source of truth).
+    // coordinator - no mirrors needed (single source of truth).
     {
         let mut method = crate::coordinator::PASTE_METHOD
             .lock()
@@ -448,7 +448,10 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     s.vad_threshold = s.vad_threshold.clamp(0.0, 1.0);
     s.noise_suppression_level = s.noise_suppression_level.clamp(0.0, 1.0);
     let do_trim = s.max_history_entries != prev_max || s.history_retention_mode != prev_mode;
-    let _ = s.save();
+    if let Err(e) = s.save() {
+        eprintln!("[settings] save failed: {}", e);
+        return 0;
+    }
     sync_runtime(&s);
     // Seed built-in dictionary entry only the first time the user enables it.
     if !prev_words_enabled && s.words_enabled {
@@ -496,7 +499,10 @@ pub fn add_time_saved(delta: i64) {
     let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut s = AppSettings::load();
     s.time_saved_sec = s.time_saved_sec.saturating_add(delta);
-    let _ = s.save();
+    if let Err(e) = s.save() {
+        eprintln!("[settings] add_time_saved save failed: {}", e);
+        return;
+    }
     crate::emit_settings_changed(&s);
 }
 
@@ -508,7 +514,10 @@ pub fn add_lifetime_stats(words: i64) {
     let mut s = AppSettings::load();
     s.lifetime_dictations = s.lifetime_dictations.saturating_add(1);
     s.lifetime_words = s.lifetime_words.saturating_add(words);
-    let _ = s.save();
+    if let Err(e) = s.save() {
+        eprintln!("[settings] add_lifetime_stats save failed: {}", e);
+        return;
+    }
     crate::emit_settings_changed(&s);
 }
 
@@ -528,7 +537,10 @@ pub fn add_dictation_stats(words: i64, time_saved_delta: i64) {
     if time_saved_delta > 0 {
         s.time_saved_sec = s.time_saved_sec.saturating_add(time_saved_delta);
     }
-    let _ = s.save();
+    if let Err(e) = s.save() {
+        eprintln!("[settings] add_dictation_stats save failed: {}", e);
+        return;
+    }
     crate::emit_settings_changed(&s);
 }
 
