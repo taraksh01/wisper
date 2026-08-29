@@ -339,36 +339,43 @@ function AppShell() {
   }
 
   const renderTab = () => {
+    // EngineTab is kept mounted (hidden) so download progress survives tab switches
+    const engineNode = (
+      <EngineTab settings={settings} onSave={saveSetting} onSaveAll={saveAllSettings} />
+    );
+    let other: React.ReactNode;
     switch (activeTab) {
       case "general":
-        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
+        other = <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
+        break;
       case "engine":
-        return (
-          <EngineTab
-            settings={settings}
-            onSave={saveSetting}
-            onSaveAll={saveAllSettings}
-          />
-        );
+        other = null;
+        break;
       case "process":
-        return <ProcessTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("process")} />;
+        other = <ProcessTab settings={settings} profiles={agentProfiles} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("process")} />;
+        break;
       case "words":
-        return (
-          <WordsTab
-            settings={settings}
-            onSave={saveSetting}
-            onReset={() => resetTab("words")}
-          />
-        );
+        other = <WordsTab settings={settings} onSave={saveSetting} onReset={() => resetTab("words")} />;
+        break;
       case "history":
-        return <HistoryTab history={history} stats={stats} settings={settings} historyTotal={historyTotal} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onSave={saveSetting} onRefresh={fetchHistory} />;
+        other = <HistoryTab history={history} stats={stats} settings={settings} historyTotal={historyTotal} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onSave={saveSetting} onRefresh={fetchHistory} />;
+        break;
       case "about":
-        return <AboutTab />;
+        other = <AboutTab />;
+        break;
       case "donate":
-        return <DonateTab />;
+        other = <DonateTab />;
+        break;
       default:
-        return <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
+        other = <GeneralTab settings={settings} historyTotal={historyTotal} onSave={saveSetting} onSaveAll={saveAllSettings} onReset={() => resetTab("general")} />;
+        break;
     }
+    return (
+      <>
+        <div className={activeTab === "engine" ? "block" : "hidden"}>{engineNode}</div>
+        {other && <div className="block">{other}</div>}
+      </>
+    );
   };
 
   return (
