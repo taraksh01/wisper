@@ -1,4 +1,4 @@
-/// Central app identity helpers — dynamic by build profile.
+/// Central app identity helpers - dynamic by build profile.
 ///
 /// - Debug (tauri dev / cargo run): wisper-dev (so it doesn't clobber prod data)
 /// - Release (tauri build / cargo build --release): wisper

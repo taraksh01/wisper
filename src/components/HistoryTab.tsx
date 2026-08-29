@@ -16,7 +16,7 @@ interface HistoryTabProps {
   history: HistoryEntry[];
   stats: [number, number, number];
   settings: AppSettings;
-  /** Total entries stored in the DB — may exceed what's loaded so far. */
+  /** Total entries stored in the DB - may exceed what's loaded so far. */
   historyTotal: number;
   loadingOlder: boolean;
   onLoadOlder: () => void;
@@ -26,6 +26,7 @@ interface HistoryTabProps {
 
 const audioCache = new Map<string, string>();
 const peaksCache = new Map<string, Float32Array>();
+const MAX_CACHED = 10;
 
 async function computePeaks(blobUrl: string): Promise<Float32Array | null> {
   let ctx: AudioContext | null = null;
@@ -62,6 +63,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
     return () => {
       audioCache.forEach((url) => URL.revokeObjectURL(url));
       audioCache.clear();
+      peaksCache.clear();
     };
   }, []);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -136,15 +138,15 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
 
   const deleteSelected = useCallback(async () => {
     const ids = Array.from(selectedIds);
-    try {
-      await Promise.all(ids.map((id) => invoke("delete_history_entry", { id })));
-      setSelectedIds(new Set());
-      onRefresh();
-      addToast(`${ids.length} entries deleted`, "success");
-    } catch (e) {
-      console.error("Delete selected failed:", e);
-      addToast("Failed to delete entries", "error");
-    }
+    const results = await Promise.allSettled(ids.map((id) => invoke("delete_history_entry", { id })));
+    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
+    const rejected = results.filter((r) => r.status === "rejected").length;
+    if (rejected > 0) console.error("Delete selected partially failed:", results);
+    setSelectedIds(new Set());
+    onRefresh();
+    if (rejected === 0) addToast(`${fulfilled} entries deleted`, "success");
+    else if (fulfilled === 0) addToast("Failed to delete entries", "error");
+    else addToast(`${fulfilled} deleted, ${rejected} failed`, "error");
   }, [selectedIds, onRefresh, addToast]);
 
   const toggleSelect = useCallback((id: number) => {
@@ -191,6 +193,14 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
         const data = await invoke<number[]>("get_recording_data", { recordingPath: path });
         const bytes = new Uint8Array(data);
         blobUrl = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+        if (audioCache.size >= MAX_CACHED) {
+          const oldest = audioCache.keys().next().value as string | undefined;
+          if (oldest) {
+            const oldUrl = audioCache.get(oldest);
+            if (oldUrl) URL.revokeObjectURL(oldUrl);
+            audioCache.delete(oldest);
+          }
+        }
         audioCache.set(path, blobUrl);
       }
 
@@ -240,15 +250,21 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
     setPlayerTime(a.currentTime);
   }, []);
 
-  // Playback speed — persisted so every recording (and session) reuses it
+  // Playback speed - persisted so every recording (and session) reuses it
   const [playbackRate, setPlaybackRate] = useState(() => {
-    const v = parseFloat(localStorage.getItem(storageKey("playbackRate")) || "");
-    return Number.isFinite(v) && v > 0 ? v : 1;
+    try {
+      const v = parseFloat(localStorage.getItem(storageKey("playbackRate")) || "");
+      return Number.isFinite(v) && v > 0 ? v : 1;
+    } catch {
+      return 1;
+    }
   });
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.playbackRate = playbackRate;
-    localStorage.setItem(storageKey("playbackRate"), String(playbackRate));
+    try {
+      localStorage.setItem(storageKey("playbackRate"), String(playbackRate));
+    } catch {}
   }, [playbackRate]);
 
   useEffect(() => {
@@ -289,9 +305,9 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
       <SectionCard className="card-enter">
         <div className={`grid ${statCols} gap-2`}>
           {[
-            { label: "Dictations", value: String(stats[0]), title: "Entries in history — resets when you clear history" },
-            { label: "Words", value: String(lifetimeWords), title: "Lifetime words — never resets" },
-            { label: "Avg Words", value: lifetimeAvg.toFixed(1), title: "Lifetime average — never resets" },
+            { label: "Dictations", value: String(stats[0]), title: "Entries in history - resets when you clear history" },
+            { label: "Words", value: String(lifetimeWords), title: "Lifetime words - never resets" },
+            { label: "Avg Words", value: lifetimeAvg.toFixed(1), title: "Lifetime average - never resets" },
             {
               label: "Time saved",
               value: timeSavedSec >= 3600
@@ -299,7 +315,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
                 : timeSavedSec >= 60
                 ? `${Math.floor(timeSavedSec / 60)}m ${timeSavedSec % 60}s`
                 : `${timeSavedSec}s`,
-              title: "Estimated at 60 WPM typing speed — lifetime, never resets",
+              title: "Estimated at 60 WPM typing speed - lifetime, never resets",
             },
           ].map((s) => (
             <div
@@ -340,6 +356,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
               onClick={() => setShowClearConfirm(true)}
               className="shrink-0 p-1.5 rounded-md text-recording/60 hover:text-recording transition-colors"
               title="Clear all history"
+              aria-label="Clear all history"
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z" />
@@ -396,7 +413,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
               <>
                 <p className="text-xs font-medium text-ink">No dictations yet</p>
                 <p className="text-[11px] text-muted mt-1 leading-relaxed max-w-[240px]">
-                  Press <span className="font-mono text-accent">{settings.hotkey}</span> and start speaking — your transcribed text will appear here.
+                  Press <span className="font-mono text-accent">{settings.hotkey}</span> and start speaking - your transcribed text will appear here.
                 </p>
               </>
             ) : (

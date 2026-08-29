@@ -129,7 +129,7 @@ fn do_register(
     hotkey_to_id: &mut HashMap<HotkeyId, ()>,
     hotkey_string: &str,
 ) -> Result<(), String> {
-    // Clear any previous binding first — we only ever hold one hotkey.
+    // Clear any previous binding first - we only ever hold one hotkey.
     do_unregister_all(manager, hotkey_to_id)?;
     let hotkey: Hotkey = hotkey_string
         .parse()

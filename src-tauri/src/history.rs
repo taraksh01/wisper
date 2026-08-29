@@ -23,7 +23,7 @@ static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync:
     let db_path = HistoryManager::get_db_path();
     let conn = Connection::open(&db_path).unwrap_or_else(|e| {
         eprintln!(
-            "[history] failed to open {}: {e} — using in-memory DB",
+            "[history] failed to open {}: {e} - using in-memory DB",
             db_path.display()
         );
         Connection::open_in_memory().unwrap_or_else(|e2| {
@@ -86,7 +86,7 @@ impl HistoryManager {
         recording_path: Option<&str>,
     ) -> SqlResult<()> {
         let word_count = raw_text.split_whitespace().count() as i64;
-        // Skip zero-word entries — they pollute history and have no value.
+        // Skip zero-word entries - they pollute history and have no value.
         // The caller (coordinator) already avoids saving the recording file in this case,
         // but we defend here as well for any direct callers.
         if word_count == 0
@@ -108,16 +108,34 @@ impl HistoryManager {
 
     pub fn update(&self, id: i64, raw_text: &str, formatted_text: Option<&str>) -> SqlResult<()> {
         let conn = Self::conn();
+        let word_count = raw_text.split_whitespace().count() as i64;
         conn.execute(
-            "UPDATE history SET raw_text = ?1, formatted_text = ?2 WHERE id = ?3",
-            params![raw_text, formatted_text, id],
+            "UPDATE history SET raw_text = ?1, formatted_text = ?2, word_count = ?3 WHERE id = ?4",
+            params![raw_text, formatted_text, word_count, id],
         )?;
         Ok(())
     }
 
     pub fn delete(&self, id: i64) -> SqlResult<()> {
+        let recording_path: Option<String> = {
+            let conn = Self::conn();
+            conn.query_row(
+                "SELECT recording_path FROM history WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap_or(None)
+        };
         let conn = Self::conn();
         conn.execute("DELETE FROM history WHERE id = ?1", params![id])?;
+        drop(conn);
+        if let Some(p) = recording_path {
+            if !p.is_empty() {
+                if let Ok(validated) = validate_recording_path(&p) {
+                    let _ = std::fs::remove_file(validated);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -243,21 +261,33 @@ impl HistoryManager {
                     }
                 }
             }
+            // Use collected ids to avoid re-SELECT race with concurrent inserts
+            let ids: Vec<i64> = oldest.iter().map(|(id, _)| *id).collect();
+            if ids.is_empty() {
+                return Ok(0);
+            }
             let conn = Self::conn();
             conn.execute_batch("BEGIN IMMEDIATE")?;
-            let res = conn.execute(
-                "DELETE FROM history WHERE id IN (SELECT id FROM history ORDER BY id ASC LIMIT ?1)",
-                params![excess],
-            );
-            match res {
-                Ok(n) => {
-                    conn.execute_batch("COMMIT")?;
-                    Ok(n)
+            let mut cleared = 0usize;
+            let mut ok = true;
+            let mut last_err: Option<rusqlite::Error> = None;
+            for id in ids {
+                match conn.execute("DELETE FROM history WHERE id = ?1", params![id]) {
+                    Ok(n) => cleared += n as usize,
+                    Err(e) => {
+                        eprintln!("[history] failed to delete id {}: {}", id, e);
+                        last_err = Some(e);
+                        ok = false;
+                        break;
+                    }
                 }
-                Err(e) => {
-                    let _ = conn.execute_batch("ROLLBACK");
-                    Err(e)
-                }
+            }
+            if ok {
+                conn.execute_batch("COMMIT")?;
+                Ok(cleared)
+            } else {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(last_err.unwrap_or(rusqlite::Error::ExecuteReturnedResults))
             }
         }
     }
@@ -326,21 +356,43 @@ fn validate_recording_path(path: &str) -> Result<std::path::PathBuf, String> {
         }
         Ok(canonical)
     } else {
-        // File already deleted — still verify it was inside the recordings dir
+        // File already deleted - still verify it was inside the recordings dir
+        // Drop lexical `p_abs.starts_with(dir)` fallback (bypass via ../../etc)
+        // Instead lexical-normalize and ensure no ParentDir escapes beyond dir.
         let p_abs = if p.is_absolute() {
             p.clone()
         } else {
-            dir.join(&p)
+            dir_canonical.join(&p)
         };
-        let parent = p_abs.parent().unwrap_or(&p_abs);
-        let parent_canonical = parent
-            .canonicalize()
-            .unwrap_or_else(|_| parent.to_path_buf());
-        if parent_canonical.starts_with(&dir_canonical) || p_abs.starts_with(&dir) {
-            Ok(p)
-        } else {
-            Err("Recording path outside allowed directory".into())
+        // Lexical normalization to reject `..` escaping dir
+        let dir_comps = dir_canonical.components().count();
+        let mut normalized = std::path::PathBuf::new();
+        for comp in p_abs.components() {
+            match comp {
+                std::path::Component::ParentDir => {
+                    if normalized.components().count() <= dir_comps {
+                        return Err("Recording path outside allowed directory".into());
+                    }
+                    if !normalized.starts_with(&dir_canonical) {
+                        return Err("Recording path outside allowed directory".into());
+                    }
+                    normalized.pop();
+                }
+                std::path::Component::CurDir => {}
+                _ => normalized.push(comp.as_os_str()),
+            }
         }
+        if !normalized.starts_with(&dir_canonical) {
+            return Err("Recording path outside allowed directory".into());
+        }
+        // Additionally, if parent exists on disk, ensure its canonical path is inside dir
+        let parent = p_abs.parent().unwrap_or(&p_abs);
+        if let Ok(parent_canonical) = parent.canonicalize() {
+            if !parent_canonical.starts_with(&dir_canonical) {
+                return Err("Recording path outside allowed directory".into());
+            }
+        }
+        Ok(p)
     }
 }
 
@@ -444,6 +496,7 @@ fn wav_from_samples(
     f.write_all(&data_size.to_le_bytes())
         .map_err(|e| e.to_string())?;
     f.write_all(&raw).map_err(|e| e.to_string())?;
+    f.sync_all().map_err(|e| e.to_string())?;
 
     Ok(())
 }

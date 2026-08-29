@@ -54,6 +54,8 @@ function safeStorageSet(key: string, value: string) {
   }
 }
 
+const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
+
 function AppShell() {
   const dark = useSystemTheme();
   const [activeTab, setActiveTab] = useState(() => {
@@ -99,7 +101,7 @@ function AppShell() {
     const unlistenSettingsPromise = listen<AppSettings>("wisper:settings-changed", (event) => {
       if (alive) {
         setSettings(event.payload);
-        // Single source: settings.local_model_file — refresh display name
+        // Single source: settings.local_model_file - refresh display name
         if (!event.payload.local_model_file) {
           setCurrentModelName("");
         } else {
@@ -144,6 +146,17 @@ function AppShell() {
     setLoadingOlder(false);
   }, [history.length, historyTotal, loadingOlder]);
 
+  useEffect(() => {
+    let alive = true;
+    const unlistenPromise = listen("wisper:history-changed", () => {
+      if (alive) fetchHistory();
+    });
+    return () => {
+      alive = false;
+      unlistenPromise.then((fn) => fn()).catch(() => {});
+    };
+  }, [fetchHistory]);
+
   const hasMounted = useRef(false);
   useEffect(() => {
     if (!hasMounted.current) {
@@ -151,16 +164,21 @@ function AppShell() {
       return;
     }
     if (appState === "idle") {
+      let alive = true;
       const h = invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 });
       const s = invoke<[number, number, number]>("get_history_stats");
       const c = invoke<number>("get_history_count");
       const settingsReq = invoke<AppSettings>("load_settings");
       Promise.all([h, s, c, settingsReq]).then(([entries, st, count, stt]) => {
+        if (!alive) return;
         setHistory(entries);
         setStats(st);
         setHistoryTotal(count);
         setSettings(stt);
       }).catch(() => {});
+      return () => {
+        alive = false;
+      };
     }
   }, [appState]);
 
@@ -175,7 +193,6 @@ function AppShell() {
     invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
   };
 
-  const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef<AppSettings | null>(null);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
@@ -269,7 +286,7 @@ function AppShell() {
   const unloadModel = async () => {
     try {
       await invoke("unload_model");
-      // Single source is settings.local_model_file — clear it locally too
+      // Single source is settings.local_model_file - clear it locally too
       setSettings((prev) => (prev ? { ...prev, local_model_file: "" } : prev));
       setCurrentModelName("");
       refreshCurrentModel();
@@ -360,7 +377,7 @@ function AppShell() {
           <Onboarding
             env={pasteEnv}
             onDone={() => {
-              localStorage.setItem(storageKey("onboarded"), "1");
+              safeStorageSet(storageKey("onboarded"), "1");
               setOnboarded(true);
             }}
           />

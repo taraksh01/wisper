@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/wisper.svg" id="app-favicon" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wisper — voice dictation</title>
+    <title>Wisper - voice dictation</title>
     <script type="module">
       // Set favicon + title before React mounts so prod/dev never flash orange
       const isDev = import.meta.env.DEV;
       const fav = document.getElementById('app-favicon');
       if (fav) fav.href = isDev ? '/dev/wisper-dev.svg' : '/wisper.svg';
-      if (isDev) document.title = 'Wisper Dev — voice dictation';
+      if (isDev) document.title = 'Wisper Dev - voice dictation';
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -25,7 +25,14 @@ struct CachedParakeet {
 }
 
 static PARAKEET_CACHE: OnceLock<Mutex<Option<CachedParakeet>>> = OnceLock::new();
-const MODEL_TTL: Duration = Duration::from_secs(60 * 60 * 6); // 6 hours — keep resident for frequent dictation
+const MODEL_TTL: Duration = Duration::from_secs(60 * 60 * 6); // 6 hours - keep resident for frequent dictation
+
+// Guard to cap eviction threads to 1 active per cache type; use small stack to avoid 8MB leak
+static PARAKEET_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static INDIC_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static WHISPER_V3_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static MOONSHINE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static INDIC_600M_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
 
 fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
     PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
@@ -93,17 +100,37 @@ impl EngineProvider for ParakeetOnnxProvider {
 
 /// Spawn a background check that evicts the cached Parakeet model if idle past MODEL_TTL.
 fn schedule_parakeet_eviction(dir: PathBuf) {
-    std::thread::spawn(move || {
-        std::thread::sleep(MODEL_TTL);
-        if let Ok(mut guard) = parakeet_cache().lock() {
-            // Only evict if still idle — a recent transcribe refreshes last_used
-            if let Some(c) = guard.as_ref() {
-                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                    *guard = None;
+    if PARAKEET_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            PARAKEET_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = parakeet_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = parakeet_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
                 }
             }
-        }
-    });
+            if should_reschedule {
+                schedule_parakeet_eviction(dir);
+            }
+        });
 }
 
 pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
@@ -175,7 +202,7 @@ fn cloud_client() -> &'static Client {
             .build()
             .unwrap_or_else(|e| {
                 eprintln!(
-                    "[engine] failed to build cloud client: {} — using default",
+                    "[engine] failed to build cloud client: {} - using default",
                     e
                 );
                 Client::new()
@@ -291,16 +318,37 @@ fn indic_cache() -> &'static Mutex<Option<CachedIndic>> {
 
 /// Spawn a background check that evicts the cached model if idle past MODEL_TTL.
 fn schedule_indic_eviction(dir: PathBuf) {
-    std::thread::spawn(move || {
-        std::thread::sleep(MODEL_TTL);
-        if let Ok(mut guard) = indic_cache().lock() {
-            if let Some(c) = guard.as_ref() {
-                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                    *guard = None;
+    if INDIC_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            INDIC_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = indic_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = indic_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
                 }
             }
-        }
-    });
+            if should_reschedule {
+                schedule_indic_eviction(dir);
+            }
+        });
 }
 
 fn ensure_tokens_txt(model_dir: &Path) -> Result<PathBuf, String> {
@@ -362,36 +410,38 @@ impl EngineProvider for SherpaIndicProvider {
             audio.to_vec()
         };
 
-        // Reuse cached recognizer if same dir and within TTL
-        {
+        // Reuse cached recognizer if same dir and within TTL - take out before decode to avoid holding Mutex
+        let cached_take = {
             let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
-            let reuse = guard
-                .as_ref()
-                .map(|c| c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL)
-                .unwrap_or(false);
-            if reuse {
-                let cached = match guard.as_mut() {
-                    Some(c) => c,
-                    None => return Err("Indic cache unexpectedly empty".into()),
-                };
-                cached.last_used = Instant::now();
-                let dir = cached.dir.clone();
-                drop(guard);
-                schedule_indic_eviction(dir);
-
-                let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
-                let cached = match guard.as_mut() {
-                    Some(c) => c,
-                    None => return Err("Indic cache unexpectedly empty".into()),
-                };
-                let stream = cached.recognizer.create_stream();
-                stream.accept_waveform(16000, &samples);
-                cached.recognizer.decode(&stream);
-                let result = stream
-                    .get_result()
-                    .ok_or_else(|| "Indic decode: no result".to_string())?;
-                return Ok(result.text.trim().to_string());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
             }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_indic_eviction(dir.clone());
+            // decode outside lock - take model out before decode to avoid holding Mutex across seconds-long inference
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "Indic decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedIndic {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
         }
 
         // Build fresh recognizer (drops old cached one first to free RAM)
@@ -508,16 +558,37 @@ fn whisper_v3_cache() -> &'static Mutex<Option<CachedWhisperV3>> {
 }
 
 fn schedule_whisper_v3_eviction(dir: PathBuf) {
-    std::thread::spawn(move || {
-        std::thread::sleep(MODEL_TTL);
-        if let Ok(mut guard) = whisper_v3_cache().lock() {
-            if let Some(c) = guard.as_ref() {
-                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                    *guard = None;
+    if WHISPER_V3_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            WHISPER_V3_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = whisper_v3_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = whisper_v3_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
                 }
             }
-        }
-    });
+            if should_reschedule {
+                schedule_whisper_v3_eviction(dir);
+            }
+        });
 }
 
 impl EngineProvider for WhisperLargeV3Provider {
@@ -549,27 +620,22 @@ impl EngineProvider for WhisperLargeV3Provider {
         }
 
         let recognizer = {
-            let mut guard = whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
-            let reuse = guard
-                .as_ref()
-                .map(|c| c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL)
-                .unwrap_or(false);
-            if reuse {
-                if let Some(c) = guard.as_mut() {
-                    c.last_used = Instant::now();
-                }
-                let dir = guard.as_ref().map(|c| c.dir.clone());
-                drop(guard);
-                if let Some(d) = dir {
-                    schedule_whisper_v3_eviction(d);
-                }
+            // Single-lock take to avoid race between check and take
+            let taken = {
                 let mut guard = whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
-                match guard.take() {
-                    Some(c) => c.recognizer,
-                    None => return Err("Whisper v3 cache unexpectedly empty".into()),
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
                 }
+            };
+            if let Some(cached) = taken {
+                let dir = cached.dir.clone();
+                schedule_whisper_v3_eviction(dir);
+                cached.recognizer
             } else {
-                drop(guard);
                 // Drop stale/other model before loading new (frees RAM)
                 {
                     let mut guard = whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -663,6 +729,52 @@ struct Indic600MSession {
     spans: std::collections::HashMap<String, (usize, usize)>,
 }
 
+struct Cached600M {
+    dir: PathBuf,
+    session: Indic600MSession,
+    last_used: Instant,
+}
+
+static INDIC_600M_CACHE: OnceLock<Mutex<Option<Cached600M>>> = OnceLock::new();
+
+fn indic_600m_cache() -> &'static Mutex<Option<Cached600M>> {
+    INDIC_600M_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn schedule_indic_600m_eviction(dir: PathBuf) {
+    if INDIC_600M_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            INDIC_600M_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = indic_600m_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = indic_600m_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_indic_600m_eviction(dir);
+            }
+        });
+}
+
 impl IndicConformer600MProvider {
     fn load_session(&self) -> Result<Indic600MSession, String> {
         let model_path = self.model_dir.join("encoder-model.onnx");
@@ -727,8 +839,34 @@ impl EngineProvider for IndicConformer600MProvider {
             enabled
         };
 
-        let mut sess = self.load_session()?;
+        // Reuse cached session if same dir and within TTL, else load (2.4GB build)
+        let mut sess = {
+            let mut guard = indic_600m_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take().map(|c| c.session)
+                }
+                _ => {
+                    *guard = None;
+                    None
+                }
+            }
+        };
+        if sess.is_none() {
+            sess = Some(self.load_session()?);
+        }
+        let mut sess = sess.ok_or_else(|| "Indic600M session unexpectedly empty".to_string())?;
         let text = decode_indic_600m_multi(&mut sess, &samples, &languages)?;
+        {
+            let mut guard = indic_600m_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(Cached600M {
+                dir: self.model_dir.clone(),
+                session: sess,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_indic_600m_eviction(self.model_dir.clone());
         Ok(text)
     }
 }
@@ -1086,16 +1224,37 @@ fn moonshine_cache() -> &'static Mutex<Option<CachedMoonshine>> {
 }
 
 fn schedule_moonshine_eviction(dir: PathBuf) {
-    std::thread::spawn(move || {
-        std::thread::sleep(MODEL_TTL);
-        if let Ok(mut guard) = moonshine_cache().lock() {
-            if let Some(c) = guard.as_ref() {
-                if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                    *guard = None;
+    if MOONSHINE_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            MOONSHINE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = moonshine_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = moonshine_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
                 }
             }
-        }
-    });
+            if should_reschedule {
+                schedule_moonshine_eviction(dir);
+            }
+        });
 }
 
 impl EngineProvider for MoonshineProvider {

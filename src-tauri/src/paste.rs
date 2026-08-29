@@ -7,13 +7,26 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
+static CMD_CACHE: Lazy<Mutex<std::collections::HashMap<String, (bool, std::time::Instant)>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
+const CMD_CACHE_TTL: Duration = Duration::from_secs(5);
+
 /// Returns true if the given command is available on PATH.
+/// Results are cached for 5s to avoid spawning `which` on every paste.
 fn command_exists(tool: &str) -> bool {
     // Use `which`-style lookup without shell to avoid injection
     if tool.contains('/') || tool.contains(';') || tool.contains('&') || tool.contains('|') {
         return false;
     }
-    Command::new("which")
+    {
+        let cache = CMD_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((val, at)) = cache.get(tool) {
+            if at.elapsed() < CMD_CACHE_TTL {
+                return *val;
+            }
+        }
+    }
+    let result = Command::new("which")
         .arg(tool)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -27,7 +40,11 @@ fn command_exists(tool: &str) -> bool {
                     full.is_file() && is_executable(&full)
                 })
             })
-        })
+        });
+    if let Ok(mut cache) = CMD_CACHE.lock() {
+        cache.insert(tool.to_string(), (result, std::time::Instant::now()));
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -157,7 +174,7 @@ pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
     }
     if text.trim().is_empty() {
         if cfg!(debug_assertions) {
-            eprintln!("[paste] empty text — nothing to paste");
+            eprintln!("[paste] empty text - nothing to paste");
         }
         return Ok(());
     }
@@ -243,7 +260,7 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     }
 
     let mut ready = false;
-    for _ in 0..20 {
+    for _ in 0..10 {
         if let Ok(cur) = clipboard.get_text() {
             if cur == expected {
                 ready = true;
@@ -254,13 +271,15 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     }
     if ready {
         thread::sleep(Duration::from_millis(30));
+    } else {
+        eprintln!("[paste] clipboard poll timed out after 100ms");
     }
 
     let paste_result = simulate_key_combo(method);
 
     let restore_text: Option<String> = original_text.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(250));
+        thread::sleep(Duration::from_millis(100));
         // Only restore if no newer dictation has overwritten the clipboard
         if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
             return;
@@ -413,7 +432,7 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                     .map_err(|e| format!("Enigo V failed: {:?}", e))
             }
         };
-        // Always release modifiers — never leave Ctrl/Shift stuck on partial failure.
+        // Always release modifiers - never leave Ctrl/Shift stuck on partial failure.
         // Releasing a non-pressed key is harmless.
         let _ = enigo.key(Key::Shift, Direction::Release);
         let _ = enigo.key(Key::Control, Direction::Release);
@@ -433,7 +452,10 @@ fn type_text_directly(text: &str) -> Result<(), String> {
     match backend.as_str() {
         "wtype" => {
             let mut cmd = Command::new("wtype");
-            cmd.args(["-d", "0", text]).stderr(Stdio::null());
+            // Use `--` so leading `-` in transcribed text is not parsed as a flag
+            // and to avoid ARG_MAX splitting issues; for very large text consider
+            // piping via `wtype -` stdin in future.
+            cmd.args(["-d", "0", "--", text]).stderr(Stdio::null());
             let status = run_with_timeout(cmd, Duration::from_secs(5))
                 .map_err(|e| format!("Failed to run wtype: {}", e))?;
             if status.success() {

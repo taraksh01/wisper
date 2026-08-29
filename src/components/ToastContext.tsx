@@ -49,7 +49,6 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     timerRef.current = setTimeout(() => onDismissRef.current(), remainingRef.current);
   }, [toast.duration]);
 
-  // start countdown on mount, clean up on unmount
   useEffect(() => {
     arm();
     return clear;

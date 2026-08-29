@@ -400,7 +400,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
     }
 
     if crate::audio::was_capped_and_reset() {
-        crate::show_overlay_error(Some("Recording too long — truncated to 5 minutes.".into()));
+        crate::show_overlay_error(Some("Recording too long - truncated to 5 minutes.".into()));
     }
     let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
         crate::history::save_recording_to_disk(&samples, device_sr)
@@ -512,7 +512,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
         match result {
             Ok(text) => {
                 if cancelled() {
-                    eprintln!("[cancel] pipeline cancelled after transcription — discarding text");
+                    eprintln!("[cancel] pipeline cancelled after transcription - discarding text");
                     return;
                 }
                 println!("Transcription: {}", text);
@@ -520,7 +520,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 let mut agent_name = None;
                 let settings_snapshot = crate::settings::AppSettings::load();
                 let words_enabled = settings_snapshot.words_enabled;
-                // Skip AI entirely for very short utterances — just words+paste.
+                // Skip AI entirely for very short utterances - just words+paste.
                 let min_words = settings_snapshot.process_min_words;
                 let do_ai = if settings_snapshot.process_enabled {
                     if min_words == 0 {
@@ -591,7 +591,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                             cancel_for_ai,
                         )),
                         Err(e) => {
-                            eprintln!("[process] failed to create runtime: {} — using raw text", e);
+                            eprintln!("[process] failed to create runtime: {} - using raw text", e);
                             Err(format!("runtime error: {}", e))
                         }
                     };
@@ -618,7 +618,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 // Deterministic words correction as a final guarantee,
                 // whether or not the AI processing ran.
                 if cancelled() {
-                    eprintln!("[cancel] pipeline cancelled before words/paste — discarding");
+                    eprintln!("[cancel] pipeline cancelled before words/paste - discarding");
                     return;
                 }
                 if words_enabled {
@@ -678,7 +678,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 } else {
                     0
                 };
-                // Skip zero-word entries — they just pollute history (user request).
+                // Skip zero-word entries - they just pollute history (user request).
                 let raw_words = text.split_whitespace().count();
                 let final_words = final_text.split_whitespace().count();
                 if raw_words == 0 && final_words == 0 {
@@ -697,14 +697,11 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                     ) {
                         eprintln!("Failed to log history: {}", e);
                     } else {
-                        crate::settings::add_lifetime_stats(raw_words as i64);
                         let words = raw_words as f64;
                         let typing_sec = words / 1.0; // ~60 WPM
                         let speak_sec = duration_ms as f64 / 1000.0;
                         let saved = (typing_sec - speak_sec).max(0.0) as i64;
-                        if saved > 0 {
-                            crate::settings::add_time_saved(saved);
-                        }
+                        crate::settings::add_dictation_stats(raw_words as i64, saved);
                         if WORDS_ENABLED.load(Ordering::Relaxed)
                             && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
                             && text != final_text
@@ -725,6 +722,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                                 eprintln!("Failed to trim history: {}", e);
                             }
                         }
+                        crate::emit_history_changed();
                     }
                 }
             }
@@ -737,7 +735,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
     } else {
         eprintln!("No speech detected (VAD trimmed all audio)");
         crate::show_overlay_error(Some(
-            "No speech detected — try speaking closer to the mic.".into(),
+            "No speech detected - try speaking closer to the mic.".into(),
         ));
         play_error_sound();
     }

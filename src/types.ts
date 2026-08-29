@@ -153,7 +153,7 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
-  // ── Indian languages — IndicConformer 120M per-language ONNX (sherpa-onnx) ──
+  // ── Indian languages - IndicConformer 120M per-language ONNX (sherpa-onnx) ──
   // 120M params, ~188 MB int8, sherpa-ready (metadata baked in), validated end-to-end. Source: parismitaglobalsolutions/indicconformer-sherpa-onnx
   "indicconformer-120m-hi": {
     name: "IndicConformer Hindi 120M",
@@ -272,7 +272,7 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
-  // Efficient 8-lang multi (188 MB total for 8 Indian langs — best for low disk)
+  // Efficient 8-lang multi (188 MB total for 8 Indian langs - best for low disk)
   "indicconformer-8lang": {
     name: "IndicConformer 8-Lang Multi (188 MB for 8 languages)",
     size: "~188 MB",
@@ -286,7 +286,7 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
-  // AI4Bharat 600M Multi — all 22 scheduled Indian languages in one bundle (Vernacular repackaging)
+  // AI4Bharat 600M Multi - all 22 scheduled Indian languages in one bundle (Vernacular repackaging)
   "indicconformer-600m-multi": {
     name: "IndicConformer 600M Multi (22 Indian languages)",
     size: "~2.45 GB",
@@ -305,7 +305,7 @@ export const modelCatalog: Record<string, ModelInfo> = {
     runtime: "onnx",
     recommended: true,
   },
-  // Local Whisper large-v3 multilingual int8 — English + 99 languages, offline
+  // Local Whisper large-v3 multilingual int8 - English + 99 languages, offline
   "whisper-large-v3-int8": {
     name: "Whisper Large V3 Multilingual (local, int8)",
     size: "~1.69 GB",
@@ -331,7 +331,7 @@ export const modelCatalog: Record<string, ModelInfo> = {
     runtime: "onnx",
     recommended: true,
   },
-  // Moonshine base (English) — merged decoder + tokenizer bundle, transcribe-rs native layout
+  // Moonshine base (English) - merged decoder + tokenizer bundle, transcribe-rs native layout
   "moonshine-base": {
     name: "Moonshine Base (English)",
     size: "~56 MB",

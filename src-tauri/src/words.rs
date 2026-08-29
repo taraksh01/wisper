@@ -71,7 +71,7 @@ static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::L
     let db_path = WordsManager::db_path();
     let conn = Connection::open(&db_path).unwrap_or_else(|e| {
         eprintln!(
-            "[words] failed to open {}: {e} — using in-memory DB",
+            "[words] failed to open {}: {e} - using in-memory DB",
             db_path.display()
         );
         Connection::open_in_memory().unwrap_or_else(|e2| {
@@ -337,7 +337,7 @@ pub fn apply_words(text: &str) -> String {
 }
 
 /// Builds the dictionary hint containing ONLY entries whose spoken forms
-/// actually appear in this transcript — keeps input tokens near-zero no matter
+/// actually appear in this transcript - keeps input tokens near-zero no matter
 /// how large the dictionary is. (The deterministic `apply_words` post-pass
 /// still enforces every entry after the AI, so nothing is lost by filtering.)
 pub fn words_prompt_hint(text: &str) -> String {
@@ -391,7 +391,7 @@ pub fn words_prompt_hint(text: &str) -> String {
         return String::new();
     }
     format!(
-        "\n\nCRITICAL — User dictionary — you MUST replace any spoken form below (including misspellings, spaced or cased variants) with the exact canonical form shown. Never output the variants:\n{}",
+        "\n\nCRITICAL - User dictionary - you MUST replace any spoken form below (including misspellings, spaced or cased variants) with the exact canonical form shown. Never output the variants:\n{}",
         lines.join("\n")
     )
 }
@@ -530,7 +530,7 @@ fn suggest_words_inner() -> Result<Vec<WordSuggestion>, String> {
                 continue;
             }
             if !raw_set.contains(&low) {
-                // Word appears in formatted but not in raw — likely a correction; find closest raw word as variant
+                // Word appears in formatted but not in raw - likely a correction; find closest raw word as variant
                 // For now use the lowercased raw word that is most similar (simple: first raw word not in fmt)
                 let mut variant = String::new();
                 for rw in &raw_words {
@@ -598,7 +598,7 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
         raw_words.iter().map(|s| s.to_lowercase()).collect();
     let fmt_set: std::collections::HashSet<String> =
         fmt_words.iter().map(|s| s.to_lowercase()).collect();
-    // Load history once — not per-word (was N+1); respect user's retention limit
+    // Load history once - not per-word (was N+1); respect user's retention limit
     let user_limit = crate::settings::AppSettings::load().max_history_entries;
     let limit = if user_limit > 0 {
         (user_limit as i64).clamp(50, 2000)

@@ -69,30 +69,23 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
           {currentModelName && settings && (
             <div className="mt-4 px-1">
               {settings.engine_mode === "local" ? (
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={onOpenEngineTab}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onOpenEngineTab();
-                    }
-                  }}
-                  className="group cursor-pointer flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 transition-colors"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 animate-pulse" />
-                  <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
-                    {currentModelName}
-                  </span>
-                  <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
+                <div className="group flex items-center gap-1 px-1 py-1 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 transition-colors">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onUnloadModel();
-                    }}
-                    className="shrink-0 w-5 h-5 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 opacity-0 group-hover:opacity-100 transition-all transition-transform duration-150 active:scale-[0.98]"
+                    onClick={onOpenEngineTab}
+                    className="flex items-center gap-2 flex-1 min-w-0 px-1.5 py-1 text-left transition-colors"
+                    aria-label={`Open engine, current model ${currentModelName}`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 animate-pulse" />
+                    <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
+                      {currentModelName}
+                    </span>
+                    <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
+                  </button>
+                  <button
+                    onClick={onUnloadModel}
+                    className="shrink-0 w-5 h-5 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-all transition-transform duration-150 active:scale-[0.98]"
                     title="Unload model"
+                    aria-label="Unload model"
                   >
                     <IconCloseSmall className="w-3 h-3" />
                   </button>
@@ -150,7 +143,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
           </div>
         )}
         <div className="flex items-center justify-between text-[10px] font-mono text-muted/50 tracking-wider">
-          <span>{APP_NAME} · {version || "—"}</span>
+          <span>{APP_NAME} · {version || "-"}</span>
           <span className={`w-1.5 h-1.5 rounded-full ${appState === "recording" ? "bg-recording" : appState === "processing" ? "bg-accent" : "bg-ready/60"}`} />
         </div>
       </div>

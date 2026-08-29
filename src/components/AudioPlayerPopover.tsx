@@ -122,17 +122,25 @@ export function AudioPlayerPopover({
       >
         <canvas
           ref={canvasRef}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
+            (e.target as Element).setPointerCapture(e.pointerId);
             seekFromCanvas(e.clientX);
-            const move = (ev: MouseEvent) => seekFromCanvas(ev.clientX);
-            const up = () => {
-              document.removeEventListener("mousemove", move);
-              document.removeEventListener("mouseup", up);
+            const move = (ev: PointerEvent) => seekFromCanvas(ev.clientX);
+            const up = (ev: PointerEvent) => {
+              document.removeEventListener("pointermove", move);
+              document.removeEventListener("pointerup", up);
+              try { (ev.target as Element).releasePointerCapture((ev as PointerEvent).pointerId); } catch {}
             };
-            document.addEventListener("mousemove", move);
-            document.addEventListener("mouseup", up);
+            document.addEventListener("pointermove", move);
+            document.addEventListener("pointerup", up);
           }}
-          className="w-full h-12 cursor-pointer"
+          onMouseDown={(e) => {
+            // Fallback for browsers without pointer events - keep click working
+            if ((e as unknown as PointerEvent).pointerId === undefined) {
+              seekFromCanvas(e.clientX);
+            }
+          }}
+          className="w-full h-12 cursor-pointer touch-none"
         />
 
         <div className="flex items-center gap-2.5 mt-3">

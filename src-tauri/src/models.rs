@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
-// Per-model cancel flags — allows concurrent downloads without canceling others.
+// Per-model cancel flags - allows concurrent downloads without canceling others.
 static ACTIVE_CANCEL: once_cell::sync::Lazy<
     Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>,
 > = once_cell::sync::Lazy::new(|| Mutex::new(std::collections::HashMap::new()));
@@ -19,7 +19,7 @@ fn models_client() -> &'static reqwest::Client {
             .read_timeout(std::time::Duration::from_secs(60))
             .build()
             .unwrap_or_else(|e| {
-                eprintln!("[models] failed to build client: {} — using default", e);
+                eprintln!("[models] failed to build client: {} - using default", e);
                 reqwest::Client::new()
             })
     })
@@ -158,24 +158,38 @@ fn multi_file_download(model_name: &str) -> Option<Vec<(String, String, u64)>> {
     }
 }
 
-struct ClearGuard(String);
+struct ClearGuard {
+    key: String,
+    active: bool,
+}
 impl Drop for ClearGuard {
     fn drop(&mut self) {
-        ACTIVE_CANCEL
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&self.0);
+        if self.active {
+            ACTIVE_CANCEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.key);
+        }
     }
 }
 
 #[tauri::command]
 pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result<String, String> {
-    let cancel = Arc::new(AtomicBool::new(false));
-    ACTIVE_CANCEL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(model_name.clone(), cancel.clone());
-    let _clear_guard = ClearGuard(model_name.clone());
+    let cancel = {
+        let mut map = ACTIVE_CANCEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if map.contains_key(&model_name) {
+            return Err(format!("Already downloading {}", model_name));
+        }
+        let flag = Arc::new(AtomicBool::new(false));
+        map.insert(model_name.clone(), flag.clone());
+        flag
+    };
+    let mut _clear_guard = ClearGuard {
+        key: model_name.clone(),
+        active: true,
+    };
 
     let url = download_url(&model_name).ok_or_else(|| format!("Unknown model: {}.", model_name))?;
 
@@ -189,6 +203,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&model_name);
+            _clear_guard.active = false;
             return Ok(target_dir.to_string_lossy().to_string());
         }
         let _ = fs::remove_dir_all(&target_dir);
@@ -208,6 +223,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .remove(&model_name);
+                _clear_guard.active = false;
                 let _ = app_handle.emit(
                     "download-canceled",
                     serde_json::json!({ "model": &model_name }),
@@ -256,6 +272,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .remove(&model_name);
+                    _clear_guard.active = false;
                     let _ = app_handle.emit(
                         "download-canceled",
                         serde_json::json!({ "model": &model_name }),
@@ -292,6 +309,11 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
             f.sync_all().ok();
         }
+        _clear_guard.active = false;
+        ACTIVE_CANCEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&model_name);
         return Ok(target_dir.to_string_lossy().to_string());
     }
 
@@ -344,6 +366,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&model_name);
+            _clear_guard.active = false;
             let _ = app_handle.emit(
                 "download-canceled",
                 serde_json::json!({ "model": &model_name }),
@@ -394,7 +417,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
 
     // Handle single ONNX file vs tar.gz archive
     if ext == "onnx" {
-        // Single file model (e.g., IndicConformer, Moonshine) — just move into target_dir
+        // Single file model (e.g., IndicConformer, Moonshine) - just move into target_dir
         let _ = fs::create_dir_all(&target_dir);
         let dest = target_dir.join("model.onnx");
         fs::copy(&temp_archive, &dest).map_err(|e| format!("Failed to save model: {}", e))?;
@@ -413,6 +436,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         // Extract archive with path traversal validation
         let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
         let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+        let mut validated_paths: Vec<PathBuf> = Vec::new();
         for entry in archive
             .entries()
             .map_err(|e| format!("Failed to read archive: {}", e))?
@@ -420,6 +444,22 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
             if matches!(entry.link_name(), Ok(Some(_))) {
                 return Err("Archive contains symlink".into());
+            }
+            let et = entry.header().entry_type();
+            if et == tar::EntryType::Block
+                || et == tar::EntryType::Char
+                || et == tar::EntryType::Fifo
+            {
+                return Err(format!("Archive contains special file: {:?}", et));
+            }
+            if !(et.is_file() || et.is_dir()) {
+                if et != tar::EntryType::GNULongName
+                    && et != tar::EntryType::GNULongLink
+                    && et != tar::EntryType::XHeader
+                    && et != tar::EntryType::XGlobalHeader
+                {
+                    return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                }
             }
             let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
             if path.is_absolute()
@@ -433,6 +473,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             if !dest.starts_with(&models_dir) {
                 return Err("Archive path escapes models dir".into());
             }
+            validated_paths.push(dest);
         }
         // Re-open and unpack after validation (entries consumed above)
         let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
@@ -440,6 +481,19 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         archive
             .unpack(&models_dir)
             .map_err(|e| format!("Failed to extract model: {}", e))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for dest in validated_paths {
+                if dest.exists() {
+                    if dest.is_dir() {
+                        let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
+                    } else if dest.is_file() {
+                        let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600));
+                    }
+                }
+            }
+        }
         if !models_dir
             .canonicalize()
             .unwrap_or_else(|_| models_dir.clone())
@@ -450,6 +504,11 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         let _ = fs::remove_file(&temp_archive);
     }
 
+    _clear_guard.active = false;
+    ACTIVE_CANCEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&model_name);
     Ok(target_dir.to_string_lossy().to_string())
 }
 

@@ -238,6 +238,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                           value={s.phrase}
                           onChange={(e) => updateSuggestion(i, { phrase: e.target.value })}
                           placeholder="Correct spelling"
+                          aria-label="Correct spelling"
                           title="Correct spelling to use"
                         />
                       </div>
@@ -252,6 +253,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                             })
                           }
                           placeholder="misheard, forms"
+                          aria-label="Misheard variants"
                           title="Comma-separated misheard forms"
                           className="text-[10px] text-muted placeholder:text-muted/40"
                         />
@@ -281,7 +283,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
             <div>
               <h2 className="label-soft">Dictionary</h2>
               <p className="text-[11px] text-muted leading-relaxed mt-1">
-                Teach Wisper the right spelling — e.g. <span className="text-ink font-mono">whisper</span> →{" "}
+                Teach Wisper the right spelling - e.g. <span className="text-ink font-mono">whisper</span> →{" "}
                 <span className="text-ink font-mono">Wisper</span>.
               </p>
             </div>
@@ -292,6 +294,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                 onChange={(e) => setPhrase(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addEntry()}
                 placeholder="The correct spelling (e.g. Wisper)"
+                aria-label="Correct spelling"
                 className="w-full"
               />
               <Input
@@ -299,6 +302,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                 onChange={(e) => setVariants(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addEntry()}
                 placeholder="Ways it might be misheard, separated by commas (e.g. whisper, wispr)"
+                aria-label="Misheard variants"
                 className="w-full"
               />
               <div className="flex items-center gap-2">
@@ -417,6 +421,12 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ added: number; skipped: number } | null>(null);
 
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [onClose]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim()) return;
@@ -435,8 +445,8 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
   const count = text.trim().split(/\r?\n/).filter(Boolean).length;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-base/60 backdrop-blur-sm p-4">
-      <div className="bg-surface border border-stroke rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4 animate-slide-up">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-base/60 backdrop-blur-sm p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label="Import words">
+      <div className="bg-surface border border-stroke rounded-xl p-5 w-full max-w-md shadow-2xl space-y-4 animate-slide-up" onClick={(e) => e.stopPropagation()} role="document">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold font-mono text-ink">Import Words</h3>
           <button onClick={onClose} className="text-muted hover:text-ink text-[18px] leading-none">×</button>

@@ -45,9 +45,9 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
   ];
 
   const ENDPOINT_OPTIONS = [
-    { value: "/chat/completions", label: "/chat/completions — OpenAI chat" },
-    { value: "/responses", label: "/responses — OpenAI Responses" },
-    { value: "/messages", label: "/messages — Anthropic" },
+    { value: "/chat/completions", label: "/chat/completions - OpenAI chat" },
+    { value: "/responses", label: "/responses - OpenAI Responses" },
+    { value: "/messages", label: "/messages - Anthropic" },
   ];
 
   function handleProviderChange(name: string) {
@@ -310,7 +310,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
               <p className="text-[10px] font-mono leading-relaxed mt-1.5">
                 <span className="text-muted/50">0 or empty = model default (recommended).</span>
                 {settings.process_max_tokens > 0 && settings.process_max_tokens < 512 && (
-                  <span className="text-amber-400 ml-1">Low limits may fail with reasoning models — use ≥512 or leave empty.</span>
+                  <span className="text-amber-400 ml-1">Low limits may fail with reasoning models - use ≥512 or leave empty.</span>
                 )}
               </p>
             </div>
@@ -344,7 +344,7 @@ export function ProcessTab({ settings, profiles, onSave, onSaveAll, onReset }: P
                 placeholder="Always (0)"
                 onClear={settings.process_min_words !== 6 ? () => onSave("process_min_words", 6) : undefined}
               />
-              <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-1.5">Skip AI and paste raw text when the transcription has fewer than this many words — faster for short phrases like &quot;ok&quot; or &quot;yes please&quot; (empty = always run AI, 1–20, default 6).</p>
+              <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-1.5">Skip AI and paste raw text when the transcription has fewer than this many words - faster for short phrases like &quot;ok&quot; or &quot;yes please&quot; (empty = always run AI, 1–20, default 6).</p>
             </div>
 
             <div className="pt-1">

@@ -117,10 +117,10 @@ export function HistoryItem({
           type="checkbox"
           checked={selected}
           onChange={() => onToggleSelect(entry.id)}
-          className={`w-3.5 h-3.5 shrink-0 appearance-none cursor-pointer rounded-[5px] border transition-all duration-150 ${
+          className={`w-3.5 h-3.5 shrink-0 appearance-none cursor-pointer rounded-[5px] border transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-accent/30 ${
             selected
               ? "opacity-100 border-accent bg-accent"
-              : "border-stroke bg-surface shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] hover:border-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              : "border-stroke bg-surface shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] hover:border-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus:opacity-100 focus-visible:opacity-100"
           }`}
           style={
             selected

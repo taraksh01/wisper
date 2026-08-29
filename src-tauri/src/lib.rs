@@ -35,8 +35,21 @@ where
     F: FnOnce() -> R,
 {
     use std::os::unix::io::AsRawFd;
+    struct RestoreFd(i32);
+    impl Drop for RestoreFd {
+        fn drop(&mut self) {
+            if self.0 != -1 {
+                unsafe {
+                    libc::dup2(self.0, libc::STDERR_FILENO);
+                    libc::close(self.0);
+                }
+            }
+        }
+    }
     let _g = SILENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
+    // RAII guard restores even if f() panics
+    let _restore = RestoreFd(saved);
     let null = std::fs::OpenOptions::new()
         .write(true)
         .open("/dev/null")
@@ -48,14 +61,7 @@ where
             }
         }
     }
-    let result = f();
-    if saved != -1 {
-        unsafe {
-            libc::dup2(saved, libc::STDERR_FILENO);
-            libc::close(saved);
-        }
-    }
-    result
+    f()
 }
 
 use tauri::{Emitter, Manager, WindowEvent};
@@ -67,9 +73,30 @@ type HotkeySender = Arc<Mutex<mpsc::Sender<hotkey::HotkeyEvent>>>;
 static HOTKEY_SENDER: once_cell::sync::Lazy<Mutex<Option<HotkeySender>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
 
-/// Handle for overlay-window operations (owned by lib, not tray).
-static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
+pub(crate) static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
+
+pub(crate) fn emit_settings_changed(settings: &crate::settings::AppSettings) {
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    {
+        let _ = handle.emit("wisper:settings-changed", settings);
+    }
+}
+
+pub(crate) fn emit_history_changed() {
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    {
+        let _ = handle.emit("wisper:history-changed", ());
+    }
+}
 
 static RECORDER: once_cell::sync::Lazy<std::sync::Mutex<Option<AudioRecorder>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
@@ -258,7 +285,7 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
             } else if ep == (0, 0) && tp != (0, 0) {
                 Some(tp)
             } else {
-                // Both non-zero and disagree — Enigo is more reliable on X11/Wayland.
+                // Both non-zero and disagree - Enigo is more reliable on X11/Wayland.
                 #[cfg(target_os = "linux")]
                 { Some(ep) }
                 #[cfg(not(target_os = "linux"))]
@@ -394,13 +421,31 @@ fn overlay_pos_for(
 
 /// Positions the overlay. `set_position` is called AFTER `show` because on
 /// X11/Wayland a position set on a not-yet-mapped window is ignored by the WM
-/// and overridden to the default (centered) at map time — the root cause of the
+/// and overridden to the default (centered) at map time - the root cause of the
 /// position drift. Uses the window's real size. Must be called on the main thread.
 fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_cache: bool) {
-    let size = win
-        .inner_size()
-        .unwrap_or(tauri::PhysicalSize::new(OVERLAY_WIDTH as u32, OVERLAY_HEIGHT as u32));
-    let (win_w, win_h) = (size.width as f64, size.height as f64);
+    // Use the window's own scale factor for correct physical→logical conversion;
+    // fall back to cursor monitor's scale only if the window query fails (e.g. not yet mapped).
+    let scale = win.scale_factor().unwrap_or_else(|_| {
+        monitor_with_cursor(app)
+            .or_else(|| app.primary_monitor().ok().flatten())
+            .as_ref()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0)
+    });
+    let (win_w, win_h) = match win.inner_size() {
+        Ok(phys) => {
+            let logical = phys.to_logical::<f64>(scale);
+            let w = logical.width;
+            let h = logical.height;
+            if w <= 0.0 || h <= 0.0 {
+                (OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            } else {
+                (w, h)
+            }
+        }
+        Err(_) => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
+    };
     if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h) {
         let _ = win.set_position(tauri::LogicalPosition::new(x, y));
     }
@@ -410,7 +455,7 @@ fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_c
 /// Window ops must run on the main thread in Tauri v2, so the whole body is
 /// dispatched there. Running off-thread (e.g. from the state-listener thread)
 /// silently no-ops set_position/show/destroy and the window falls back to
-/// Tauri's default centered placement — the recurring position-drift bug.
+/// Tauri's default centered placement - the recurring position-drift bug.
 fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     let app_clone = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -431,9 +476,9 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
         }
         match state {
             CoordinatorState::Idle => {
-                // Don't destroy while the error glyph is flashing — the error
+                // Don't destroy while the error glyph is flashing - the error
                 // thread owns that window and destroys it after ~1.5s.
-                if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+                if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
                     return;
                 }
                 if crate::coordinator::active_job_count() > 0 {
@@ -514,7 +559,7 @@ pub fn show_overlay_error(reason: Option<String>) {
     if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
-    OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+    OVERLAY_ERROR_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
     *OVERLAY_ERROR_REASON
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = reason;
@@ -528,7 +573,7 @@ pub fn show_overlay_error(reason: Option<String>) {
         std::thread::sleep(std::time::Duration::from_millis(1500));
         let h = handle_clone.clone();
         let _ = handle_clone.run_on_main_thread(move || {
-            OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
+            OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
             *OVERLAY_ERROR_REASON
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = None;
