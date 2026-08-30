@@ -74,7 +74,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
     let alive = true;
     invoke<PasteEnvironment>("get_paste_environment", { preference: value })
       .then((e) => alive && setEnv(e))
-      .catch(() => {});
+      .catch((e) => console.error("get_paste_environment failed:", e));
     return () => {
       alive = false;
     };
@@ -237,41 +237,50 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: number; onChange: (v: number) => void; inputDevice: string }) {
+function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { threshold: number; onChange: (v: number) => void; inputDevice: string; disabled?: boolean }) {
   const [level, setLevel] = useState(0);
-  const [levelHistory, setLevelHistory] = useState<number[]>([]);
-  const maxHistory = 30;
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const historyRef = useRef<number[]>([]);
+  const deviceRef = useRef<string>(inputDevice);
+  const wasActiveRef = useRef(false);
 
-  // Single source of truth: keep the mic preview alive while this control is
-  // mounted AND it reflects the currently-selected device. Pass the selected
-  // device explicitly so the meter updates immediately without waiting for the
-  // async settings save to propagate to the INPUT_DEVICE global. Also re-arm
-  // after recording (hotkey) which tears down the preview stream.
+  useEffect(() => {
+    deviceRef.current = inputDevice;
+  }, [inputDevice]);
+
   useEffect(() => {
     let alive = true;
     let raf = 0;
-    const deviceArg = inputDevice || null;
-    // Reset stale levels when switching devices so new mic isn't judged by old data
+    // Reset history on device switch so new mic isn't judged by old data
+    historyRef.current = [];
     setLevel(0);
-    setLevelHistory([]);
+    setPreviewError(null);
 
     const start = () => {
       if (!alive) return;
-      invoke("start_mic_preview", { device: deviceArg }).catch((e) => {
+      const d = deviceRef.current || null;
+      wasActiveRef.current = true;
+      invoke("start_mic_preview", { device: d }).catch((e) => {
         console.error("start_mic_preview failed:", e);
+        if (alive) setPreviewError(String(e));
       });
     };
 
     const loop = async () => {
       if (!alive) return;
+      // Pause polling when tab hidden to save CPU / avoid rAF churn
+      if (document.visibilityState !== "visible" || document.hidden) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       try {
         const l = await invoke<number>("get_input_level");
         if (alive) {
+          const h = historyRef.current;
+          h.push(l);
+          if (h.length > 30) h.shift();
           setLevel(l);
-          setLevelHistory(prev => {
-            const next = [...prev, l];
-            return next.length > maxHistory ? next.slice(-maxHistory) : next;
-          });
+          if (previewError) setPreviewError(null);
         }
       } catch (e) {
         console.error("get_input_level failed:", e);
@@ -283,14 +292,18 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
     loop();
 
     // Preview is torn down during hotkey recording (start_recording clears
-    // preview_stream). Re-arm when coordinator returns to idle.
+    // preview_stream). Re-arm only if we were the active preview and we're
+    // returning to idle (avoid spurious restarts when another tab is idle).
     let unlistenState: (() => void) | null = null;
     listen<string>("wisper:state", (e) => {
       if (!alive) return;
-      if (e.payload === "idle") {
+      if (e.payload === "idle" && wasActiveRef.current) {
         setTimeout(() => {
           if (alive) start();
         }, 120);
+      }
+      if (e.payload === "recording") {
+        // Recording will clear preview; keep wasActive so idle re-arms it
       }
     })
       .then((fn) => {
@@ -301,41 +314,47 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
 
     return () => {
       alive = false;
+      wasActiveRef.current = false;
       cancelAnimationFrame(raf);
       if (unlistenState) unlistenState();
       invoke("stop_mic_preview").catch(() => {});
     };
   }, [inputDevice]);
 
-  // Compute level stats
+  // Compute level stats from ref history (no extra allocations)
   const bars = 20;
-  const peak = levelHistory.length > 0 ? Math.max(...levelHistory) : level;
-  const avg = levelHistory.length > 0
-    ? levelHistory.reduce((a, b) => a + b, 0) / levelHistory.length
-    : level;
-  const filled = Math.max(0, Math.min(bars, Math.round((avg / 0.3) * bars)));
+  const hist = historyRef.current;
+  const peak = hist.length > 0 ? Math.max(...hist) : level;
+  const avg = hist.length > 0 ? hist.reduce((a, b) => a + b, 0) / hist.length : level;
+  // Use live level for bar fill so meter feels instant; keep avg for quality/threshold
+  const filled = Math.max(0, Math.min(bars, Math.round((level / 0.3) * bars)));
   const filledIdx = Math.max(0, Math.min(bars - 1, Math.round(threshold * bars)));
-  const levelPercent = Math.round(avg * 100);
+  const levelPercent = Math.round(level * 100);
   const peakPercent = Math.round(peak * 100);
   const threshPercent = Math.round(threshold * 100);
 
-  const isAboveThreshold = avg > threshold;
+  const isAboveThreshold = level > threshold;
   const isTooLoud = peak > 0.85;
   const isClipping = peak > 0.95;
-  const isTooQuiet = levelHistory.length > 8 && avg < 0.02 && peak < 0.05;
+  const isTooQuiet = hist.length > 8 && avg < 0.02 && peak < 0.05;
   const hasSignal = peak > 0.05;
 
   let liveColor: "idle" | "quiet" | "good" | "loud" | "clipping" = "idle";
   if (isClipping) liveColor = "clipping";
   else if (isTooLoud) liveColor = "loud";
-  else if (hasSignal && isTooQuiet) liveColor = "quiet";
+  else if (isTooQuiet) liveColor = "quiet";
   else if (hasSignal) liveColor = "good";
 
   let qualityLabel: string;
   let qualityColor: string;
   let qualityBg: string;
   let recommendation: string;
-  if (isClipping) {
+  if (previewError) {
+    qualityLabel = "Mic error";
+    qualityColor = "text-recording";
+    qualityBg = "bg-recording/10";
+    recommendation = previewError;
+  } else if (isClipping) {
     qualityLabel = "Clipping";
     qualityColor = "text-recording";
     qualityBg = "bg-recording/10";
@@ -345,7 +364,7 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
     qualityColor = "text-recording";
     qualityBg = "bg-recording/10";
     recommendation = "Lower mic gain or speak softer";
-  } else if (isTooQuiet && levelHistory.length > 8) {
+  } else if (isTooQuiet) {
     qualityLabel = "Too quiet";
     qualityColor = "text-muted";
     qualityBg = "bg-elevated";
@@ -355,7 +374,7 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
     qualityColor = "text-ready";
     qualityBg = "bg-ready/10";
     recommendation = "This microphone is working well";
-  } else if (avg < 0.01 && peak < 0.02 && levelHistory.length > 0) {
+  } else if (avg < 0.01 && peak < 0.02 && hist.length > 0) {
     qualityLabel = "Listening…";
     qualityColor = "text-muted";
     qualityBg = "bg-elevated";
@@ -371,6 +390,9 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
     <div className="mt-3 space-y-3">
       {/* Live status banner - always on now that the mic is always live */}
       <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
         className={`rounded-lg ring-1 ring-stroke px-3 py-2.5 flex items-center justify-between gap-2 transition-colors duration-200 ${qualityBg}`}
       >
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -394,8 +416,16 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
       </div>
 
       {/* Level meter with bar visualization */}
-      <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5 space-y-2">
-        <div className="flex items-end gap-0.5 h-10">
+      <div
+        className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5 space-y-2"
+        role="meter"
+        aria-label="Microphone input level"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={levelPercent}
+        aria-valuetext={`${qualityLabel} at ${levelPercent}%`}
+      >
+        <div className="flex items-end gap-0.5 h-10" aria-hidden="true">
           {[...Array(bars)].map((_, i) => {
             const isLit = i < filled;
             const isThreshBar = i === filledIdx;
@@ -441,7 +471,7 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
       </div>
 
       {/* Noise cutoff slider */}
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${disabled ? "opacity-50" : ""}`}>
         <label className="label-soft whitespace-nowrap">Noise cutoff</label>
         <input
           type="range"
@@ -452,9 +482,14 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
           onChange={(e) => onChange(Number(e.target.value))}
           className="flex-1 accent-accent"
           aria-label="VAD threshold"
+          disabled={disabled}
+          title={disabled ? "Enable Trim silence to adjust cutoff" : undefined}
         />
         <span className="text-xs font-mono text-muted w-10 text-right">{threshPercent}%</span>
       </div>
+      {disabled && (
+        <p className="text-[10px] font-mono text-muted/50 leading-relaxed">Enable Trim silence to make cutoff active.</p>
+      )}
     </div>
   );
 }
@@ -474,7 +509,9 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
 
   const fetchDevices = useCallback((force = false) => {
     if (!force && document.visibilityState !== "visible") return;
-    invoke<[string, string][]>("list_audio_devices").then(setInputDevices).catch(() => {});
+    invoke<[string, string][]>("list_audio_devices")
+      .then(setInputDevices)
+      .catch((e) => console.error("list_audio_devices failed:", e));
   }, []);
 
   useEffect(() => {
@@ -806,13 +843,14 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
               onChange={(v) => onSave("input_device", v)}
             />
           </div>
+          {/* Live mic meter always visible so user can pick a working mic even with VAD off */}
+          <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} inputDevice={settings.input_device} disabled={!settings.vad_enabled} />
           <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
             <span className="text-xs text-muted">Trim silence</span>
             <Switch label="Trim silence" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
           </div>
-          {settings.vad_enabled && <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} inputDevice={settings.input_device} />}
           <p className="text-[10px] font-mono text-muted/50 leading-relaxed">
-            Defaults suit most setups. If you hear background noise or speech is clipped, adjust the sliders above and use Test microphone level.
+            Defaults suit most setups. If you hear background noise or speech is clipped, adjust the sliders above.
           </p>
         </div>
       </SectionCard>
