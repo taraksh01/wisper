@@ -210,7 +210,8 @@ impl AudioRecorder {
     }
 
     pub fn start_recording(&self, device: Option<String>) -> Result<(), String> {
-        // Stop preview if active - don't hold two streams
+        // Stop preview if active - don't hold two streams; keep last level
+        // briefly to avoid flicker until recording callback produces new RMS.
         *self
             .preview_stream
             .lock()
@@ -219,7 +220,6 @@ impl AudioRecorder {
             .preview_device
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
-        self.level.store(0, Ordering::Relaxed);
         let device = resolve_device(device.as_deref())?;
 
         let config = device
@@ -304,7 +304,16 @@ impl AudioRecorder {
         {
             return Ok(());
         }
-        // If preview already running with same device, keep it (idempotent)
+        // Resolve first so we can compare by the actual device identity (cpal may
+        // alias the same mic under hw/plughw/dsnoop). This avoids the stale-raw-id
+        // bug where switching from "hw:CARD=..." to "plughw:CARD=..." for the same
+        // mic would unnecessarily tear down and recreate.
+        let resolved = resolve_device(device.as_deref())?;
+        let resolved_id = resolved
+            .id()
+            .ok()
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| resolved.to_string());
         {
             let cur_dev = self
                 .preview_device
@@ -316,10 +325,9 @@ impl AudioRecorder {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .is_some();
-            if preview_active && cur_dev == device {
+            if preview_active && cur_dev.as_deref() == Some(resolved_id.as_str()) {
                 return Ok(());
             }
-            // Different device requested – tear down old stream so new device is used
             if preview_active {
                 *self
                     .preview_stream
@@ -331,8 +339,8 @@ impl AudioRecorder {
                     .unwrap_or_else(|e| e.into_inner()) = None;
             }
         }
-        let device_id_for_log = device.clone();
-        let device = resolve_device(device.as_deref())?;
+        let device_id_for_log = Some(resolved_id.clone());
+        let device = resolved;
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;
