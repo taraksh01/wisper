@@ -87,10 +87,10 @@ function AppShell() {
     fetchHistory();
     fetchAgentProfiles();
     invoke<string>("get_current_state").then((v) => alive && setAppState(v)).catch((e) => { console.error(e); });
-    invoke<string>("get_current_model").then((v) => alive && setCurrentModelName(v)).catch(() => {});
+    invoke<string>("get_current_model").then((v) => alive && setCurrentModelName(v)).catch((e) => console.error("get_current_model failed:", e));
     invoke<{ reliable: boolean; has_wtype: boolean; has_ydotool: boolean }>("get_paste_environment", { preference: "auto" })
       .then((v) => alive && setPasteEnv(v))
-      .catch(() => {});
+      .catch((e) => console.error("get_paste_environment failed:", e));
 
     const unlistenStatePromise = listen<string>("wisper:state", (event) => {
       if (alive) setAppState(event.payload);
@@ -130,7 +130,9 @@ function AppShell() {
       setHistory(h);
       setStats(s);
       setHistoryTotal(c);
-    } catch {}
+    } catch (e) {
+      console.error("fetchHistory failed:", e);
+    }
   }, []);
 
   const loadOlder = useCallback(async () => {
@@ -142,7 +144,9 @@ function AppShell() {
         offset: history.length,
       });
       setHistory((prev) => [...prev, ...older]);
-    } catch {}
+    } catch (e) {
+      console.error("loadOlder failed:", e);
+    }
     setLoadingOlder(false);
   }, [history.length, historyTotal, loadingOlder]);
 
@@ -186,11 +190,13 @@ function AppShell() {
     try {
       const a = await invoke<AgentProfile[]>("get_agent_profiles");
       setAgentProfiles(a);
-    } catch {}
+    } catch (e) {
+      console.error("fetchAgentProfiles failed:", e);
+    }
   }, []);
 
   const refreshCurrentModel = () => {
-    invoke<string>("get_current_model").then(setCurrentModelName).catch(() => {});
+    invoke<string>("get_current_model").then(setCurrentModelName).catch((e) => console.error("get_current_model failed:", e));
   };
 
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());

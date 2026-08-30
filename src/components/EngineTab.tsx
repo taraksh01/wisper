@@ -29,14 +29,11 @@ function sortKeys(keys: string[]) {
   });
 }
 
+type DownloadEntry = { progress: number; speed?: number; downloaded?: number; total?: number };
 export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   const toast = useToast();
   const [localModels, setLocalModels] = useState<string[]>([]);
-  const [downloading, setDownloading] = useState<Set<string>>(new Set());
-  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
-  const [downloadSpeed, setDownloadSpeed] = useState<Record<string, number>>({});
-  const [downloadedBytes, setDownloadedBytes] = useState<Record<string, number>>({});
-  const [totalBytes, setTotalBytes] = useState<Record<string, number>>({});
+  const [downloads, setDownloads] = useState<Record<string, DownloadEntry>>({});
   const [justDownloaded, setJustDownloaded] = useState<string | null>(null);
   const [modelLangFilter, setModelLangFilter] = useState("all");
   const [downloadedCollapsed, setDownloadedCollapsed] = useState(false);
@@ -58,11 +55,15 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
           try {
             const has = await invoke<boolean>("has_model_assets", { modelName: k });
             if (!has) missing.add(k);
-          } catch {}
+          } catch (e) {
+            console.error("has_model_assets failed for", k, e);
+          }
         })
       );
       setMissingAssets(missing);
-    } catch {}
+    } catch (e) {
+      console.error("list_local_models failed:", e);
+    }
   }, []);
 
   const { addToast } = toast;
@@ -71,34 +72,19 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
     fetchModels();
     const unlistenProgressPromise = listen<{ model: string; progress: number; speed_bps?: number; downloaded?: number; total?: number }>("download-progress", (event) => {
       const { model, progress, speed_bps, downloaded, total } = event.payload;
-      setDownloadProgress((prev) => ({ ...prev, [model]: progress }));
-      if (speed_bps !== undefined) setDownloadSpeed((prev) => ({ ...prev, [model]: speed_bps }));
-      if (downloaded !== undefined) setDownloadedBytes((prev) => ({ ...prev, [model]: downloaded }));
-      if (total !== undefined) setTotalBytes((prev) => ({ ...prev, [model]: total }));
+      setDownloads((prev) => ({
+        ...prev,
+        [model]: {
+          progress,
+          speed: speed_bps ?? prev[model]?.speed,
+          downloaded: downloaded ?? prev[model]?.downloaded,
+          total: total ?? prev[model]?.total,
+        },
+      }));
     });
     const unlistenCanceledPromise = listen<{ model: string }>("download-canceled", (event) => {
       const { model } = event.payload;
-      setDownloading((prev) => {
-        const next = new Set(prev);
-        next.delete(model);
-        return next;
-      });
-      setDownloadProgress((prev) => {
-        const next = { ...prev };
-        delete next[model];
-        return next;
-      });
-      setDownloadSpeed((prev) => {
-        const next = { ...prev };
-        delete next[model];
-        return next;
-      });
-      setDownloadedBytes((prev) => {
-        const next = { ...prev };
-        delete next[model];
-        return next;
-      });
-      setTotalBytes((prev) => {
+      setDownloads((prev) => {
         const next = { ...prev };
         delete next[model];
         return next;
@@ -112,7 +98,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   }, []);
 
   const downloadModel = async (name: string) => {
-    setDownloading((prev) => new Set(prev).add(name));
+    setDownloads((prev) => ({ ...prev, [name]: { progress: 0 } }));
     try {
       await invoke("download_model", { modelName: name });
       toast.addToast(`Downloaded ${name}`, "success");
@@ -126,27 +112,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
         toast.addToast(`Failed to download ${name}`, "error");
       }
     }
-    setDownloading((prev) => {
-      const next = new Set(prev);
-      next.delete(name);
-      return next;
-    });
-    setDownloadProgress((prev) => {
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-    setDownloadSpeed((prev) => {
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-    setDownloadedBytes((prev) => {
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-    setTotalBytes((prev) => {
+    setDownloads((prev) => {
       const next = { ...prev };
       delete next[name];
       return next;
@@ -330,11 +296,11 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     info={info}
                     isInstalled={false}
                     isActive={false}
-                    isDownloading={downloading.has(key)}
-                    progress={downloadProgress[key]}
-                    speedBps={downloadSpeed[key]}
-                    downloaded={downloadedBytes[key]}
-                    total={totalBytes[key]}
+                    isDownloading={key in downloads}
+                    progress={downloads[key]?.progress}
+                    speedBps={downloads[key]?.speed}
+                    downloaded={downloads[key]?.downloaded}
+                    total={downloads[key]?.total}
                     justDownloaded={justDownloaded === key}
                     onActivate={() => {}}
                     onDownload={(k) => downloadModel(k)}

@@ -186,6 +186,7 @@ pub struct AudioRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
     stream: Arc<Mutex<Option<Stream>>>,
     preview_stream: Arc<Mutex<Option<Stream>>>,
+    preview_device: Arc<Mutex<Option<String>>>,
     sample_rate: Arc<Mutex<u32>>,
     /// Latest input RMS amplitude (f32 bits), updated live in the audio callback.
     level: Arc<AtomicU32>,
@@ -197,6 +198,7 @@ impl AudioRecorder {
             buffer: Arc::new(Mutex::new(Vec::new())),
             stream: Arc::new(Mutex::new(None)),
             preview_stream: Arc::new(Mutex::new(None)),
+            preview_device: Arc::new(Mutex::new(None)),
             sample_rate: Arc::new(Mutex::new(16000)),
             level: Arc::new(AtomicU32::new(0)),
         }
@@ -208,9 +210,14 @@ impl AudioRecorder {
     }
 
     pub fn start_recording(&self, device: Option<String>) -> Result<(), String> {
-        // Stop preview if active - don't hold two streams
+        // Stop preview if active - don't hold two streams; keep last level
+        // briefly to avoid flicker until recording callback produces new RMS.
         *self
             .preview_stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .preview_device
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
         let device = resolve_device(device.as_deref())?;
@@ -288,14 +295,6 @@ impl AudioRecorder {
     /// Open the input stream to feed the live level meter without recording
     /// or transcribing. Used by the mic-test preview in settings.
     pub fn start_preview(&self, device: Option<String>) -> Result<(), String> {
-        if self
-            .preview_stream
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some()
-        {
-            return Ok(());
-        }
         // Don't start preview if already recording - use separate slot
         if self
             .stream
@@ -305,7 +304,43 @@ impl AudioRecorder {
         {
             return Ok(());
         }
-        let device = resolve_device(device.as_deref())?;
+        // Resolve first so we can compare by the actual device identity (cpal may
+        // alias the same mic under hw/plughw/dsnoop). This avoids the stale-raw-id
+        // bug where switching from "hw:CARD=..." to "plughw:CARD=..." for the same
+        // mic would unnecessarily tear down and recreate.
+        let resolved = resolve_device(device.as_deref())?;
+        let resolved_id = resolved
+            .id()
+            .ok()
+            .map(|i| i.to_string())
+            .unwrap_or_else(|| resolved.to_string());
+        {
+            let cur_dev = self
+                .preview_device
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let preview_active = self
+                .preview_stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some();
+            if preview_active && cur_dev.as_deref() == Some(resolved_id.as_str()) {
+                return Ok(());
+            }
+            if preview_active {
+                *self
+                    .preview_stream
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
+                *self
+                    .preview_device
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
+            }
+        }
+        let device_id_for_log = Some(resolved_id.clone());
+        let device = resolved;
         let config = device
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;
@@ -345,12 +380,20 @@ impl AudioRecorder {
             .preview_stream
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(stream);
+        *self
+            .preview_device
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = device_id_for_log;
         Ok(())
     }
 
     pub fn stop_preview(&self) {
         *self
             .preview_stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .preview_device
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
         self.level.store(0, Ordering::Relaxed);

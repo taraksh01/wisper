@@ -74,7 +74,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
     let alive = true;
     invoke<PasteEnvironment>("get_paste_environment", { preference: value })
       .then((e) => alive && setEnv(e))
-      .catch(() => {});
+      .catch((e) => console.error("get_paste_environment failed:", e));
     return () => {
       alive = false;
     };
@@ -237,53 +237,242 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: number; onChange: (v: number) => void; inputDevice: string }) {
+function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { threshold: number; onChange: (v: number) => void; inputDevice: string; disabled?: boolean }) {
   const [level, setLevel] = useState(0);
-  const [testing, setTesting] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const historyRef = useRef<number[]>([]);
+  const deviceRef = useRef<string>(inputDevice);
+  const wasActiveRef = useRef(false);
 
   useEffect(() => {
-    if (!testing) return;
+    deviceRef.current = inputDevice;
+  }, [inputDevice]);
+
+  useEffect(() => {
     let alive = true;
     let raf = 0;
-    invoke("start_mic_preview").catch(() => {});
-    async function loop() {
+    // Reset history on device switch so new mic isn't judged by old data
+    historyRef.current = [];
+    setLevel(0);
+    setPreviewError(null);
+
+    const start = () => {
+      if (!alive) return;
+      const d = deviceRef.current || null;
+      wasActiveRef.current = true;
+      invoke("start_mic_preview", { device: d }).catch((e) => {
+        console.error("start_mic_preview failed:", e);
+        if (alive) setPreviewError(String(e));
+      });
+    };
+
+    const loop = async () => {
+      if (!alive) return;
+      // Pause polling when tab hidden to save CPU / avoid rAF churn
+      if (document.visibilityState !== "visible" || document.hidden) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       try {
         const l = await invoke<number>("get_input_level");
-        if (alive) setLevel(l);
-      } catch {}
+        if (alive) {
+          const h = historyRef.current;
+          h.push(l);
+          if (h.length > 30) h.shift();
+          setLevel(l);
+          if (previewError) setPreviewError(null);
+        }
+      } catch (e) {
+        console.error("get_input_level failed:", e);
+      }
       if (alive) raf = requestAnimationFrame(loop);
-    }
+    };
+
+    start();
     loop();
+
+    // Preview is torn down during hotkey recording (start_recording clears
+    // preview_stream). Re-arm only if we were the active preview and we're
+    // returning to idle (avoid spurious restarts when another tab is idle).
+    let unlistenState: (() => void) | null = null;
+    listen<string>("wisper:state", (e) => {
+      if (!alive) return;
+      if (e.payload === "idle" && wasActiveRef.current) {
+        setTimeout(() => {
+          if (alive) start();
+        }, 120);
+      }
+      if (e.payload === "recording") {
+        // Recording will clear preview; keep wasActive so idle re-arms it
+      }
+    })
+      .then((fn) => {
+        if (alive) unlistenState = fn;
+        else fn();
+      })
+      .catch(() => {});
+
     return () => {
       alive = false;
+      wasActiveRef.current = false;
       cancelAnimationFrame(raf);
+      if (unlistenState) unlistenState();
       invoke("stop_mic_preview").catch(() => {});
     };
-  }, [testing, inputDevice]);
+  }, [inputDevice]);
 
-  useEffect(() => {
-    if (!testing) return;
-    invoke("stop_mic_preview").catch(() => {});
-    invoke("start_mic_preview").catch(() => {});
-  }, [inputDevice, testing]);
+  // Compute level stats from ref history (no extra allocations)
+  const bars = 20;
+  const hist = historyRef.current;
+  const peak = hist.length > 0 ? Math.max(...hist) : level;
+  const avg = hist.length > 0 ? hist.reduce((a, b) => a + b, 0) / hist.length : level;
+  // Use live level for bar fill so meter feels instant; keep avg for quality/threshold
+  const filled = Math.max(0, Math.min(bars, Math.round((level / 0.3) * bars)));
+  const filledIdx = Math.max(0, Math.min(bars - 1, Math.round(threshold * bars)));
+  const levelPercent = Math.round(level * 100);
+  const peakPercent = Math.round(peak * 100);
+  const threshPercent = Math.round(threshold * 100);
 
-  const startToggle = () => {
-    if (testing) {
-      setTesting(false);
-    } else {
-      setLevel(0);
-      setTesting(true);
-    }
-  };
+  const isAboveThreshold = level > threshold;
+  const isTooLoud = peak > 0.85;
+  const isClipping = peak > 0.95;
+  const isTooQuiet = hist.length > 8 && avg < 0.02 && peak < 0.05;
+  const hasSignal = peak > 0.05;
 
-  const barCount = 10;
-  const filled = Math.max(0, Math.round((level / 0.3) * barCount));
-  const threshIdx = Math.max(0, Math.min(barCount - 1, Math.round(threshold * barCount)));
+  let liveColor: "idle" | "quiet" | "good" | "loud" | "clipping" = "idle";
+  if (isClipping) liveColor = "clipping";
+  else if (isTooLoud) liveColor = "loud";
+  else if (isTooQuiet) liveColor = "quiet";
+  else if (hasSignal) liveColor = "good";
+
+  let qualityLabel: string;
+  let qualityColor: string;
+  let qualityBg: string;
+  let recommendation: string;
+  if (previewError) {
+    qualityLabel = "Mic error";
+    qualityColor = "text-recording";
+    qualityBg = "bg-recording/10";
+    recommendation = previewError;
+  } else if (isClipping) {
+    qualityLabel = "Clipping";
+    qualityColor = "text-recording";
+    qualityBg = "bg-recording/10";
+    recommendation = "Reduce input volume or move away from mic";
+  } else if (isTooLoud) {
+    qualityLabel = "Too loud";
+    qualityColor = "text-recording";
+    qualityBg = "bg-recording/10";
+    recommendation = "Lower mic gain or speak softer";
+  } else if (isTooQuiet) {
+    qualityLabel = "Too quiet";
+    qualityColor = "text-muted";
+    qualityBg = "bg-elevated";
+    recommendation = "Increase mic gain or move closer to mic";
+  } else if (hasSignal) {
+    qualityLabel = "Good";
+    qualityColor = "text-ready";
+    qualityBg = "bg-ready/10";
+    recommendation = "This microphone is working well";
+  } else if (avg < 0.01 && peak < 0.02 && hist.length > 0) {
+    qualityLabel = "Listening…";
+    qualityColor = "text-muted";
+    qualityBg = "bg-elevated";
+    recommendation = "";
+  } else {
+    qualityLabel = "Speak to test";
+    qualityColor = "text-muted";
+    qualityBg = "bg-elevated";
+    recommendation = "";
+  }
 
   return (
-    <div className="mt-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <label className="label-soft">Noise cutoff</label>
+    <div className="mt-3 space-y-3">
+      {/* Live status banner - always on now that the mic is always live */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={`rounded-lg ring-1 ring-stroke px-3 py-2.5 flex items-center justify-between gap-2 transition-colors duration-200 ${qualityBg}`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span
+            className={`w-2 h-2 rounded-full ${
+              liveColor === "clipping" || liveColor === "loud"
+                ? "bg-recording"
+                : liveColor === "good"
+                ? "bg-ready"
+                : "bg-muted"
+            } ${hasSignal ? "animate-pulse" : ""}`}
+            aria-hidden
+          />
+          <span className={`text-sm font-semibold ${qualityColor}`}>{qualityLabel}</span>
+        </div>
+        {recommendation && (
+          <span className="text-[10px] font-mono text-muted/80 text-right truncate max-w-[60%]">
+            {recommendation}
+          </span>
+        )}
+      </div>
+
+      {/* Level meter with bar visualization */}
+      <div
+        className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5 space-y-2"
+        role="meter"
+        aria-label="Microphone input level"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={levelPercent}
+        aria-valuetext={`${qualityLabel} at ${levelPercent}%`}
+      >
+        <div className="flex items-end gap-0.5 h-10" aria-hidden="true">
+          {[...Array(bars)].map((_, i) => {
+            const isLit = i < filled;
+            const isThreshBar = i === filledIdx;
+            let cls = "bg-elevated";
+            if (isLit) {
+              // Color based on level: green (good) → yellow (loud) → red (clipping)
+              if (liveColor === "clipping" || i >= bars * 0.85) cls = "bg-recording";
+              else if (liveColor === "loud" || i >= bars * 0.7) cls = "bg-yellow-500";
+              else cls = "bg-ready";
+            } else if (isThreshBar) {
+              cls = "bg-accent/60";
+            }
+            return (
+              <div
+                key={i}
+                className={`flex-1 rounded-sm transition-colors duration-75 ${cls}`}
+                style={{ height: `${20 + (i * 2)}%` }}
+              />
+            );
+          })}
+        </div>
+
+        {/* Numeric feedback row */}
+        <div className="flex items-center justify-between text-[10px] font-mono text-muted/70">
+          <span title="Average loudness right now">
+            Level: <span className="text-ink">{levelPercent}%</span>
+          </span>
+          <span title="Loudest moment in the recent window">
+            Peak: <span className="text-ink">{peakPercent}%</span>
+          </span>
+          <span title="Noise cutoff threshold">
+            Cutoff: <span className="text-ink">{threshPercent}%</span>
+          </span>
+        </div>
+
+        {/* Status row: threshold */}
+        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-stroke/50">
+          <span className={`text-[10px] font-mono ${isAboveThreshold ? "text-ready" : "text-muted"}`}>
+            {isAboveThreshold ? "✓ Above cutoff" : "○ Below cutoff"}
+          </span>
+          <span className="text-[10px] font-mono text-muted/80 text-right">Speak — bars should hit green, not red</span>
+        </div>
+      </div>
+
+      {/* Noise cutoff slider */}
+      <div className={`flex items-center gap-2 ${disabled ? "opacity-50" : ""}`}>
+        <label className="label-soft whitespace-nowrap">Noise cutoff</label>
         <input
           type="range"
           min="0"
@@ -293,35 +482,14 @@ function VadThresholdControl({ threshold, onChange, inputDevice }: { threshold: 
           onChange={(e) => onChange(Number(e.target.value))}
           className="flex-1 accent-accent"
           aria-label="VAD threshold"
+          disabled={disabled}
+          title={disabled ? "Enable Trim silence to adjust cutoff" : undefined}
         />
-        <span className="text-xs font-mono text-muted w-10 text-right">{Math.round(threshold * 100)}%</span>
+        <span className="text-xs font-mono text-muted w-10 text-right">{threshPercent}%</span>
       </div>
-      <div className="flex items-end gap-1 h-6">
-        {[...Array(barCount)].map((_, i) => {
-          const aboveThresh = i >= threshIdx;
-          const active = i < filled && aboveThresh;
-          const cls = active
-            ? "bg-accent"
-            : i === threshIdx
-            ? "bg-accent/50"
-            : aboveThresh
-            ? "bg-elevated"
-            : "bg-elevated/40";
-          return (
-            <div
-              key={i}
-              className={`flex-1 rounded transition-colors ${cls}`}
-              style={{ height: `${Math.max(4, (i + 1) * 3)}px` }}
-            />
-          );
-        })}
-      </div>
-      <button
-        onClick={startToggle}
-        className="text-xs font-mono text-muted hover:text-ink transition-colors"
-      >
-        {testing ? "Stop testing" : "Test microphone level"}
-      </button>
+      {disabled && (
+        <p className="text-[10px] font-mono text-muted/50 leading-relaxed">Enable Trim silence to make cutoff active.</p>
+      )}
     </div>
   );
 }
@@ -341,7 +509,9 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
 
   const fetchDevices = useCallback((force = false) => {
     if (!force && document.visibilityState !== "visible") return;
-    invoke<[string, string][]>("list_audio_devices").then(setInputDevices).catch(() => {});
+    invoke<[string, string][]>("list_audio_devices")
+      .then(setInputDevices)
+      .catch((e) => console.error("list_audio_devices failed:", e));
   }, []);
 
   useEffect(() => {
@@ -482,23 +652,6 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
           )}
 
           <div className="grid gap-3 grid-cols-1">
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <label className="label-soft">Microphone</label>
-                <button type="button" onClick={() => fetchDevices(true)} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
-              </div>
-              <Select
-                value={settings.input_device}
-                options={(() => {
-                  const opts: { value: string; label: string }[] = [{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))];
-                  if (settings.input_device && !opts.some((o) => o.value === settings.input_device)) {
-                    opts.push({ value: settings.input_device, label: `${settings.input_device} - not found` });
-                  }
-                  return opts;
-                })()}
-                onChange={(v) => onSave("input_device", v)}
-              />
-            </div>
             <div>
               <label className="label-soft block mb-1.5">Transcription languages</label>
               <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke p-2.5">
@@ -673,13 +826,31 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
               <span className="text-xs font-mono text-muted w-8 text-right">{Math.round(settings.noise_suppression_level * 100)}%</span>
             </div>
           )}
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="label-soft">Microphone</label>
+              <button type="button" onClick={() => fetchDevices(true)} className="text-[10px] font-mono text-accent hover:text-accent-dim">Refresh</button>
+            </div>
+            <Select
+              value={settings.input_device}
+              options={(() => {
+                const opts: { value: string; label: string }[] = [{ value: "", label: "System default" }, ...inputDevices.map(([id, name]) => ({ value: id, label: name }))];
+                if (settings.input_device && !opts.some((o) => o.value === settings.input_device)) {
+                  opts.push({ value: settings.input_device, label: `${settings.input_device} - not found` });
+                }
+                return opts;
+              })()}
+              onChange={(v) => onSave("input_device", v)}
+            />
+          </div>
+          {/* Live mic meter always visible so user can pick a working mic even with VAD off */}
+          <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} inputDevice={settings.input_device} disabled={!settings.vad_enabled} />
           <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
             <span className="text-xs text-muted">Trim silence</span>
             <Switch label="Trim silence" checked={settings.vad_enabled} onChange={(v) => onSave("vad_enabled", v)} />
           </div>
-          {settings.vad_enabled && <VadThresholdControl threshold={settings.vad_threshold} onChange={(v) => onSave("vad_threshold", v)} inputDevice={settings.input_device} />}
           <p className="text-[10px] font-mono text-muted/50 leading-relaxed">
-            Defaults suit most setups. If you hear background noise or speech is clipped, adjust the sliders above and use Test microphone level.
+            Defaults suit most setups. If you hear background noise or speech is clipped, adjust the sliders above.
           </p>
         </div>
       </SectionCard>

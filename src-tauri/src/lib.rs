@@ -125,15 +125,20 @@ fn get_input_level() -> f32 {
 }
 
 #[tauri::command]
-fn start_mic_preview() -> Result<(), String> {
-    let device = crate::coordinator::INPUT_DEVICE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    let device = if device.is_empty() {
-        None
-    } else {
-        Some(device)
+fn start_mic_preview(device: Option<String>) -> Result<(), String> {
+    // Frontend may pass the currently-selected device explicitly so the meter
+    // reflects the dropdown choice immediately without waiting for the async
+    // settings save to propagate to INPUT_DEVICE. Fall back to the global when
+    // no explicit device is provided (backwards compat / system default).
+    let device = match device {
+        Some(d) if !d.is_empty() => Some(d),
+        _ => {
+            let g = crate::coordinator::INPUT_DEVICE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if g.is_empty() { None } else { Some(g) }
+        }
     };
     RECORDER
         .lock()
