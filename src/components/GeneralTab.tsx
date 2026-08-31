@@ -877,6 +877,9 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
           <span className="text-xs text-muted">Launch to system tray</span>
           <Switch label="Launch to system tray" checked={settings.launch_to_tray} onChange={(v) => onSave("launch_to_tray", v)} />
         </div>
+        <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-2">
+          Tip: <span className="text-ink">Ctrl+W</span> hides window (tray stays) · <span className="text-ink">Ctrl+Q</span> quits entirely.
+        </p>
       </SectionCard>
 
       <SectionCard title="History">
