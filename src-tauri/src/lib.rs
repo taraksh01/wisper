@@ -154,6 +154,19 @@ fn list_audio_devices() -> Vec<(String, String)> {
 }
 
 #[tauri::command]
+fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+#[tauri::command]
 fn stop_mic_preview() {
     if let Some(r) = RECORDER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         r.stop_preview();
@@ -844,7 +857,9 @@ pub fn run() {
             settings::get_default_settings,
             start_mic_preview,
             stop_mic_preview,
-            list_audio_devices
+            list_audio_devices,
+            hide_main_window,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| {

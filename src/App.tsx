@@ -81,6 +81,26 @@ function AppShell() {
     safeStorageSet(storageKey("active-tab"), activeTab);
   }, [activeTab]);
 
+  // Global window shortcuts: Ctrl+W hides window (keeps tray), Ctrl+Q quits entirely
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isCtrl = e.ctrlKey || e.metaKey;
+      if (!isCtrl) return;
+      const key = e.key.toLowerCase();
+      if (key === "q") {
+        e.preventDefault();
+        e.stopPropagation();
+        invoke("quit_app").catch((err) => console.error("quit_app failed:", err));
+      } else if (key === "w") {
+        e.preventDefault();
+        e.stopPropagation();
+        invoke("hide_main_window").catch((err) => console.error("hide_main_window failed:", err));
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   useEffect(() => {
     let alive = true;
     invoke<AppSettings>("load_settings").then((v) => alive && setSettings(v)).catch((e) => { console.error(e); });

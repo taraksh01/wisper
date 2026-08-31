@@ -12,7 +12,7 @@ Wisper is a lightweight, privacy-first desktop dictation app for Linux. Press a 
 - **Cleans up as it goes** - optional AI step reformats and polishes the transcript (6 Writing Styles: Auto, Clean-up, Email, Developer, Messaging, Formal + Custom; 6 providers: OpenAI, Anthropic, Groq, OpenRouter, Ollama, OpenCode Go + Custom with endpoint-aware `/chat/completions` `/responses` `/messages` and Test connection), compact deduplicated output with typo/filler fixes, plus silence trimming.
 - **Your words, your way** - custom vocabulary turns shortcuts into proper terms (say "gpt", get "GPT").
 - **Look back** - searchable history lets you replay the recording, re-transcribe, or edit any past dictation, and shows how much typing time you've saved.
-- **Out of the way** - lives in the system tray; close the window and it keeps running, ready for the next hotkey.
+- **Out of the way** - lives in the system tray; close the window and it keeps running, ready for the next hotkey. `Ctrl+W` hides the window (tray stays), `Ctrl+Q` quits entirely.
 - **Updates itself** - checks GitHub releases and installs new versions in-app.
 
 ## How it works
