@@ -79,6 +79,6 @@ jobs:
           releaseName: Wisper v__VERSION__${{ startsWith(github.ref_name, 'win-v') && ' (Windows)' || '' }}
           releaseBody: "See the assets below for the packages (deb, rpm, AppImage on Linux; NSIS on Windows)."
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
           uploadUpdaterJson: true
           args: ${{ matrix.args }}
