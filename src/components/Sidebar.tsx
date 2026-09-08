@@ -67,42 +67,90 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
             </div>
           </div>
 
-          {currentModelName && settings && (
+          {settings && (
             <div className="mt-4 px-1">
               {settings.engine_mode === "local" ? (
-                <div className="group flex items-center gap-1 px-1 py-1 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 transition-colors">
+                currentModelName ? (
+                  <div className="group flex items-center gap-1 px-1 py-1 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 transition-colors">
+                    <button
+                      onClick={onOpenEngineTab}
+                      className="flex items-center gap-2 flex-1 min-w-0 px-1.5 py-1 text-left transition-colors"
+                      aria-label={`Open engine, current model ${currentModelName}`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 animate-pulse" />
+                      <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
+                        {currentModelName}
+                      </span>
+                      <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
+                    </button>
+                    <button
+                      onClick={onUnloadModel}
+                      className="shrink-0 w-5 h-5 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-all transition-transform duration-150 active:scale-[0.98]"
+                      title="Unload model"
+                      aria-label="Unload model"
+                    >
+                      <IconCloseSmall className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={onOpenEngineTab}
-                    className="flex items-center gap-2 flex-1 min-w-0 px-1.5 py-1 text-left transition-colors"
-                    aria-label={`Open engine, current model ${currentModelName}`}
+                    className="flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-amber-500/20 hover:border-amber-500/30 w-full text-left transition-colors group"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 animate-pulse" />
-                    <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
-                      {currentModelName}
-                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span className="text-[11px] font-medium text-amber-600 truncate flex-1">No local model</span>
                     <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
                   </button>
+                )
+              ) : (() => {
+                const hasCloudCfg = (() => {
+                  const keyOk = (() => {
+                    switch (settings.engine_provider) {
+                      case "openai":
+                        return settings.voice_api_key_openai.trim() !== "" || settings.voice_api_key.trim() !== "";
+                      case "groq":
+                        return settings.voice_api_key_groq.trim() !== "" || settings.voice_api_key.trim() !== "";
+                      case "custom":
+                        return settings.voice_api_key_custom.trim() !== "" || settings.voice_api_key.trim() !== "";
+                      default:
+                        return settings.voice_api_key.trim() !== "";
+                    }
+                  })();
+                  const baseOk = settings.engine_provider !== "custom" || settings.engine_base_url.trim() !== "";
+                  return keyOk && settings.engine_model.trim() !== "" && baseOk;
+                })();
+                if (hasCloudCfg) {
+                  const providerLabel =
+                    settings.engine_provider === "openai"
+                      ? "OpenAI"
+                      : settings.engine_provider === "groq"
+                      ? "Groq"
+                      : "Custom";
+                  const cloudName = `${providerLabel} · ${settings.engine_model}`;
+                  return (
+                    <button
+                      onClick={onOpenEngineTab}
+                      className="transition-transform duration-150 active:scale-[0.98] flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 w-full text-left transition-colors group"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-ready shrink-0" />
+                      <span className="text-[11px] font-medium text-ink truncate flex-1" title={cloudName}>
+                        {cloudName}
+                      </span>
+                      <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
+                    </button>
+                  );
+                }
+                return (
                   <button
-                    onClick={onUnloadModel}
-                    className="shrink-0 w-5 h-5 grid place-items-center rounded-full bg-surface border border-stroke text-muted hover:text-recording hover:border-recording/30 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-all transition-transform duration-150 active:scale-[0.98]"
-                    title="Unload model"
-                    aria-label="Unload model"
+                    onClick={onOpenEngineTab}
+                    className="flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-amber-500/20 hover:border-amber-500/30 w-full text-left transition-colors group"
                   >
-                    <IconCloseSmall className="w-3 h-3" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+                    <span className="text-[11px] font-medium text-amber-600 truncate flex-1">Cloud not configured</span>
+                    <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
                   </button>
-                </div>
-              ) : (
-                <button
-                  onClick={onOpenEngineTab}
-                  className="transition-transform duration-150 active:scale-[0.98] flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-stroke hover:border-accent/20 w-full text-left transition-colors group"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-ready shrink-0" />
-                  <span className="text-[11px] font-medium text-ink truncate flex-1" title={currentModelName}>
-                    {currentModelName}
-                  </span>
-                  <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
-                </button>
-              )}
+                );
+              })()}
             </div>
           )}
         </div>
