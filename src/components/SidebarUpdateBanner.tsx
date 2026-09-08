@@ -13,6 +13,20 @@ export function SidebarUpdateBanner() {
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
+    // Demo: ?demoUpdate=1 or dev build shows banner without a real release
+    try {
+      if (new URLSearchParams(window.location.search).has("demoUpdate")) {
+        setAvailable(true);
+        setVersion("3.3.0");
+        return;
+      }
+      // In dev, show a preview banner so you can see it in Wisper Dev window
+      if (import.meta.env.DEV) {
+        setAvailable(true);
+        setVersion("3.3.0");
+        return;
+      }
+    } catch {}
     if (dismissed) return;
     let mounted = true;
     async function poll() {
@@ -68,51 +82,45 @@ export function SidebarUpdateBanner() {
   const isWorking = phase === "checking" || phase === "downloading";
 
   return (
-    <div className="mx-1 rounded-xl bg-ready/10 ring-1 ring-ready/20 overflow-hidden">
-      <div className="px-3 py-2.5 flex items-start gap-2.5">
-        <span className="shrink-0 w-6 h-6 grid place-items-center rounded-lg bg-ready text-white mt-0.5">
+    <div className="mx-2 rounded-lg bg-elevated border border-stroke overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+        <span className="text-[11px] font-mono font-medium text-ink tabular-nums">v{version}</span>
+        {phase !== "idle" && phase !== "done" && (
+          <span className="text-[10px] font-mono text-muted">
+            {phase === "downloading" ? "downloading" : "checking…"}
+          </span>
+        )}
+        <span className="flex-1" />
+        {phase === "done" ? (
+          <button
+            onClick={handleRestart}
+            className="text-[11px] font-medium text-accent hover:text-accent/80 transition-colors"
+          >
+            Restart
+          </button>
+        ) : (
+          <button
+            onClick={handleUpdate}
+            disabled={isWorking}
+            className="text-[11px] font-medium text-accent hover:text-accent/80 disabled:opacity-40 transition-colors"
+          >
+            {phase === "downloading" ? `${Math.round(pct)}%` : "Update"}
+          </button>
+        )}
+        <button
+          onClick={() => setDismissed(true)}
+          className="w-6 h-6 -mr-1 grid place-items-center rounded-md text-muted/50 hover:text-muted hover:bg-surface transition-colors shrink-0"
+          aria-label="Dismiss update"
+        >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 16v-8" />
-            <path d="M8 12l4 4 4-4" />
-            <path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2" />
+            <path d="M18 6L6 18M6 6l12 12" />
           </svg>
-        </span>
-        <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-medium text-ink leading-none">
-            {phase === "done" ? "Update ready" : `v${version} available`}
-          </p>
-          <p className="text-[10px] font-mono text-muted leading-tight mt-1">
-            {phase === "done" ? "Restart to apply" : phase === "downloading" ? "Downloading…" : "New version ready to install"}
-          </p>
-          <div className="flex items-center gap-2 mt-2">
-            {phase === "done" ? (
-              <button
-                onClick={handleRestart}
-                className="text-[11px] font-medium text-ready hover:text-ready/80 transition-colors"
-              >
-                Restart now →
-              </button>
-            ) : (
-              <button
-                onClick={handleUpdate}
-                disabled={isWorking}
-                className="text-[11px] font-medium text-ready hover:text-ready/80 disabled:opacity-40 transition-colors"
-              >
-                {phase === "checking" ? "Checking…" : phase === "downloading" ? "Downloading…" : "Update now"}
-              </button>
-            )}
-            <button
-              onClick={() => setDismissed(true)}
-              className="text-[10px] font-mono text-muted hover:text-ink transition-colors ml-auto"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
+        </button>
       </div>
       {phase === "downloading" && total > 0 && (
-        <div className="h-1 bg-ready/20">
-          <div className="h-full bg-ready transition-all duration-300" style={{ width: `${pct}%` }} />
+        <div className="h-0.5 bg-stroke">
+          <div className="h-full bg-accent transition-all duration-300" style={{ width: `${pct}%` }} />
         </div>
       )}
     </div>
