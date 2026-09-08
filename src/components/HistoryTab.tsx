@@ -11,6 +11,7 @@ import { AudioPlayerPopover } from "./AudioPlayerPopover";
 import { Input } from "./ui/Input";
 import { useToast } from "./ToastContext";
 import { useWindowSize } from "../hooks/useWindowSize";
+import { calcSavedSeconds, formatSaved } from "../utils/timeSaved";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
@@ -108,8 +109,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
     });
     const dictations = todayEntries.length;
     const words = todayEntries.reduce((acc, e) => acc + (e.word_count || 0), 0);
-    // 60 WPM ~= 1 word per second, same as coordinator
-    const saved = words;
+    const saved = todayEntries.reduce((acc, e) => acc + calcSavedSeconds(e.word_count || 0, e.duration_ms || 0), 0);
     return { dictations, words, saved, entries: todayEntries };
   }, [history]);
 
@@ -333,11 +333,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
             { label: "Avg Words", value: lifetimeAvg.toFixed(1), title: "Lifetime average - never resets" },
             {
               label: "Time saved",
-              value: timeSavedSec >= 3600
-                ? `${Math.floor(timeSavedSec / 3600)}h ${Math.floor((timeSavedSec % 3600) / 60)}m`
-                : timeSavedSec >= 60
-                ? `${Math.floor(timeSavedSec / 60)}m ${timeSavedSec % 60}s`
-                : `${timeSavedSec}s`,
+              value: formatSaved(timeSavedSec),
               title: "Estimated at 60 WPM typing speed - lifetime, never resets",
             },
           ].map((s) => (
@@ -394,16 +390,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
               {[
                 { label: "Today", value: String(todayStats.dictations), sub: "dictations" },
                 { label: "Words", value: String(todayStats.words), sub: "words" },
-                {
-                  label: "Saved",
-                  value:
-                    todayStats.saved >= 3600
-                      ? `${Math.floor(todayStats.saved / 3600)}h ${Math.floor((todayStats.saved % 3600) / 60)}m`
-                      : todayStats.saved >= 60
-                      ? `${Math.floor(todayStats.saved / 60)}m ${todayStats.saved % 60}s`
-                      : `${todayStats.saved}s`,
-                  sub: "time saved",
-                },
+                { label: "Saved", value: formatSaved(todayStats.saved), sub: "time saved" },
               ].map((s) => (
                 <div
                   key={s.label}
