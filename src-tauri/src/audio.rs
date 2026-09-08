@@ -19,43 +19,6 @@ pub fn was_capped_and_reset() -> bool {
 /// are skipped since they are not real microphones.
 /// Returns an empty vector if enumeration fails.
 pub fn list_input_devices() -> Vec<(String, String)> {
-    #[cfg(target_os = "windows")]
-    {
-        let host = cpal::default_host();
-        let Ok(devices) = host.input_devices() else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        for d in devices {
-            let raw_name = d.to_string();
-            if raw_name.is_empty() {
-                continue;
-            }
-            let id = d
-                .id()
-                .ok()
-                .map(|i| i.to_string())
-                .unwrap_or(raw_name.clone());
-            let name = d
-                .description()
-                .ok()
-                .and_then(|dd| {
-                    dd.name()
-                        .to_string()
-                        .lines()
-                        .next()
-                        .map(|s| s.trim().to_string())
-                })
-                .filter(|s| !s.is_empty())
-                .unwrap_or(raw_name);
-            if name.is_empty() {
-                continue;
-            }
-            out.push((id, name));
-        }
-        out.sort_by(|a, b| a.1.to_ascii_lowercase().cmp(&b.1.to_ascii_lowercase()));
-        return out;
-    }
     let mut hosts = cpal::available_hosts();
     if hosts.is_empty() {
         hosts.push(cpal::default_host().id());

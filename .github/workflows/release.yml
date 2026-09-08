@@ -5,48 +5,27 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      platform:
-        description: "Platform to build (linux, windows, all)"
-        required: false
-        default: "all"
-        type: choice
-        options: ["all", "linux", "windows"]
 
 permissions:
   contents: write
 
 jobs:
   release:
-    # Beta tags (e.g. v3.3.0-beta.1) build Windows only; stable tags build all platforms.
-    # The win-v prefix is intentionally unsupported: tagName v__VERSION__ must
-    # match the pushed tag, so plain v tags are the only supported trigger.
-    if: ${{ github.event_name != 'push' || !contains(github.ref_name, 'beta') || matrix.os == 'windows' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: ubuntu-24.04
-            os: linux
             args: ""
-          - platform: windows-latest
-            os: windows
-            args: ""
-        exclude: []
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Linux build deps
-        if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev librsvg2-dev libasound2-dev libayatana-appindicator3-dev patchelf rpm
-
-      - name: Skip non-matching platform (manual dispatch)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.platform != 'all' && github.event.inputs.platform != matrix.os
-        run: echo "Skipping ${{ matrix.os }} (requested ${{ github.event.inputs.platform }})" && exit 78
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -79,9 +58,9 @@ jobs:
         with:
           projectPath: src-tauri
           tagName: v__VERSION__
-          releaseName: Wisper v__VERSION__${{ contains(github.ref_name, 'beta') && ' (Windows beta)' || '' }}
-          releaseBody: ${{ contains(github.ref_name, 'beta') && 'Windows beta - NSIS installer below. Not for production use yet.' || 'See the assets below for the Linux packages (deb, rpm, AppImage).' }}
+          releaseName: Wisper v__VERSION__
+          releaseBody: "See the assets below for the Linux packages (deb, rpm, AppImage)."
           releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          prerelease: false
           uploadUpdaterJson: true
           args: ${{ matrix.args }}
