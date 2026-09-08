@@ -131,7 +131,22 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         MenuItem::with_id(app, "switch", "Switch engine", false, None::<&str>)?
     };
 
-    // 4. Open + Quit only — no redundant Settings/History (Open restores last tab)
+    // 4. Copy last + Open + Quit
+    let has_history = crate::history::HistoryManager::new()
+        .get_history(1, 0)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let copy_i = MenuItem::with_id(
+        app,
+        "copy_last",
+        if has_history {
+            "Copy last transcription"
+        } else {
+            "Copy last transcription"
+        },
+        has_history,
+        None::<&str>,
+    )?;
     let open_i = MenuItem::with_id(app, "open", "Open Wisper", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(
         app,
@@ -142,11 +157,12 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     )?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
+    let sep3 = PredefinedMenuItem::separator(app)?;
 
     let menu = Menu::with_items(
         app,
         &[
-            &hotkey_i, &model_i, &sep1, &switch_i, &sep2, &open_i, &quit_i,
+            &hotkey_i, &model_i, &sep1, &switch_i, &sep2, &copy_i, &open_i, &sep3, &quit_i,
         ],
     )?;
     tray.set_menu(Some(menu))?;
@@ -202,6 +218,20 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<tauri::tray::TrayIcon, tauri
             "unload" => settings::unload_local_model(app),
             "reload" => settings::reload_last_model(app),
             "switch" => settings::switch_engine_mode(app),
+            "copy_last" => {
+                if let Ok(entries) = crate::history::HistoryManager::new().get_history(1, 0) {
+                    if let Some(entry) = entries.first() {
+                        let text = entry
+                            .formatted_text
+                            .as_deref()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or(&entry.raw_text);
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            let _ = clipboard.set_text(text.to_string());
+                        }
+                    }
+                }
+            }
             "open" => show_main(app),
             _ => {}
         })
