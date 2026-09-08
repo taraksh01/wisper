@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - "v*"
-      - "win-v*"
   workflow_dispatch:
     inputs:
       platform:
@@ -19,6 +18,9 @@ permissions:
 
 jobs:
   release:
+    # Beta tags (e.g. v3.3.0-beta.1) build Windows only; stable tags build all platforms.
+    # Plain v tags are the only supported trigger: tagName v__VERSION__ must match the pushed tag.
+    if: ${{ github.event_name != 'push' || !contains(github.ref_name, 'beta') || matrix.os == 'windows' }}
     strategy:
       fail-fast: false
       matrix:
@@ -76,8 +78,8 @@ jobs:
         with:
           projectPath: src-tauri
           tagName: v__VERSION__
-          releaseName: Wisper v__VERSION__${{ startsWith(github.ref_name, 'win-v') && ' (Windows)' || '' }}
-          releaseBody: "See the assets below for the packages (deb, rpm, AppImage on Linux; NSIS on Windows)."
+          releaseName: Wisper v__VERSION__${{ contains(github.ref_name, 'beta') && ' (Windows beta)' || '' }}
+          releaseBody: ${{ contains(github.ref_name, 'beta') && 'Windows beta - NSIS installer below. Not for production use yet.' || 'See the assets below for the Linux packages (deb, rpm, AppImage).' }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, 'beta') }}
           uploadUpdaterJson: true
