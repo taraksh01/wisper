@@ -108,8 +108,8 @@ export function HistoryItem({
   return (
     <div
       ref={rowRef}
-      className={`group relative rounded-xl px-2.5 py-2 transition-colors ${
-        selected ? "bg-accent/10" : "bg-elevated/30 hover:bg-elevated/60"
+      className={`group relative rounded-xl px-2.5 py-2 transition-all duration-300 ${
+        copied ? "bg-ready/10 ring-1 ring-ready/20" : selected ? "bg-accent/10" : "bg-elevated/30 hover:bg-elevated/60"
       }`}
     >
       <div className="flex items-center gap-1 mb-1">
@@ -175,17 +175,22 @@ export function HistoryItem({
             )}
             <button
               onClick={() => onCopy(entry)}
-              className="p-1 text-muted hover:text-accent rounded transition-colors"
-              title="Copy"
+              className={`p-1 rounded transition-all duration-200 active:scale-90 ${
+                copied ? "text-ready bg-ready/10 scale-110" : "text-muted hover:text-accent hover:bg-elevated"
+              }`}
+              title={copied ? "Copied!" : "Copy"}
             >
               {copied ? (
-                <svg className="w-3.5 h-3.5 text-ready" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg className="w-3.5 h-3.5 text-ready" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 13l4 4L19 7" />
                 </svg>
               ) : (
                 <IconCopy className="w-3.5 h-3.5" />
               )}
             </button>
+            {copied && (
+              <span className="text-[10px] font-mono text-ready animate-pulse ml-0.5">Copied!</span>
+            )}
             <button
               onClick={() => onStartEdit(entry)}
               className="p-1 text-muted hover:text-warning rounded transition-colors"
