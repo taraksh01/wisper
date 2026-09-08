@@ -105,6 +105,7 @@ export interface AppSettings {
   hotkey_mode: string;
   paste_method: string;
   paste_tool: string;
+  paste_add_trailing_space: boolean;
   vad_enabled: boolean;
   vad_threshold: number;
   noise_suppression_enabled: boolean;

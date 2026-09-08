@@ -60,6 +60,8 @@ pub struct AppSettings {
     pub hotkey_mode: String,
     pub paste_method: String,
     pub paste_tool: String,
+    #[serde(default = "default_true")]
+    pub paste_add_trailing_space: bool,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
     pub noise_suppression_enabled: bool,
@@ -168,6 +170,7 @@ impl Default for AppSettings {
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Direct Typing".into(),
             paste_tool: "auto".into(),
+            paste_add_trailing_space: true,
             vad_enabled: true,
             vad_threshold: 0.01,
             noise_suppression_enabled: false,
@@ -308,6 +311,10 @@ pub fn sync_runtime(settings: &AppSettings) {
             .unwrap_or_else(|e| e.into_inner());
         *tool = settings.paste_tool.clone();
     }
+    crate::coordinator::PASTE_ADD_TRAILING_SPACE.store(
+        settings.paste_add_trailing_space,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     {
         let mut v = crate::coordinator::INPUT_DEVICE
             .lock()

@@ -137,6 +137,7 @@ pub static ENABLED_LANGUAGES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 pub static INPUT_DEVICE: Mutex<String> = Mutex::new(String::new()); // empty = system default
 pub static PASTE_METHOD: Mutex<String> = Mutex::new(String::new());
 pub static PASTE_TOOL: Mutex<String> = Mutex::new(String::new());
+pub static PASTE_ADD_TRAILING_SPACE: AtomicBool = AtomicBool::new(true);
 pub static WORDS_ENABLED: AtomicBool = AtomicBool::new(true);
 pub static WORDS_AUTO_SCAN: AtomicBool = AtomicBool::new(true);
 pub static SOUND_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -670,7 +671,17 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                         thread::sleep(std::time::Duration::from_millis(10));
                     }
                 }
-                if let Err(e) = paste_text(&final_text, &paste_method) {
+                let to_paste = if crate::coordinator::PASTE_ADD_TRAILING_SPACE
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    && !final_text.is_empty()
+                    && !final_text.ends_with(' ')
+                    && !final_text.ends_with('\n')
+                {
+                    format!("{} ", final_text)
+                } else {
+                    final_text.clone()
+                };
+                if let Err(e) = paste_text(&to_paste, &paste_method) {
                     eprintln!("Paste failed: {}", e);
                 }
                 let duration_ms = if device_sr > 0 {
