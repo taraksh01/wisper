@@ -25,6 +25,37 @@ export interface WordEntry {
   auto: boolean;
   hits: number;
   created_at: string;
+  profile_id?: string | null;
+}
+
+export interface DictionaryProfile {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  version: string;
+  updateUrl: string;
+  entryCount: number;
+  active: boolean;
+  imported: boolean;
+  importedAt: string;
+  hasUpdate: boolean;
+  bundledEntryCount: number;
+}
+
+export interface ProfileImportResult {
+  profileId: string;
+  added: number;
+  updated: number;
+  unchanged: number;
+}
+
+export interface ProfileUpdate {
+  profileId: string;
+  name: string;
+  currentVersion: string;
+  latestVersion: string;
+  url: string;
 }
 
 export interface WordSuggestion {

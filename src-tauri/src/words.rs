@@ -31,6 +31,10 @@ fn clear_regex_cache_all() {
     }
 }
 
+pub(crate) fn clear_words_regex_cache() {
+    clear_regex_cache_all();
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordEntry {
     pub id: i64,
@@ -41,6 +45,8 @@ pub struct WordEntry {
     pub auto: bool,
     pub hits: i64,
     pub created_at: String,
+    #[serde(default)]
+    pub profile_id: Option<String>,
 }
 
 impl WordEntry {
@@ -99,9 +105,37 @@ static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::L
             );
             CREATE TABLE IF NOT EXISTS ignored_terms (
                 term TEXT PRIMARY KEY COLLATE NOCASE
+            );
+            CREATE TABLE IF NOT EXISTS dictionary_profiles (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'imported',
+                version TEXT DEFAULT '',
+                update_url TEXT DEFAULT '',
+                entry_count INTEGER NOT NULL DEFAULT 0,
+                content_hash TEXT DEFAULT '',
+                active INTEGER NOT NULL DEFAULT 1,
+                imported_at TEXT DEFAULT (datetime('now'))
             );",
     ) {
         eprintln!("[words] failed to create table: {e}");
+    }
+    // Migration for existing DBs: words.profile_id tracks which imported
+    // profile owns a row (NULL = user-added). ALTER fails if the column
+    // already exists, so probe pragma first.
+    {
+        let has_profile_id: bool = conn
+            .prepare("SELECT profile_id FROM words LIMIT 0")
+            .is_ok();
+        if !has_profile_id {
+            if let Err(e) = conn.execute_batch(
+                "ALTER TABLE words ADD COLUMN profile_id TEXT DEFAULT NULL;
+                 CREATE INDEX IF NOT EXISTS words_profile_idx ON words(profile_id);",
+            ) {
+                eprintln!("[words] profile_id migration failed: {e}");
+            }
+        }
     }
     Mutex::new(conn)
 });
@@ -114,7 +148,7 @@ impl WordsManager {
         Self
     }
 
-    fn conn() -> std::sync::MutexGuard<'static, Connection> {
+    pub(crate) fn conn() -> std::sync::MutexGuard<'static, Connection> {
         WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -129,7 +163,7 @@ impl WordsManager {
     pub fn all(&self) -> SqlResult<Vec<WordEntry>> {
         let conn = Self::conn();
         let mut stmt = conn.prepare(
-            "SELECT id, phrase, variants, case_sensitive, whole_word, auto, hits, created_at
+            "SELECT id, phrase, variants, case_sensitive, whole_word, auto, hits, created_at, profile_id
              FROM words ORDER BY hits DESC, id DESC",
         )?;
         let rows = stmt
@@ -143,6 +177,7 @@ impl WordsManager {
                     auto: row.get::<_, i64>(5)? != 0,
                     hits: row.get(6)?,
                     created_at: row.get(7)?,
+                    profile_id: row.get::<_, Option<String>>(8).unwrap_or(None),
                 })
             })?
             .collect::<SqlResult<Vec<_>>>()?;
@@ -157,16 +192,78 @@ impl WordsManager {
         whole_word: bool,
         auto: bool,
     ) -> SqlResult<i64> {
+        self.add_with_profile(phrase, variants, case_sensitive, whole_word, auto, None)
+    }
+
+    pub fn add_with_profile(
+        &self,
+        phrase: &str,
+        variants: &str,
+        case_sensitive: bool,
+        whole_word: bool,
+        auto: bool,
+        profile_id: Option<&str>,
+    ) -> SqlResult<i64> {
+        let norm_phrase = phrase.trim();
+        // Check for existing phrase (case-insensitive) to merge instead of duplicating
+        let existing: Option<(i64, String)> = {
+            let conn = Self::conn();
+            conn.query_row(
+                "SELECT id, variants FROM words WHERE LOWER(phrase) = LOWER(?1) LIMIT 1",
+                params![norm_phrase],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok()
+        };
+        if let Some((existing_id, existing_variants)) = existing {
+            // Merge variants case-insensitive, keep order: existing first, then new
+            let mut seen = std::collections::HashSet::new();
+            let mut merged: Vec<String> = Vec::new();
+            for v in existing_variants.split([',', '\n']).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let low = v.to_lowercase();
+                if seen.insert(low) {
+                    merged.push(v.to_string());
+                }
+            }
+            for v in variants.split([',', '\n']).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                let low = v.to_lowercase();
+                if seen.insert(low.clone()) {
+                    // Also avoid adding phrase itself as variant (redundant)
+                    if low != norm_phrase.to_lowercase() {
+                        merged.push(v.to_string());
+                    }
+                }
+            }
+            let merged_str = merged.join(", ");
+            let conn = Self::conn();
+            // If merging via manual add (profile_id None) into a profile-owned row, detach to user-owned
+            // If merging via profile import (profile_id Some), take ownership
+            if let Some(pid) = profile_id {
+                conn.execute(
+                    "UPDATE words SET variants = ?1, profile_id = ?2 WHERE id = ?3",
+                    params![merged_str, pid, existing_id],
+                )?;
+            } else {
+                conn.execute(
+                    "UPDATE words SET variants = ?1, profile_id = NULL WHERE id = ?2",
+                    params![merged_str, existing_id],
+                )?;
+            }
+            drop(conn);
+            clear_regex_cache_for(existing_id);
+            return Ok(existing_id);
+        }
         let conn = Self::conn();
         conn.execute(
-            "INSERT INTO words (phrase, variants, case_sensitive, whole_word, auto)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO words (phrase, variants, case_sensitive, whole_word, auto, profile_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                phrase,
+                norm_phrase,
                 variants,
                 case_sensitive as i64,
                 whole_word as i64,
-                auto as i64
+                auto as i64,
+                profile_id
             ],
         )?;
         let id = conn.last_insert_rowid();
@@ -184,9 +281,11 @@ impl WordsManager {
         whole_word: bool,
     ) -> SqlResult<()> {
         let conn = Self::conn();
+        // User editing an entry detaches it from its profile (profile_id -> NULL),
+        // so removing the profile later keeps the user's customized row.
         conn.execute(
-            "UPDATE words SET phrase = ?1, variants = ?2, case_sensitive = ?3, whole_word = ?4
-             WHERE id = ?5",
+            "UPDATE words SET phrase = ?1, variants = ?2, case_sensitive = ?3, whole_word = ?4,
+             profile_id = NULL WHERE id = ?5",
             params![
                 phrase,
                 variants,
@@ -269,6 +368,24 @@ impl WordsManager {
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         Ok(rows.flatten().collect())
     }
+
+    /// IDs of profiles the user has toggled off. Entries owned by these
+    /// profiles are skipped by `apply_words` / `words_prompt_hint`.
+    /// Returns empty set when the profiles table doesn't exist yet.
+    pub fn inactive_profile_ids(&self) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+        let conn = Self::conn();
+        let mut stmt = match conn.prepare("SELECT id FROM dictionary_profiles WHERE active = 0") {
+            Ok(s) => s,
+            Err(_) => return set,
+        };
+        if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+            for id in rows.flatten() {
+                set.insert(id);
+            }
+        }
+        set
+    }
 }
 
 pub fn apply_words(text: &str) -> String {
@@ -277,9 +394,15 @@ pub fn apply_words(text: &str) -> String {
         Ok(e) => e,
         Err(_) => return text.to_string(),
     };
+    let inactive = mgr.inactive_profile_ids();
 
     let mut out = text.to_string();
     for entry in &entries {
+        if let Some(pid) = entry.profile_id.as_deref() {
+            if inactive.contains(pid) {
+                continue;
+            }
+        }
         let phrase = entry.phrase.trim().to_string();
         if phrase.is_empty() {
             continue;
@@ -346,10 +469,16 @@ pub fn words_prompt_hint(text: &str) -> String {
         Ok(e) if !e.is_empty() => e,
         _ => return String::new(),
     };
+    let inactive = mgr.inactive_profile_ids();
     let lower = text.to_lowercase();
 
     let mut lines = Vec::new();
     for e in entries.iter() {
+        if let Some(pid) = e.profile_id.as_deref() {
+            if inactive.contains(pid) {
+                continue;
+            }
+        }
         let phrase = e.phrase.trim();
         if phrase.is_empty() {
             continue;

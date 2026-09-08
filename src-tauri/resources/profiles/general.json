@@ -1,0 +1,643 @@
+{
+  "id": "wisper-general-v1",
+  "name": "General",
+  "description": "Common brands, products, places and proper nouns",
+  "version": "2026-09-03",
+  "author": "Wisper",
+  "update_url": "",
+  "entries": [
+    {
+      "phrase": "Wisper",
+      "variants": [
+        "whisper",
+        "whispur"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "LinkedIn",
+      "variants": [
+        "linked in"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "YouTube",
+      "variants": [
+        "you tube"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "macOS",
+      "variants": [
+        "mac os",
+        "mack os"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "iPhone",
+      "variants": [
+        "eye phone"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "iPad",
+      "variants": [
+        "eye pad"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Android",
+      "variants": [
+        "android"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Windows",
+      "variants": [
+        "windows"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Linux",
+      "variants": [
+        "linux"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Ubuntu",
+      "variants": [
+        "ubuntu"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Wi-Fi",
+      "variants": [
+        "wifi",
+        "wee fee",
+        "why fee"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bluetooth",
+      "variants": [
+        "blue tooth"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "USB-C",
+      "variants": [
+        "u s b c",
+        "usb c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "HDMI",
+      "variants": [
+        "h d m i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Google",
+      "variants": [
+        "goggle"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ChatGPT",
+      "variants": [
+        "chat g p t"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Muse",
+      "variants": [
+        "clod"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Gemini",
+      "variants": [
+        "gemini"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Copilot",
+      "variants": [
+        "co pilot"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Notion",
+      "variants": [
+        "notion"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Figma",
+      "variants": [
+        "figma"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Slack",
+      "variants": [
+        "slack"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Zoom",
+      "variants": [
+        "zoom"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Teams",
+      "variants": [
+        "teams"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Spotify",
+      "variants": [
+        "spotify"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Netflix",
+      "variants": [
+        "netflix"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Amazon",
+      "variants": [
+        "amazon"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Flipkart",
+      "variants": [
+        "flip kart"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Swiggy",
+      "variants": [
+        "swiggy"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Zomato",
+      "variants": [
+        "zomato"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Paytm",
+      "variants": [
+        "pay t m"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "PhonePe",
+      "variants": [
+        "phone pe"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "UPI",
+      "variants": [
+        "u p i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Aadhaar",
+      "variants": [
+        "adhar"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "PAN",
+      "variants": [
+        "pan card"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GST",
+      "variants": [
+        "g s t"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "IRCTC",
+      "variants": [
+        "i r c t c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Ola",
+      "variants": [
+        "ola"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Uber",
+      "variants": [
+        "uber"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "IndiGo",
+      "variants": [
+        "indigo"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Air India",
+      "variants": [
+        "air india"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Taj",
+      "variants": [
+        "taj"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Tata",
+      "variants": [
+        "tata"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Infosys",
+      "variants": [
+        "infosys"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Wipro",
+      "variants": [
+        "wipro"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TCS",
+      "variants": [
+        "t c s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Reliance",
+      "variants": [
+        "reliance"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Adani",
+      "variants": [
+        "adani"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Mahindra",
+      "variants": [
+        "mahindra"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bharat",
+      "variants": [
+        "bharat"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hindustan",
+      "variants": [
+        "hindustan"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Kolkata",
+      "variants": [
+        "calcutta"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Mumbai",
+      "variants": [
+        "bombay"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Delhi",
+      "variants": [
+        "delhi"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bengaluru",
+      "variants": [
+        "bangalore"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hyderabad",
+      "variants": [
+        "hyderabad"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Chennai",
+      "variants": [
+        "chennai"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Pune",
+      "variants": [
+        "pune"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Jaipur",
+      "variants": [
+        "jaipur"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Ahmedabad",
+      "variants": [
+        "ahmedabad"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "OK",
+      "variants": [
+        "okay",
+        "o k"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Instagram",
+      "variants": [
+        "instagram"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Facebook",
+      "variants": [
+        "facebook"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Twitter",
+      "variants": [
+        "twitter"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "X",
+      "variants": [
+        "x"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "WhatsApp",
+      "variants": [
+        "whats app"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Telegram",
+      "variants": [
+        "telegram"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Discord",
+      "variants": [
+        "discord"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Reddit",
+      "variants": [
+        "reddit"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Quora",
+      "variants": [
+        "quora"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Medium",
+      "variants": [
+        "medium"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Substack",
+      "variants": [
+        "sub stack"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Canva",
+      "variants": [
+        "canva"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Adobe",
+      "variants": [
+        "adobe"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Photoshop",
+      "variants": [
+        "photoshop"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Illustrator",
+      "variants": [
+        "illustrator"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Premiere Pro",
+      "variants": [
+        "premier pro"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "polish",
+      "variants": [
+        "police",
+        "pollish",
+        "poll ish",
+        "Polish"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    }
+  ]
+}
