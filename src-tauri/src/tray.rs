@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Manager,
 };
 
 use crate::coordinator::CoordinatorState;
@@ -50,7 +50,7 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     };
     let s = settings::AppSettings::load();
 
-    // 1. Hotkey + mode
+    // 1. Hotkey — info only (disabled), opens nowhere
     let hk_display = if s.hotkey.is_empty() {
         "F9".into()
     } else {
@@ -61,16 +61,30 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         app,
         "hotkey",
         format!(
-            "{} · {}",
+            "Hotkey: {} · {}",
             hk_display,
             if is_ptt { "Push to talk" } else { "Toggle" }
         ),
-        true,
+        false,
         None::<&str>,
     )?;
 
-    // 2. ONE action row - Load or Unload depending on state
-    let model_i = if !s.local_model_file.is_empty() {
+    // 2. ONE action row - shows the ACTIVE engine's model, not always local
+    let model_i = if s.engine_mode == "cloud" {
+        let cloud_label = {
+            let label = match s.engine_provider.as_str() {
+                "openai" => "OpenAI",
+                "groq" => "Groq",
+                _ => "Custom",
+            };
+            if s.engine_model.trim().is_empty() {
+                format!("{label} · not configured")
+            } else {
+                format!("{label} · {}", s.engine_model)
+            }
+        };
+        MenuItem::with_id(app, "cloud_model", cloud_label, false, None::<&str>)?
+    } else if !s.local_model_file.is_empty() {
         MenuItem::with_id(
             app,
             "unload",
@@ -92,7 +106,20 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
 
     // 3. Switch engine (enabled only when both engines are usable)
     let has_local = !s.local_model_file.is_empty() || !s.last_local_model_file.is_empty();
-    let has_cloud = !s.voice_api_key.is_empty() && !s.engine_model.is_empty();
+    let has_cloud = {
+        let key_ok = match s.engine_provider.as_str() {
+            "openai" => {
+                !s.voice_api_key_openai.trim().is_empty() || !s.voice_api_key.trim().is_empty()
+            }
+            "groq" => !s.voice_api_key_groq.trim().is_empty() || !s.voice_api_key.trim().is_empty(),
+            "custom" => {
+                !s.voice_api_key_custom.trim().is_empty() || !s.voice_api_key.trim().is_empty()
+            }
+            _ => !s.voice_api_key.trim().is_empty(),
+        };
+        let base_ok = s.engine_provider != "custom" || !s.engine_base_url.trim().is_empty();
+        key_ok && !s.engine_model.trim().is_empty() && base_ok
+    };
     let switch_i = if has_local && has_cloud {
         let label = if s.engine_mode == "cloud" {
             "Switch to On-device"
@@ -104,10 +131,19 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         MenuItem::with_id(app, "switch", "Switch engine", false, None::<&str>)?
     };
 
-    // 4. Navigation + Quit
+    // 4. Copy last + Open + Quit
+    let has_history = crate::history::HistoryManager::new()
+        .get_history(1, 0)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let copy_i = MenuItem::with_id(
+        app,
+        "copy_last",
+        "Copy last transcription",
+        has_history,
+        None::<&str>,
+    )?;
     let open_i = MenuItem::with_id(app, "open", "Open Wisper", true, None::<&str>)?;
-    let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
-    let history_i = MenuItem::with_id(app, "history", "History", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(
         app,
         "quit",
@@ -122,16 +158,7 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     let menu = Menu::with_items(
         app,
         &[
-            &hotkey_i,
-            &model_i,
-            &sep1,
-            &switch_i,
-            &sep2,
-            &open_i,
-            &settings_i,
-            &history_i,
-            &sep3,
-            &quit_i,
+            &hotkey_i, &model_i, &sep1, &switch_i, &sep2, &copy_i, &open_i, &sep3, &quit_i,
         ],
     )?;
     tray.set_menu(Some(menu))?;
@@ -187,9 +214,21 @@ pub fn build_tray(app: &tauri::AppHandle) -> Result<tauri::tray::TrayIcon, tauri
             "unload" => settings::unload_local_model(app),
             "reload" => settings::reload_last_model(app),
             "switch" => settings::switch_engine_mode(app),
-            "settings" => open_tab(app, "general"),
-            "history" => open_tab(app, "history"),
-            "open" | "hotkey" => show_main(app),
+            "copy_last" => {
+                if let Ok(entries) = crate::history::HistoryManager::new().get_history(1, 0) {
+                    if let Some(entry) = entries.first() {
+                        let text = entry
+                            .formatted_text
+                            .as_deref()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or(&entry.raw_text);
+                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                            let _ = clipboard.set_text(text.to_string());
+                        }
+                    }
+                }
+            }
+            "open" => show_main(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -212,9 +251,4 @@ fn show_main(app: &tauri::AppHandle) {
         let _ = win.show();
         let _ = win.set_focus();
     }
-}
-
-fn open_tab(app: &tauri::AppHandle, tab: &str) {
-    show_main(app);
-    let _ = app.emit("wisper:open-tab", tab);
 }

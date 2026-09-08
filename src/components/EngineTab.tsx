@@ -360,13 +360,29 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
               <Field label="Model" value={settings.engine_model} onChange={(v) => onSave("engine_model", v)} />
             )}
 
-            <Field
-              label="API Key"
-              value={settings.voice_api_key}
-              onChange={(v) => onSave("voice_api_key", v)}
-              secret
-              placeholder={settings.engine_provider === "openai" ? "sk-..." : settings.engine_provider === "groq" ? "gsk_..." : "API key"}
-            />
+            {(() => {
+              const keyField =
+                settings.engine_provider === "openai"
+                  ? "voice_api_key_openai"
+                  : settings.engine_provider === "groq"
+                  ? "voice_api_key_groq"
+                  : "voice_api_key_custom";
+              return (
+                <Field
+                  label="API Key"
+                  value={(settings as any)[keyField] || ""}
+                  onChange={(v) => {
+                    const updates: Partial<AppSettings> = {
+                      [keyField]: v,
+                      voice_api_key: v,
+                    } as any;
+                    onSaveAll(updates);
+                  }}
+                  secret
+                  placeholder={settings.engine_provider === "openai" ? "sk-..." : settings.engine_provider === "groq" ? "gsk_..." : "API key"}
+                />
+              );
+            })()}
             <p className="text-[10px] text-muted/70 mt-1">Saved on this device only - it's sent nowhere except to your chosen service.</p>
           </SectionCard>
         </>

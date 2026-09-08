@@ -868,6 +868,17 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
             onChange={(v) => onSave("paste_method", v)}
           />
           <PasteToolControl value={settings.paste_tool} onChange={(v) => onSave("paste_tool", v)} />
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
+            <div>
+              <span className="text-xs text-muted">Add space after paste</span>
+              <p className="text-[10px] font-mono text-muted/60 leading-relaxed">Inserts a space so next dictation continues as new word.</p>
+            </div>
+            <Switch
+              label="Add space after paste"
+              checked={settings.paste_add_trailing_space}
+              onChange={(v) => onSave("paste_add_trailing_space", v)}
+            />
+          </div>
         </div>
       </SectionCard>
 

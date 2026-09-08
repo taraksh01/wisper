@@ -11,7 +11,6 @@ import { WordsTab } from "./components/WordsTab";
 import { HistoryTab } from "./components/HistoryTab";
 import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
-import { UpdateBanner } from "./components/UpdateBanner";
 import { ToastProvider, useToast } from "./components/ToastContext";
 import { storageKey } from "./appConfig";
 import "./styles.css";
@@ -298,6 +297,7 @@ function AppShell() {
       case "hotkey": return null; // handled inline in GeneralTab to avoid double toast + to allow rollback on failure
       case "hotkey_mode": return `Mode: ${String(value)}`;
       case "paste_tool": return `Paste tool: ${String(value)}`;
+      case "paste_add_trailing_space": return `Trailing space ${on(Boolean(value))}`;
       case "input_device": return value ? `Microphone: ${String(value)}` : "Microphone: System default";
       case "process_enabled": return `AI processing ${on(Boolean(value))}`;
       case "words_enabled": return `Your dictionary ${on(Boolean(value))}`;
@@ -327,7 +327,7 @@ function AppShell() {
   };
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
-    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "vad_enabled", "vad_threshold", "noise_suppression_enabled", "noise_suppression_level", "overlay_enabled", "overlay_position", "sound_enabled", "sound_on_start", "sound_on_done", "sound_on_cancel", "sound_on_error", "input_device", "max_history_entries", "history_retention_mode", "keep_recordings"],
+    general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "paste_add_trailing_space", "vad_enabled", "vad_threshold", "noise_suppression_enabled", "noise_suppression_level", "overlay_enabled", "overlay_position", "sound_enabled", "sound_on_start", "sound_on_done", "sound_on_cancel", "sound_on_error", "input_device", "max_history_entries", "history_retention_mode", "keep_recordings"],
     engine: ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"],
     process: ["process_enabled", "process_provider", "process_base_url", "process_endpoint", "process_timeout_secs", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_opencode_go", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
     words: ["words_enabled", "words_auto_scan"],
@@ -428,7 +428,6 @@ function AppShell() {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="max-w-[var(--content-max)] mx-auto w-full px-6 py-6">
-              <UpdateBanner />
               <div className="tab-enter">
                 {renderTab()}
               </div>

@@ -60,6 +60,8 @@ pub struct AppSettings {
     pub hotkey_mode: String,
     pub paste_method: String,
     pub paste_tool: String,
+    #[serde(default = "default_true")]
+    pub paste_add_trailing_space: bool,
     pub vad_enabled: bool,
     pub vad_threshold: f32,
     pub noise_suppression_enabled: bool,
@@ -168,6 +170,7 @@ impl Default for AppSettings {
             hotkey_mode: "push-to-talk".into(),
             paste_method: "Direct Typing".into(),
             paste_tool: "auto".into(),
+            paste_add_trailing_space: true,
             vad_enabled: true,
             vad_threshold: 0.01,
             noise_suppression_enabled: false,
@@ -308,6 +311,10 @@ pub fn sync_runtime(settings: &AppSettings) {
             .unwrap_or_else(|e| e.into_inner());
         *tool = settings.paste_tool.clone();
     }
+    crate::coordinator::PASTE_ADD_TRAILING_SPACE.store(
+        settings.paste_add_trailing_space,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     {
         let mut v = crate::coordinator::INPUT_DEVICE
             .lock()
@@ -332,7 +339,16 @@ pub fn sync_runtime(settings: &AppSettings) {
         let mut v = crate::coordinator::CLOUD_API_KEY
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *v = settings.voice_api_key.clone();
+        *v = match settings.engine_provider.as_str() {
+            "openai" => settings.voice_api_key_openai.clone(),
+            "groq" => settings.voice_api_key_groq.clone(),
+            "custom" => settings.voice_api_key_custom.clone(),
+            _ => settings.voice_api_key.clone(),
+        };
+        // Fallback to generic key if provider-specific is empty (migration)
+        if v.trim().is_empty() {
+            *v = settings.voice_api_key.clone();
+        }
     }
     {
         let mut v = crate::coordinator::CLOUD_MODEL

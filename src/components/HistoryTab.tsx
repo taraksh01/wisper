@@ -11,6 +11,7 @@ import { AudioPlayerPopover } from "./AudioPlayerPopover";
 import { Input } from "./ui/Input";
 import { useToast } from "./ToastContext";
 import { useWindowSize } from "../hooks/useWindowSize";
+import { calcSavedSeconds, formatSaved } from "../utils/timeSaved";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
@@ -74,6 +75,13 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [query, setQuery] = useState("");
+  const [todayOpen, setTodayOpen] = useState(() => {
+    try {
+      return localStorage.getItem(storageKey("history-today-open")) === "1";
+    } catch {
+      return false;
+    }
+  });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [player, setPlayer] = useState<{
     id: number;
@@ -89,6 +97,21 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
   const lifetimeWords = settings.lifetime_words ?? 0;
   const lifetimeDictations = settings.lifetime_dictations ?? 0;
   const lifetimeAvg = lifetimeDictations > 0 ? lifetimeWords / lifetimeDictations : 0;
+
+  const todayStats = useMemo(() => {
+    const today = new Date().toDateString();
+    const todayEntries = history.filter((e) => {
+      try {
+        return new Date(e.created_at).toDateString() === today;
+      } catch {
+        return false;
+      }
+    });
+    const dictations = todayEntries.length;
+    const words = todayEntries.reduce((acc, e) => acc + (e.word_count || 0), 0);
+    const saved = todayEntries.reduce((acc, e) => acc + calcSavedSeconds(e.word_count || 0, e.duration_ms || 0), 0);
+    return { dictations, words, saved, entries: todayEntries };
+  }, [history]);
 
   const filteredHistory = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -310,11 +333,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
             { label: "Avg Words", value: lifetimeAvg.toFixed(1), title: "Lifetime average - never resets" },
             {
               label: "Time saved",
-              value: timeSavedSec >= 3600
-                ? `${Math.floor(timeSavedSec / 3600)}h ${Math.floor((timeSavedSec % 3600) / 60)}m`
-                : timeSavedSec >= 60
-                ? `${Math.floor(timeSavedSec / 60)}m ${timeSavedSec % 60}s`
-                : `${timeSavedSec}s`,
+              value: formatSaved(timeSavedSec),
               title: "Estimated at 60 WPM typing speed - lifetime, never resets",
             },
           ].map((s) => (
@@ -328,6 +347,68 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
             </div>
           ))}
         </div>
+      </SectionCard>
+
+      <SectionCard className="card-enter">
+        <button
+          onClick={() => {
+            const next = !todayOpen;
+            setTodayOpen(next);
+            try {
+              localStorage.setItem(storageKey("history-today-open"), next ? "1" : "0");
+            } catch {}
+          }}
+          aria-expanded={todayOpen}
+          className="w-full flex items-center justify-between gap-3 text-left"
+        >
+          <h2 className="label-soft">Today</h2>
+          <span className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] font-mono text-muted tabular-nums">
+              {todayStats.dictations === 0
+                ? "No activity yet"
+                : `${todayStats.dictations} · ${todayStats.words} words`}
+            </span>
+            <span className="text-[10px] font-mono text-muted/50 hidden sm:inline">
+              {new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+            </span>
+            <svg
+              className={`w-3.5 h-3.5 text-muted/60 transition-transform duration-200 ${todayOpen ? "rotate-90" : ""}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </span>
+        </button>
+        {todayOpen && (
+          <div className="mt-3 space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Today", value: String(todayStats.dictations), sub: "dictations" },
+                { label: "Words", value: String(todayStats.words), sub: "words" },
+                { label: "Saved", value: formatSaved(todayStats.saved), sub: "time saved" },
+              ].map((s) => (
+                <div
+                  key={s.label}
+                  className="bg-elevated/40 rounded-xl px-3 py-3 text-center min-w-0"
+                >
+                  <div className="text-lg font-bold font-mono text-accent tabular-nums truncate leading-none">{s.value}</div>
+                  <div className="text-[9px] font-mono text-muted mt-1.5 tracking-[0.12em] uppercase truncate">{s.label}</div>
+                  <div className="text-[9px] font-mono text-muted/60 truncate">{s.sub}</div>
+                </div>
+              ))}
+            </div>
+            {todayStats.dictations === 0 ? (
+              <p className="text-[11px] text-muted/60 text-center">No dictations yet today — press {settings.hotkey} to start</p>
+            ) : (
+              <p className="text-[10px] font-mono text-muted/50 text-center">Resets at midnight · Lifetime totals above</p>
+            )}
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard className="card-enter flex flex-col h-[457px]">
