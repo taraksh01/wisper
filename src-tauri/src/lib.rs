@@ -65,6 +65,14 @@ where
     f()
 }
 
+#[cfg(not(target_os = "linux"))]
+pub fn silence_stderr<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    f()
+}
+
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 

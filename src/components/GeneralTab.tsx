@@ -32,10 +32,11 @@ function Keycap({ children, active }: { children: React.ReactNode; active?: bool
 }
 
 function HotkeyDisplay({ hotkey }: { hotkey: string }) {
+  const isWindows = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
   const pretty: Record<string, string> = {
-    Super: "Meta",
-    SuperLeft: "Meta L",
-    SuperRight: "Meta R",
+    Super: isWindows ? "Win" : "Meta",
+    SuperLeft: isWindows ? "Win L" : "Meta L",
+    SuperRight: isWindows ? "Win R" : "Meta R",
     CtrlLeft: "Ctrl L",
     CtrlRight: "Ctrl R",
     AltLeft: "Alt L",
