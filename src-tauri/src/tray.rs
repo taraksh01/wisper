@@ -139,11 +139,7 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     let copy_i = MenuItem::with_id(
         app,
         "copy_last",
-        if has_history {
-            "Copy last transcription"
-        } else {
-            "Copy last transcription"
-        },
+        "Copy last transcription",
         has_history,
         None::<&str>,
     )?;
