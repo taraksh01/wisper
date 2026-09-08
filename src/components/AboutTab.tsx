@@ -135,33 +135,46 @@ export function AboutTab() {
             <span className="text-ink font-medium">on your own machine</span>, ready
             to paste into whatever you're doing.
           </p>
-          <div className="flex items-center justify-center gap-2 mt-4">
+        </div>
+      </SectionCard>
+
+      {/* ── Updates: in-app, no manual download ── */}
+      <SectionCard className="card-enter">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-medium text-ink">Updates</h3>
+            <p className="text-[11px] text-muted leading-relaxed">Check for new versions and install in-app.</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={checkForUpdates}
               disabled={updateStatus === "checking"}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-ink bg-elevated ring-1 ring-stroke hover:bg-elevated/80 rounded-lg transition-colors disabled:opacity-50 pressable"
+              className="px-3 py-1.5 text-xs font-mono font-medium text-ink bg-elevated ring-1 ring-stroke hover:bg-elevated/80 rounded-lg transition-colors disabled:opacity-50 pressable"
             >
               {updateStatus === "checking" ? "Checking…" : "Check for updates"}
             </button>
             {updateStatus === "available" && latestVersion && (
               <button
                 onClick={handleUpdate}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-white bg-accent hover:bg-accent-dim rounded-lg transition-colors pressable"
+                className="px-3 py-1.5 text-xs font-mono font-medium text-white bg-accent hover:bg-accent-dim rounded-lg transition-colors pressable"
               >
                 Update to v{latestVersion}
               </button>
             )}
-            {updateStatus === "upToDate" && (
-              <span className="text-xs font-mono text-ready">Up to date</span>
-            )}
-            {updateStatus === "error" && (
-              <span className="text-xs font-mono text-recording">Check failed</span>
-            )}
           </div>
-          {updateStatus === "available" && (
-            <p className="text-[10px] font-mono text-muted mt-2">v{latestVersion} is available — updates install in-app, no manual download needed.</p>
-          )}
         </div>
+        {updateStatus === "upToDate" && (
+          <p className="text-[11px] font-mono text-ready mt-2">You are up to date (v{version}).</p>
+        )}
+        {updateStatus === "error" && (
+          <p className="text-[11px] font-mono text-recording mt-2">Check failed — try again.</p>
+        )}
+        {updateStatus === "available" && (
+          <p className="text-[11px] font-mono text-muted mt-2">v{latestVersion} ready — installs in-app, no manual download.</p>
+        )}
+        {updateStatus === "idle" && (
+          <p className="text-[10px] font-mono text-muted/60 mt-2">Current: v{version} · Updates install directly from the app.</p>
+        )}
       </SectionCard>
 
       {/* ── How it works: horizontal pipeline ── */}
