@@ -11,7 +11,7 @@ Wisper is free and open source (MIT), built by Tarak Shaw. Optional AI cleanup c
 - Input: global hotkey, types at the cursor via the active window
 - License: MIT
 - Price: free
-- Optional: AI cleanup (opt-in), custom vocabulary, searchable dictation history, sound feedback
+- Optional: AI cleanup (opt-in), custom vocabulary + dictionary profiles, searchable history with Today stats, trailing space, sound feedback
 
 ## Links
 
