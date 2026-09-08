@@ -11,7 +11,6 @@ import { WordsTab } from "./components/WordsTab";
 import { HistoryTab } from "./components/HistoryTab";
 import { AboutTab } from "./components/AboutTab";
 import { DonateTab } from "./components/DonateTab";
-import { UpdateBanner } from "./components/UpdateBanner";
 import { ToastProvider, useToast } from "./components/ToastContext";
 import { storageKey } from "./appConfig";
 import "./styles.css";
@@ -428,7 +427,6 @@ function AppShell() {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 overflow-y-auto custom-scrollbar">
             <div className="max-w-[var(--content-max)] mx-auto w-full px-6 py-6">
-              <UpdateBanner />
               <div className="tab-enter">
                 {renderTab()}
               </div>

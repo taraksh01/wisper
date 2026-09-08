@@ -5,6 +5,7 @@ import { AppSettings, tabs } from "../types";
 import { APP_NAME } from "../appConfig";
 import { WisperLogo } from "./WisperLogo";
 import { tabIconMap, IconCloseSmall, IconChevronRight } from "./ui/icons";
+import { SidebarUpdateBanner } from "./SidebarUpdateBanner";
 
 interface SidebarProps {
   activeTab: string;
@@ -135,6 +136,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
       </div>
 
       <div className="shrink-0 px-3.5 py-3.5 border-t border-stroke/80 bg-elevated/20 space-y-3">
+        <SidebarUpdateBanner />
         {settings && (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-surface border border-stroke px-3 py-2">
             <span className="text-[10px] font-medium tracking-widest uppercase text-muted">Hold</span>
