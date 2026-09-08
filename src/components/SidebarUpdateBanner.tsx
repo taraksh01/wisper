@@ -13,20 +13,6 @@ export function SidebarUpdateBanner() {
   const [total, setTotal] = useState(0);
 
   useEffect(() => {
-    // Demo: ?demoUpdate=1 or dev build shows banner without a real release
-    try {
-      if (new URLSearchParams(window.location.search).has("demoUpdate")) {
-        setAvailable(true);
-        setVersion("3.3.0");
-        return;
-      }
-      // In dev, show a preview banner so you can see it in Wisper Dev window
-      if (import.meta.env.DEV) {
-        setAvailable(true);
-        setVersion("3.3.0");
-        return;
-      }
-    } catch {}
     if (dismissed) return;
     let mounted = true;
     async function poll() {
