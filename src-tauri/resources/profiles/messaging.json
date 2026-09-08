@@ -1,0 +1,515 @@
+{
+  "id": "wisper-messaging-v1",
+  "name": "Messaging",
+  "description": "Everyday chat phrases, short forms and quick replies",
+  "version": "2026-09-03",
+  "author": "Wisper",
+  "update_url": "",
+  "entries": [
+    {
+      "phrase": "on my way",
+      "variants": [
+        "on my weigh"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "running late",
+      "variants": [
+        "running laid"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "call me when you can",
+      "variants": [
+        "call me when u can"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "no worries",
+      "variants": [
+        "no worry's"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "sounds good",
+      "variants": [
+        "sounds goods"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "let's catch up",
+      "variants": [
+        "lets catch up"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "talk soon",
+      "variants": [
+        "talk soons"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "on the way",
+      "variants": [
+        "on the weigh"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "see you soon",
+      "variants": [
+        "see u soon"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "BRB",
+      "variants": [
+        "be right back",
+        "b r b"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "OMW",
+      "variants": [
+        "o m w",
+        "on my way"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TTYL",
+      "variants": [
+        "t t y l",
+        "talk to you later"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "LOL",
+      "variants": [
+        "l o l",
+        "laugh out loud"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GTG",
+      "variants": [
+        "g t g",
+        "got to go"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "IDK",
+      "variants": [
+        "i d k",
+        "i dont know"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TBH",
+      "variants": [
+        "t b h",
+        "to be honest"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "IMO",
+      "variants": [
+        "i m o",
+        "in my opinion"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "IMHO",
+      "variants": [
+        "i m h o"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "FYI",
+      "variants": [
+        "f y i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "NVM",
+      "variants": [
+        "n v m",
+        "never mind"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ETA",
+      "variants": [
+        "e t a"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TBD",
+      "variants": [
+        "t b d",
+        "to be decided"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TBA",
+      "variants": [
+        "t b a",
+        "to be announced"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ASAP",
+      "variants": [
+        "a sap",
+        "a s a p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "DM me",
+      "variants": [
+        "d m me",
+        "direct message me"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ping me",
+      "variants": [
+        "ping mes"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "got it",
+      "variants": [
+        "got its"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "noted",
+      "variants": [
+        "noteds"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "will do",
+      "variants": [
+        "will dos"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "on it",
+      "variants": [
+        "on its"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Let's go",
+      "variants": [
+        "lets go"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "See you tomorrow",
+      "variants": [
+        "see you tomorrow"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Can we reschedule",
+      "variants": [
+        "can we reschedule"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Are you free",
+      "variants": [
+        "are you free"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Call you later",
+      "variants": [
+        "call you later"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Text me",
+      "variants": [
+        "text me"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Share location",
+      "variants": [
+        "share location"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Sent from my iPhone",
+      "variants": [
+        "sent from my iphone"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "haha",
+      "variants": [
+        "hahas"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "hehe",
+      "variants": [
+        "hehes"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "OMG",
+      "variants": [
+        "o m g",
+        "oh my god"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "WTF",
+      "variants": [
+        "w t f"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "BTW",
+      "variants": [
+        "b t w",
+        "by the way"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ICYMI",
+      "variants": [
+        "i c y m i",
+        "in case you missed it"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TL;DR",
+      "variants": [
+        "t l d r",
+        "too long didnt read"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "FOMO",
+      "variants": [
+        "fomo"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "YOLO",
+      "variants": [
+        "yolo"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GOAT",
+      "variants": [
+        "g o a t"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "IRL",
+      "variants": [
+        "i r l",
+        "in real life"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "DM",
+      "variants": [
+        "d m"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "AFK",
+      "variants": [
+        "a f k",
+        "away from keyboard"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GG",
+      "variants": [
+        "g g",
+        "good game"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GLHF",
+      "variants": [
+        "g l h f",
+        "good luck have fun"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "BBS",
+      "variants": [
+        "b b s",
+        "be back soon"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TTFN",
+      "variants": [
+        "t t f n",
+        "ta ta for now"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "LMK",
+      "variants": [
+        "l m k",
+        "let me know"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "N/A",
+      "variants": [
+        "n slash a",
+        "n a"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "ETA 5 mins",
+      "variants": [
+        "eta 5 mins"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "On my way home",
+      "variants": [
+        "on my way home"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Stuck in traffic",
+      "variants": [
+        "stuck in traffic"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    }
+  ]
+}

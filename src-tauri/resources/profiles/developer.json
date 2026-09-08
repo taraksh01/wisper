@@ -1,0 +1,2085 @@
+{
+  "id": "wisper-developer-v1",
+  "name": "Developer",
+  "description": "Programming languages, frameworks, tools and CLI commands \u2014 toggle on only while you code",
+  "version": "2026-09-03",
+  "author": "Wisper",
+  "update_url": "",
+  "entries": [
+    {
+      "phrase": "TypeScript",
+      "variants": [
+        "type script",
+        "type-script"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "JavaScript",
+      "variants": [
+        "java script",
+        "java-script"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Python",
+      "variants": [
+        "pie thon"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Go",
+      "variants": [
+        "go lang",
+        "go language"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Rust",
+      "variants": [
+        "rust"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Ruby",
+      "variants": [
+        "ruby"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Swift",
+      "variants": [
+        "swift"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Kotlin",
+      "variants": [
+        "cot lin"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Dart",
+      "variants": [
+        "dart"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "PHP",
+      "variants": [
+        "p h p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Perl",
+      "variants": [
+        "pearl"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Lua",
+      "variants": [
+        "loo ah"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Zig",
+      "variants": [
+        "zig"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Elixir",
+      "variants": [
+        "elixir"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Erlang",
+      "variants": [
+        "er lang"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Haskell",
+      "variants": [
+        "haskell"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Scala",
+      "variants": [
+        "scarla"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Clojure",
+      "variants": [
+        "closure"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Julia",
+      "variants": [
+        "julia"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "R",
+      "variants": [
+        "r lang",
+        "r language"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "C#",
+      "variants": [
+        "c sharp",
+        "c hashtag"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "C++",
+      "variants": [
+        "c plus plus",
+        "cplusplus"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": ".NET",
+      "variants": [
+        "dot net",
+        "dotnet"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Objective-C",
+      "variants": [
+        "objective c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Solidity",
+      "variants": [
+        "solidity"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "WebAssembly",
+      "variants": [
+        "web assembly",
+        "wasm"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bash",
+      "variants": [
+        "bash"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "PostgreSQL",
+      "variants": [
+        "post gres",
+        "postgress",
+        "postgres"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "MySQL",
+      "variants": [
+        "my sequel",
+        "my sql",
+        "my s q l"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SQLite",
+      "variants": [
+        "sequel lite",
+        "s q lite",
+        "sql lite"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Redis",
+      "variants": [
+        "read is",
+        "red is"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "MongoDB",
+      "variants": [
+        "mongo d b",
+        "mongo db"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Cassandra",
+      "variants": [
+        "cassandra"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "DynamoDB",
+      "variants": [
+        "dynamo d b"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Elasticsearch",
+      "variants": [
+        "elastic search"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ClickHouse",
+      "variants": [
+        "click house"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Snowflake",
+      "variants": [
+        "snow flake"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "BigQuery",
+      "variants": [
+        "big query"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Firestore",
+      "variants": [
+        "fire store"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Supabase",
+      "variants": [
+        "super base",
+        "soopa base"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Firebase",
+      "variants": [
+        "fire base"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Prisma",
+      "variants": [
+        "prizma"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Drizzle",
+      "variants": [
+        "drizzle"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Neon",
+      "variants": [
+        "neon db"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "PlanetScale",
+      "variants": [
+        "planet scale"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CockroachDB",
+      "variants": [
+        "cockroach d b"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Kubernetes",
+      "variants": [
+        "kuber netties",
+        "cuber netties",
+        "k8s",
+        "koobernetes",
+        "kubernates",
+        "kube netes"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "kubectl",
+      "variants": [
+        "cube ctl",
+        "cube control",
+        "kubecuttle",
+        "kubectrl",
+        "kube control"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Docker",
+      "variants": [
+        "doker"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Dockerfile",
+      "variants": [
+        "docker file"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Helm",
+      "variants": [
+        "helm"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Terraform",
+      "variants": [
+        "terra form"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Ansible",
+      "variants": [
+        "ansible"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Jenkins",
+      "variants": [
+        "jenkins"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CircleCI",
+      "variants": [
+        "circle c i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GitHub Actions",
+      "variants": [
+        "git hub actions"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GitLab CI",
+      "variants": [
+        "git lab c i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ArgoCD",
+      "variants": [
+        "argo c d"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Flux",
+      "variants": [
+        "flux cd"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Prometheus",
+      "variants": [
+        "prometheus"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Grafana",
+      "variants": [
+        "grafana"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Nginx",
+      "variants": [
+        "engine x",
+        "en jinx"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Traefik",
+      "variants": [
+        "traffic"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Vercel",
+      "variants": [
+        "ver cell"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Cloudflare",
+      "variants": [
+        "cloud flare",
+        "cloud flair"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Netlify",
+      "variants": [
+        "netlify"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Heroku",
+      "variants": [
+        "heroku"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "DigitalOcean",
+      "variants": [
+        "digital ocean"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Linode",
+      "variants": [
+        "lin ode"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hetzner",
+      "variants": [
+        "hetzner"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Cloud Run",
+      "variants": [
+        "cloud run"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Lambda",
+      "variants": [
+        "lambda"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "S3",
+      "variants": [
+        "s 3",
+        "ess three"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "EC2",
+      "variants": [
+        "e c 2"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "EKS",
+      "variants": [
+        "e k s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GKE",
+      "variants": [
+        "g k e"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "React",
+      "variants": [
+        "re act"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Next.js",
+      "variants": [
+        "next j s",
+        "next g s",
+        "next js"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Vue",
+      "variants": [
+        "view"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Nuxt",
+      "variants": [
+        "nuxed"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Svelte",
+      "variants": [
+        "svelte"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Astro",
+      "variants": [
+        "astro"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Remix",
+      "variants": [
+        "remix"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Angular",
+      "variants": [
+        "angular"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SolidJS",
+      "variants": [
+        "solid j s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Qwik",
+      "variants": [
+        "quick"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Tailwind",
+      "variants": [
+        "tail wind"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bootstrap",
+      "variants": [
+        "bootstrap"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "MUI",
+      "variants": [
+        "m u i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Chakra UI",
+      "variants": [
+        "chakra u i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "shadcn",
+      "variants": [
+        "shad c n"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Vite",
+      "variants": [
+        "veet"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Webpack",
+      "variants": [
+        "web pack"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "esbuild",
+      "variants": [
+        "e s build"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Turbopack",
+      "variants": [
+        "turbo pack"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Rollup",
+      "variants": [
+        "roll up"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Babel",
+      "variants": [
+        "babel"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Biome",
+      "variants": [
+        "biome"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ESLint",
+      "variants": [
+        "e s lint"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Prettier",
+      "variants": [
+        "prettier"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Node.js",
+      "variants": [
+        "node j s",
+        "node js"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Deno",
+      "variants": [
+        "deno"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bun",
+      "variants": [
+        "bun"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Tauri",
+      "variants": [
+        "taw ree",
+        "tory"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Electron",
+      "variants": [
+        "electron"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "FastAPI",
+      "variants": [
+        "fast a p i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Django",
+      "variants": [
+        "django"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Flask",
+      "variants": [
+        "flask"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Spring Boot",
+      "variants": [
+        "spring boot"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Laravel",
+      "variants": [
+        "laravel"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Ruby on Rails",
+      "variants": [
+        "ruby on rails"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Phoenix",
+      "variants": [
+        "phoenix"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Actix",
+      "variants": [
+        "act x"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Axum",
+      "variants": [
+        "ax um"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Tokio",
+      "variants": [
+        "tokio"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "gRPC",
+      "variants": [
+        "g r p c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "tRPC",
+      "variants": [
+        "t r p c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "REST",
+      "variants": [
+        "rest"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "REST API",
+      "variants": [
+        "r e s t a p i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GraphQL",
+      "variants": [
+        "graph q l",
+        "graph ql"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "WebSocket",
+      "variants": [
+        "web socket"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "WebRTC",
+      "variants": [
+        "web r t c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "pnpm",
+      "variants": [
+        "p n p m"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "npm",
+      "variants": [
+        "n p m",
+        "en pee em"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "yarn",
+      "variants": [
+        "yawn"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Homebrew",
+      "variants": [
+        "home brew"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "brew",
+      "variants": [
+        "brews"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "cargo",
+      "variants": [
+        "cargos"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "pip",
+      "variants": [
+        "pips"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "poetry",
+      "variants": [
+        "poetrys"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "uv",
+      "variants": [
+        "u v"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Make",
+      "variants": [
+        "make file"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Makefile",
+      "variants": [
+        "make file"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CMake",
+      "variants": [
+        "c make"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Gradle",
+      "variants": [
+        "gradle"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Maven",
+      "variants": [
+        "maven"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "sudo",
+      "variants": [
+        "pseudo",
+        "sue doe",
+        "sue do"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "chmod",
+      "variants": [
+        "c mod",
+        "che mod",
+        "change mod"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "chown",
+      "variants": [
+        "c h own",
+        "ch own"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "grep",
+      "variants": [
+        "grip"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "curl",
+      "variants": [
+        "cur l",
+        "kurl",
+        "kerl"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "wget",
+      "variants": [
+        "w get"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "jq",
+      "variants": [
+        "j q"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "yq",
+      "variants": [
+        "y q"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "sed",
+      "variants": [
+        "said"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "awk",
+      "variants": [
+        "awks"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "systemd",
+      "variants": [
+        "system d"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "journalctl",
+      "variants": [
+        "journal c t l"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "JSON",
+      "variants": [
+        "jason"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "YAML",
+      "variants": [
+        "yam el",
+        "yah mel",
+        "yammal"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TOML",
+      "variants": [
+        "tom el"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Markdown",
+      "variants": [
+        "mark down"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CSV",
+      "variants": [
+        "c s v"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Parquet",
+      "variants": [
+        "parquet"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Protobuf",
+      "variants": [
+        "proto buff"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Avro",
+      "variants": [
+        "avro"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "API",
+      "variants": [
+        "a p i",
+        "a pie"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": ".env",
+      "variants": [
+        "dot env",
+        "dot e n v"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "HTTP",
+      "variants": [
+        "h t t p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "HTTPS",
+      "variants": [
+        "h t t p s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SSL",
+      "variants": [
+        "s s l"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TLS",
+      "variants": [
+        "t l s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SSH",
+      "variants": [
+        "s s h",
+        "ess ess aych"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TCP",
+      "variants": [
+        "t c p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "UDP",
+      "variants": [
+        "u d p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "DNS",
+      "variants": [
+        "d n s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CDN",
+      "variants": [
+        "c d n"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CI/CD",
+      "variants": [
+        "c i slash c d",
+        "c i c d",
+        "c i / c d"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "OAuth",
+      "variants": [
+        "o auth",
+        "o off"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "JWT",
+      "variants": [
+        "j w t",
+        "jot"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SAML",
+      "variants": [
+        "saml"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "OIDC",
+      "variants": [
+        "o i d c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CORS",
+      "variants": [
+        "course",
+        "c o r s"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GitHub",
+      "variants": [
+        "git hub"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "GitLab",
+      "variants": [
+        "git lab"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Bitbucket",
+      "variants": [
+        "bit bucket"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Jira",
+      "variants": [
+        "jira"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Confluence",
+      "variants": [
+        "confluence"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Linear",
+      "variants": [
+        "linear"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Notion",
+      "variants": [
+        "notion"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Slack",
+      "variants": [
+        "slack"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Figma",
+      "variants": [
+        "figma"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Stripe",
+      "variants": [
+        "stripe"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "OpenAI",
+      "variants": [
+        "open a i"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Anthropic",
+      "variants": [
+        "anthropic"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hugging Face",
+      "variants": [
+        "hugging face"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "LangChain",
+      "variants": [
+        "lang chain"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Pinecone",
+      "variants": [
+        "pine cone"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Weaviate",
+      "variants": [
+        "weaviate"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Qdrant",
+      "variants": [
+        "qdrant"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Meilisearch",
+      "variants": [
+        "meili search"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Algolia",
+      "variants": [
+        "algolia"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "LLM",
+      "variants": [
+        "l l m"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "RAG",
+      "variants": [
+        "r a g"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Vector DB",
+      "variants": [
+        "vector d b"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Embedding",
+      "variants": [
+        "embedding"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "PyTorch",
+      "variants": [
+        "pie torch"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "TensorFlow",
+      "variants": [
+        "tensor flow"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Keras",
+      "variants": [
+        "keras"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "NumPy",
+      "variants": [
+        "num pie"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Pandas",
+      "variants": [
+        "pandas"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Polars",
+      "variants": [
+        "polars"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Jupyter",
+      "variants": [
+        "jupyter"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CUDA",
+      "variants": [
+        "c u d a"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ROCm",
+      "variants": [
+        "rock em"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "localhost",
+      "variants": [
+        "local host"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "middleware",
+      "variants": [
+        "middle ware"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "microservice",
+      "variants": [
+        "micro service"
+      ],
+      "caseSensitive": false,
+      "wholeWord": false
+    },
+    {
+      "phrase": "monorepo",
+      "variants": [
+        "mono repo"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "monolith",
+      "variants": [
+        "mono lith"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "polyrepo",
+      "variants": [
+        "poly repo"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "pull request",
+      "variants": [
+        "pool request"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "merge conflict",
+      "variants": [
+        "merge conflicts"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "rebase",
+      "variants": [
+        "re base"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "cherry-pick",
+      "variants": [
+        "cherry pick"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "deadlock",
+      "variants": [
+        "dead lock"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "race condition",
+      "variants": [
+        "race conditions"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "idempotent",
+      "variants": [
+        "idempotents"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "eventual consistency",
+      "variants": [
+        "eventual consistencys"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "sharding",
+      "variants": [
+        "shardings"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "replication",
+      "variants": [
+        "replications"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "pubsub",
+      "variants": [
+        "pub sub"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Queue",
+      "variants": [],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Auth",
+      "variants": [
+        "orth"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "compilation",
+      "variants": [
+        "compilations"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "transpilation",
+      "variants": [
+        "transpilations"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "bundling",
+      "variants": [
+        "bundlings"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "tree-shaking",
+      "variants": [
+        "tree shaking"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "hot reload",
+      "variants": [
+        "hot reloads"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SSR",
+      "variants": [
+        "s s r"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CSR",
+      "variants": [
+        "c s r"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "SSG",
+      "variants": [
+        "s s g"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ISR",
+      "variants": [
+        "i s r"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Edge Function",
+      "variants": [
+        "edge function"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Serverless",
+      "variants": [
+        "server less"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Container",
+      "variants": [
+        "container"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Orchestration",
+      "variants": [
+        "orchestration"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Observability",
+      "variants": [
+        "observability"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Telemetry",
+      "variants": [
+        "telemetry"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Stack trace",
+      "variants": [
+        "stack trace"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Heap",
+      "variants": [
+        "heap"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Garbage collection",
+      "variants": [
+        "garbage collection"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Async",
+      "variants": [
+        "async"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "async/await",
+      "variants": [
+        "async await",
+        "asynch await"
+      ],
+      "caseSensitive": false,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Concurrency",
+      "variants": [
+        "concurrency"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Parallelism",
+      "variants": [
+        "parallelism"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Mutex",
+      "variants": [
+        "mutex"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Semaphore",
+      "variants": [
+        "semaphore"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Debounce",
+      "variants": [
+        "debounce"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Throttle",
+      "variants": [
+        "throttle"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Memoization",
+      "variants": [
+        "memoization"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Virtualization",
+      "variants": [
+        "virtualization"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Containerization",
+      "variants": [
+        "containerization"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    }
+  ]
+}

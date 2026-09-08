@@ -1,6 +1,7 @@
 pub mod app_info;
 pub mod audio;
 pub mod coordinator;
+pub mod dictionary;
 pub mod engine;
 pub mod history;
 pub mod hotkey;
@@ -844,6 +845,16 @@ pub fn run() {
             words::get_ignored_terms,
             words::unignore_word_term,
             words::add_ignored_to_dictionary,
+            dictionary::list_bundled_profiles,
+            dictionary::list_imported_profiles,
+            dictionary::import_bundled_profile,
+            dictionary::import_profile_from_json,
+            dictionary::import_profile_from_url,
+            dictionary::set_profile_active,
+            dictionary::remove_profile,
+            dictionary::export_profile,
+            dictionary::export_user_words,
+            dictionary::check_profile_updates,
             history::get_history_entries,
             history::get_history_count,
             history::get_history_stats,

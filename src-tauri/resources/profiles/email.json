@@ -1,0 +1,556 @@
+{
+  "id": "wisper-email-v1",
+  "name": "Email",
+  "description": "Common email greetings, closings and polite business phrases",
+  "version": "2026-09-03",
+  "author": "Wisper",
+  "update_url": "",
+  "entries": [
+    {
+      "phrase": "Best regards",
+      "variants": [
+        "best regard"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Kind regards",
+      "variants": [
+        "kind regard"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Warm regards",
+      "variants": [
+        "warm regard"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Sincerely",
+      "variants": [
+        "sincerely",
+        "sincerly"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Yours sincerely",
+      "variants": [
+        "yours sincerely"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Yours faithfully",
+      "variants": [
+        "yours faithfully"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Many thanks",
+      "variants": [
+        "many thanks"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Thank you for your time",
+      "variants": [
+        "thanks for your time"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Thanks in advance",
+      "variants": [
+        "thanks in advance"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Looking forward to hearing from you",
+      "variants": [
+        "looking forward to hearing from you"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Looking forward to your reply",
+      "variants": [
+        "looking forward to your reply"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Please find attached",
+      "variants": [
+        "please find attached"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Attached please find",
+      "variants": [
+        "attached please find"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "As discussed",
+      "variants": [
+        "as discussed"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "As per our conversation",
+      "variants": [
+        "as per conversation"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Following up on",
+      "variants": [
+        "following up on"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Just following up",
+      "variants": [
+        "just following up"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Let me know if you have any questions",
+      "variants": [
+        "let me know if you have questions"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Feel free to reach out",
+      "variants": [
+        "feel free to reach out"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hope you're well",
+      "variants": [
+        "hope your well",
+        "hope you are well"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hope you're doing well",
+      "variants": [
+        "hope you are doing well"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Hope this email finds you well",
+      "variants": [
+        "hope this email finds you well"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Sorry for the delayed response",
+      "variants": [
+        "sorry for the late response",
+        "sorry for delayed response"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Apologies for the delay",
+      "variants": [
+        "apologies for the delay"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Thank you for your patience",
+      "variants": [
+        "thanks for your patience"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Thank you for reaching out",
+      "variants": [
+        "thanks for reaching out"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "I would like to follow up",
+      "variants": [
+        "i would like to follow up"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Per my last email",
+      "variants": [
+        "per last email"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Looping in",
+      "variants": [
+        "looping in"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "CC'ing",
+      "variants": [
+        "cc ing",
+        "ccing"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "BCC",
+      "variants": [
+        "b c c"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "FYI",
+      "variants": [
+        "f y i",
+        "for your information"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "EOD",
+      "variants": [
+        "e o d",
+        "end of day"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "COB",
+      "variants": [
+        "c o b",
+        "close of business"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "ASAP",
+      "variants": [
+        "a sap",
+        "a s a p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "RSVP",
+      "variants": [
+        "r s v p"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Out of office",
+      "variants": [
+        "ooo"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": " OOO ",
+      "variants": [
+        "o o o"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Best wishes",
+      "variants": [
+        "best wishes"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Take care",
+      "variants": [
+        "take care"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Have a great day",
+      "variants": [
+        "have a great day"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Let me know what you think",
+      "variants": [
+        "let me know what you think"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Happy to help",
+      "variants": [
+        "happy to help"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Thanks for your understanding",
+      "variants": [
+        "thanks for your understanding"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Please let me know",
+      "variants": [
+        "please let me know"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Please confirm receipt",
+      "variants": [
+        "please confirm receipt"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Awaiting your response",
+      "variants": [
+        "awaiting your response"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Looking forward to collaborating",
+      "variants": [
+        "looking forward to collaborating"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Thank you for considering",
+      "variants": [
+        "thanks for considering"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "With appreciation",
+      "variants": [
+        "with appreciation"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Good morning",
+      "variants": [
+        "good morning"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Good afternoon",
+      "variants": [
+        "good afternoon"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Good evening",
+      "variants": [
+        "good evening"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Dear Sir",
+      "variants": [
+        "dear sir"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Dear Madam",
+      "variants": [
+        "dear madam"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "To whom it may concern",
+      "variants": [
+        "to whom it may concern"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Subject to",
+      "variants": [
+        "subject to"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Re:",
+      "variants": [
+        "re colon",
+        "r e"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Fwd:",
+      "variants": [
+        "f w d colon",
+        "forward colon"
+      ],
+      "caseSensitive": true,
+      "wholeWord": false
+    },
+    {
+      "phrase": "Attachment",
+      "variants": [
+        "attachment"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Invoice",
+      "variants": [
+        "invoice"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Receipt",
+      "variants": [
+        "receipt"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Meeting invitation",
+      "variants": [
+        "meeting invitation"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Calendar invite",
+      "variants": [
+        "calendar invite"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Zoom link",
+      "variants": [
+        "zoom link"
+      ],
+      "caseSensitive": false,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Google Meet",
+      "variants": [
+        "google meet"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    },
+    {
+      "phrase": "Microsoft Teams",
+      "variants": [
+        "microsoft teams"
+      ],
+      "caseSensitive": true,
+      "wholeWord": true
+    }
+  ]
+}
