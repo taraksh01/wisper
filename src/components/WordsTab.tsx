@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, WordSuggestion } from "../types";
 import { ResetButton } from "./ResetButton";
 import { WordsManager } from "./WordsManager";
+import { DictionaryProfiles } from "./DictionaryProfiles";
 import { useToast } from "./ToastContext";
 
 interface WordsTabProps {
@@ -56,6 +57,8 @@ export function WordsTab({ settings, onSave, onReset }: WordsTabProps) {
         onScan={onScan}
         setSuggestions={setSuggestions}
       />
+
+      <DictionaryProfiles />
     </div>
   );
 }

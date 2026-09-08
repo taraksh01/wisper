@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { WordEntry, WordSuggestion } from "../types";
+import { WordEntry, WordSuggestion, DictionaryProfile } from "../types";
 import { SectionCard } from "./SectionCard";
 import { Switch } from "./Switch";
 import { Input } from "./ui/Input";
@@ -30,6 +30,8 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
   const [ignored, setIgnored] = useState<string[]>([]);
   const [showImport, setShowImport] = useState(false);
   const [dictQuery, setDictQuery] = useState("");
+  const phraseRef = useRef<HTMLInputElement>(null);
+  const [inactiveProfiles, setInactiveProfiles] = useState<Set<string>>(new Set());
 
   const loadIgnored = useCallback(async () => {
     try {
@@ -42,8 +44,12 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
 
   const load = useCallback(async () => {
     try {
-      const v = await invoke<WordEntry[]>("get_words");
+      const [v, profiles] = await Promise.all([
+        invoke<WordEntry[]>("get_words"),
+        invoke<DictionaryProfile[]>("list_imported_profiles"),
+      ]);
       setEntries(v);
+      setInactiveProfiles(new Set(profiles.filter((p) => !p.active).map((p) => p.id)));
     } catch (e) {
       console.error(e);
     }
@@ -52,10 +58,18 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
   useEffect(() => {
     load();
     loadIgnored();
+    const onChanged = () => {
+      load();
+      loadIgnored();
+    };
+    window.addEventListener("wisper:words-changed", onChanged);
+    return () => window.removeEventListener("wisper:words-changed", onChanged);
   }, [load, loadIgnored]);
 
   async function addEntry() {
     if (!phrase.trim()) return;
+    const norm = phrase.trim().toLowerCase();
+    const existing = entries.find((e) => e.phrase.toLowerCase() === norm);
     setError("");
     try {
       await invoke("add_word_entry", {
@@ -67,8 +81,13 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
       });
       setPhrase("");
       setVariants("");
+      phraseRef.current?.focus();
       await load();
-      addToast("Term added", "success");
+      if (existing) {
+        addToast(`Updated ${existing.phrase} — variants merged`, "success");
+      } else {
+        addToast("Term added", "success");
+      }
     } catch (e: any) {
       setError(String(e));
       addToast("Failed to add term", "error");
@@ -87,6 +106,8 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
   }
 
   async function acceptSuggestion(s: WordSuggestion) {
+    const norm = s.phrase.trim().toLowerCase();
+    const existing = entries.find((e) => e.phrase.toLowerCase() === norm);
     try {
       await invoke("add_word_entry", {
         phrase: s.phrase,
@@ -97,7 +118,11 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
       });
       setSuggestions((prev) => prev.filter((x) => x.phrase !== s.phrase));
       await load();
-      addToast("Term added", "success");
+      if (existing) {
+        addToast(`Updated ${existing.phrase} — variants merged`, "success");
+      } else {
+        addToast("Term added", "success");
+      }
     } catch (e) {
       console.error(e);
       addToast("Failed to add term", "error");
@@ -145,11 +170,13 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
 
   const handleImport = async (paste: string) => {
     const lines = paste.trim().split(/\r?\n/).filter(Boolean);
-    let added = 0, skipped = 0;
+    let added = 0, merged = 0;
     for (const line of lines) {
       try {
         const [phrase, variants] = line.split("|").map(s => s.trim());
         if (!phrase) continue;
+        // Check if phrase already exists (case-insensitive) to count as merged
+        const exists = entries.some((e) => e.phrase.toLowerCase() === phrase.toLowerCase());
         await invoke("add_word_entry", {
           phrase,
           variants: variants || "",
@@ -157,14 +184,14 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
           wholeWord: true,
           auto: false,
         });
-        added++;
+        if (exists) merged++;
+        else added++;
       } catch (e) {
-        if (String(e).includes("UNIQUE")) skipped++;
-        else console.error(e);
+        console.error(e);
       }
     }
     await load();
-    return { added, skipped };
+    return { added, skipped: merged };
   };
 
   const filteredEntries = dictQuery.trim()
@@ -224,7 +251,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
             {suggestions.length > 0 && (
               <>
                 <p className="text-[10px] font-mono text-muted/70 leading-relaxed">
-                  Edit the <span className="text-ink">correct spelling</span> on the left; add how it was <span className="text-ink">misheard</span> on the right.
+                  Edit how it was <span className="text-ink">misheard</span> on the left; <span className="text-ink">correct spelling</span> on the right.
                 </p>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pr-0.5">
                   {suggestions.map((s, i) => (
@@ -232,17 +259,6 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                       key={i}
                       className="flex items-center gap-2 bg-elevated/30 rounded-lg px-2.5 py-2 ring-1 ring-stroke/60 min-w-0"
                     >
-                      <div className="w-28 shrink-0">
-                        <Input
-                          variant="ghost"
-                          value={s.phrase}
-                          onChange={(e) => updateSuggestion(i, { phrase: e.target.value })}
-                          placeholder="Correct spelling"
-                          aria-label="Correct spelling"
-                          title="Correct spelling to use"
-                        />
-                      </div>
-                      <span className="text-[10px] font-mono text-muted/60 shrink-0" title="will be replaced by the correct spelling">←</span>
                       <div className="flex-1 min-w-0">
                         <Input
                           variant="ghost"
@@ -256,6 +272,17 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                           aria-label="Misheard variants"
                           title="Comma-separated misheard forms"
                           className="text-[10px] text-muted placeholder:text-muted/40"
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono text-muted/60 shrink-0" title="misheard will be replaced by correct spelling">→</span>
+                      <div className="w-28 shrink-0">
+                        <Input
+                          variant="ghost"
+                          value={s.phrase}
+                          onChange={(e) => updateSuggestion(i, { phrase: e.target.value })}
+                          placeholder="Correct spelling"
+                          aria-label="Correct spelling"
+                          title="Correct spelling to use"
                         />
                       </div>
                       <div className="ml-auto flex items-center gap-2 shrink-0">
@@ -290,6 +317,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
 
             <div className="space-y-1.5">
               <Input
+                ref={phraseRef}
                 value={phrase}
                 onChange={(e) => setPhrase(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addEntry()}
@@ -338,6 +366,7 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                     value={dictQuery}
                     onChange={(e) => setDictQuery(e.target.value)}
                     placeholder="Search dictionary…"
+                    aria-label="Search dictionary"
                     className="w-full pl-8 pr-3"
                   />
                 </div>
@@ -348,15 +377,40 @@ export function WordsManager({ wordsEnabled, onToggle, wordsAutoScan, onToggleAu
                     filteredEntries.map((e) => (
                       <div
                         key={e.id}
-                        className="flex items-center gap-2 bg-elevated/30 rounded-lg px-2.5 py-2 ring-1 ring-stroke/60"
+                        className={`flex items-center gap-2 bg-elevated/30 rounded-lg px-2.5 py-2 ring-1 ring-stroke/60 ${e.profile_id && inactiveProfiles.has(e.profile_id) ? "opacity-50" : ""}`}
+                        title={e.profile_id && inactiveProfiles.has(e.profile_id) ? "Profile paused — this entry is currently skipped" : undefined}
                       >
-                        <span className="text-xs font-mono text-ink shrink-0">{e.phrase}</span>
-                        {e.variants && (
-                          <span className="text-[10px] font-mono text-muted truncate" title={e.variants}>
-                            ← {e.variants}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          {e.variants ? (
+                            <>
+                              <span className="text-[11px] font-mono text-muted truncate" title={e.variants}>
+                                {e.variants}
+                              </span>
+                              <span className="text-[10px] text-muted/40 shrink-0">→</span>
+                              <span className="text-xs font-mono font-medium text-ink shrink-0" title={e.phrase}>
+                                {e.phrase}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-xs font-mono text-ink" title={e.phrase}>
+                              {e.phrase}
+                            </span>
+                          )}
+                        </div>
                         <div className="ml-auto flex items-center gap-2 shrink-0">
+                          {!!e.profile_id && inactiveProfiles.has(e.profile_id) && (
+                            <span className="text-[9px] font-mono bg-elevated text-muted px-1.5 py-0.5 rounded ring-1 ring-stroke/50">
+                              paused
+                            </span>
+                          )}
+                          {e.profile_id && (
+                            <span
+                              className="text-[9px] font-mono bg-elevated text-muted px-1.5 py-0.5 rounded ring-1 ring-stroke/50"
+                              title={`From profile: ${e.profile_id}. Editing detaches it from the profile.`}
+                            >
+                              {e.profile_id.replace(/^wisper-/, "").replace(/-v\d+$/, "")}
+                            </span>
+                          )}
                           {e.auto && (
                             <span className="text-[9px] font-mono bg-accent/10 text-accent/80 px-1.5 py-0.5 rounded">auto</span>
                           )}
@@ -483,7 +537,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (te
         </form>
         {result && (
           <div className="text-[10px] font-mono text-ready text-center pt-2 border-t border-stroke/30">
-            Imported {result.added} term{result.added !== 1 ? "s" : ""}, skipped {result.skipped}
+            Imported {result.added} new, {result.skipped} merged
           </div>
         )}
       </div>
