@@ -38,10 +38,42 @@ const STEPS: Step[] = [
 export function AboutTab() {
   const [version, setVersion] = useState("");
   const [stars, setStars] = useState<number | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "available" | "upToDate" | "error">("idle");
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
+
+  const checkForUpdates = async () => {
+    setUpdateStatus("checking");
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update?.available) {
+        setLatestVersion(update.version);
+        setUpdateStatus("available");
+      } else {
+        setUpdateStatus("upToDate");
+        setTimeout(() => setUpdateStatus("idle"), 3000);
+      }
+    } catch {
+      setUpdateStatus("error");
+      setTimeout(() => setUpdateStatus("idle"), 3000);
+    }
+  };
+
+  const handleUpdate = async () => {
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      const update = await check();
+      if (update?.available) {
+        await update.downloadAndInstall();
+        await relaunch();
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     const ac = new AbortController();
@@ -103,6 +135,32 @@ export function AboutTab() {
             <span className="text-ink font-medium">on your own machine</span>, ready
             to paste into whatever you're doing.
           </p>
+          <div className="flex items-center justify-center gap-2 mt-4">
+            <button
+              onClick={checkForUpdates}
+              disabled={updateStatus === "checking"}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-ink bg-elevated ring-1 ring-stroke hover:bg-elevated/80 rounded-lg transition-colors disabled:opacity-50 pressable"
+            >
+              {updateStatus === "checking" ? "Checking…" : "Check for updates"}
+            </button>
+            {updateStatus === "available" && latestVersion && (
+              <button
+                onClick={handleUpdate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-white bg-accent hover:bg-accent-dim rounded-lg transition-colors pressable"
+              >
+                Update to v{latestVersion}
+              </button>
+            )}
+            {updateStatus === "upToDate" && (
+              <span className="text-xs font-mono text-ready">Up to date</span>
+            )}
+            {updateStatus === "error" && (
+              <span className="text-xs font-mono text-recording">Check failed</span>
+            )}
+          </div>
+          {updateStatus === "available" && (
+            <p className="text-[10px] font-mono text-muted mt-2">v{latestVersion} is available — updates install in-app, no manual download needed.</p>
+          )}
         </div>
       </SectionCard>
 
