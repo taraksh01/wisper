@@ -332,7 +332,16 @@ pub fn sync_runtime(settings: &AppSettings) {
         let mut v = crate::coordinator::CLOUD_API_KEY
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *v = settings.voice_api_key.clone();
+        *v = match settings.engine_provider.as_str() {
+            "openai" => settings.voice_api_key_openai.clone(),
+            "groq" => settings.voice_api_key_groq.clone(),
+            "custom" => settings.voice_api_key_custom.clone(),
+            _ => settings.voice_api_key.clone(),
+        };
+        // Fallback to generic key if provider-specific is empty (migration)
+        if v.trim().is_empty() {
+            *v = settings.voice_api_key.clone();
+        }
     }
     {
         let mut v = crate::coordinator::CLOUD_MODEL

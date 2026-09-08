@@ -69,8 +69,22 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         None::<&str>,
     )?;
 
-    // 2. ONE action row - Load or Unload depending on state
-    let model_i = if !s.local_model_file.is_empty() {
+    // 2. ONE action row - shows the ACTIVE engine's model, not always local
+    let model_i = if s.engine_mode == "cloud" {
+        let cloud_label = {
+            let label = match s.engine_provider.as_str() {
+                "openai" => "OpenAI",
+                "groq" => "Groq",
+                _ => "Custom",
+            };
+            if s.engine_model.trim().is_empty() {
+                format!("{label} · not configured")
+            } else {
+                format!("{label} · {}", s.engine_model)
+            }
+        };
+        MenuItem::with_id(app, "cloud_model", cloud_label, false, None::<&str>)?
+    } else if !s.local_model_file.is_empty() {
         MenuItem::with_id(
             app,
             "unload",
@@ -92,7 +106,20 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
 
     // 3. Switch engine (enabled only when both engines are usable)
     let has_local = !s.local_model_file.is_empty() || !s.last_local_model_file.is_empty();
-    let has_cloud = !s.voice_api_key.is_empty() && !s.engine_model.is_empty();
+    let has_cloud = {
+        let key_ok = match s.engine_provider.as_str() {
+            "openai" => {
+                !s.voice_api_key_openai.trim().is_empty() || !s.voice_api_key.trim().is_empty()
+            }
+            "groq" => !s.voice_api_key_groq.trim().is_empty() || !s.voice_api_key.trim().is_empty(),
+            "custom" => {
+                !s.voice_api_key_custom.trim().is_empty() || !s.voice_api_key.trim().is_empty()
+            }
+            _ => !s.voice_api_key.trim().is_empty(),
+        };
+        let base_ok = s.engine_provider != "custom" || !s.engine_base_url.trim().is_empty();
+        key_ok && !s.engine_model.trim().is_empty() && base_ok
+    };
     let switch_i = if has_local && has_cloud {
         let label = if s.engine_mode == "cloud" {
             "Switch to On-device"
