@@ -373,6 +373,9 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
+            // No DWM drop shadow: on Windows the shadow of a transparent
+            // window renders as a visible ghost sheet behind the pill.
+            .shadow(false)
             .focusable(false)
             .focused(false)
             .visible(false);
