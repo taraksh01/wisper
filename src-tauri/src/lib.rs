@@ -752,8 +752,9 @@ pub fn run() {
             }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh();
-            // Windows: pre-create the hidden overlay so the first hotkey is instant too.
-            #[cfg(target_os = "windows")]
+            // Windows/macOS: pre-create the hidden overlay so the first hotkey is instant too.
+            // (Windows WebView2 creation costs 1-3s; on macOS this just warms the WKWebView.)
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 let prewarm_handle = app_handle.clone();
                 std::thread::spawn(move || {
