@@ -109,18 +109,32 @@
   </header>
 
   <main id="main" tabindex="-1">
-    <!-- Hero: a Linux terminal, a Wisper session in progress, the pill on the line being dictated. -->
+    <!-- Hero: the dictation moment. Copy left, live terminal demo right. -->
     <section class="hero">
-      <div class="hero-head">
-        <p class="hero-tag mono">Wisper 3.2.1 &middot; Linux &amp; Windows &middot; MIT</p>
-        <h1 class="hero-title">Dictation, at your cursor.</h1>
-        <p class="hero-sub">
-          Hold a key, talk, and your words type where you were going to type them anyway.
-        </p>
-      </div>
-
-      <div class="terminal" aria-hidden="true">
-        <div class="t-bar">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="hero-head">
+            <p class="hero-tag mono">Wisper 3.2.1 &middot; Linux &amp; Windows &middot; MIT</p>
+            <h1 class="hero-title">Dictation, <span class="title-accent">at your cursor.</span></h1>
+            <p class="hero-sub">
+              Hold a key, talk, and your words type where you were going to type them anyway.
+            </p>
+          </div>
+          <div class="hero-foot">
+            <div class="hero-cta-row">
+              <a class="btn btn-primary btn-lg" href="#download">Download</a>
+              <a class="btn btn-ghost btn-lg" href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">All releases</a>
+            </div>
+            <ul class="hero-facts mono" aria-label="At a glance">
+              <li><span class="dot-ok"></span>on-device by default</li>
+              <li>Wayland, X11 &amp; Windows</li>
+              <li>free &middot; MIT</li>
+            </ul>
+          </div>
+        </div>
+        <figure class="hero-demo">
+          <div class="terminal" aria-hidden="true">
+            <div class="t-bar">
           <span class="t-title mono">taraksh01@linux: ~/wisper</span>
           <span class="t-close" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -147,16 +161,10 @@
           <span class="ov-cancel">
             <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </span>
+          </div>
         </div>
-      </div>
-
-      <div class="hero-foot">
-        <a class="btn btn-primary btn-lg" href="#download">Download</a>
-        <ul class="hero-facts mono" aria-label="At a glance">
-          <li><span class="dot-ok"></span>on-device by default</li>
-          <li>Wayland, X11 &amp; Windows</li>
-          <li>free &middot; MIT</li>
-        </ul>
+        <figcaption class="terminal-caption mono">Live demo · hold your hotkey, talk, watch it type</figcaption>
+      </figure>
       </div>
     </section>
 
