@@ -286,18 +286,16 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     let restore_text: Option<String> = original_text.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(100));
-        // Only restore if no newer dictation has overwritten the clipboard
         if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
             return;
         }
+        let Some(orig) = restore_text else {
+            return;
+        };
         if let Ok(mut c) = Clipboard::new() {
             if let Ok(cur) = c.get_text() {
                 if cur == expected {
-                    if let Some(orig) = restore_text {
-                        let _ = c.set_text(orig);
-                    } else {
-                        let _ = c.set_text(String::new());
-                    }
+                    let _ = c.set_text(orig);
                 }
             }
         }
