@@ -170,4 +170,5 @@ jobs:
         run: |
           gh release delete beta --yes || true
           git push origin :refs/tags/beta || true
+          git tag -d beta || true
           gh release create beta --prerelease --title "Beta channel" --notes "Rolling beta feed for Wisper beta installs. Use the latest versioned beta for full installers." /tmp/betafeed/latest.json
