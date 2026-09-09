@@ -20,7 +20,9 @@ pub fn was_capped_and_reset() -> bool {
 /// Returns an empty vector if enumeration fails.
 pub fn list_input_devices() -> Vec<(String, String)> {
     // cfg!: #[cfg] return would orphan the code below on Windows.
-    if cfg!(target_os = "windows") {
+    // macOS joins this branch: CoreAudio ids carry no ALSA node semantics,
+    // so the Linux rank/filter path below must not run on them.
+    if cfg!(target_os = "windows") || cfg!(target_os = "macos") {
         let host = cpal::default_host();
         let Ok(devices) = host.input_devices() else {
             return Vec::new();
