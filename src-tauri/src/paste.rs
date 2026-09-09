@@ -276,9 +276,7 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     if ready {
         thread::sleep(Duration::from_millis(30));
     } else {
-        // Clipboard never confirmed our text (another app raced the update,
-        // e.g. a clipboard manager). Sending Ctrl+V now would paste STALE
-        // content, so type directly instead.
+        // Clipboard never confirmed our text; Ctrl+V would paste stale content.
         eprintln!("[paste] clipboard poll timed out after 100ms - falling back to direct typing");
         return type_text_directly(text);
     }

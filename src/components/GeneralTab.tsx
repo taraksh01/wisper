@@ -557,8 +557,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
     return () => clearTimeout(timerRef.current);
   }, []);
 
-  // Paste-test countdown: gives the user 3s to focus a target field
-  // (clicking the button steals focus, so typing must be deferred).
+  // Countdown lets the user focus a target field before typing starts.
   useEffect(() => {
     if (pasteTestIn === null) return;
     if (pasteTestIn <= 0) {

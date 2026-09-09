@@ -162,9 +162,7 @@ fn list_audio_devices() -> Vec<(String, String)> {
     crate::audio::list_input_devices()
 }
 
-/// Types a fixed pangram via the normal paste path so users can isolate
-/// injection problems (wrong chars/spaces) from transcription problems.
-/// Uses the currently configured paste method.
+/// Types a fixed pangram through the configured paste path (paste self-test).
 #[tauri::command]
 fn test_paste() -> Result<(), String> {
     let method = crate::coordinator::PASTE_METHOD
@@ -386,8 +384,7 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
-            // No DWM drop shadow: on Windows the shadow of a transparent
-            // window renders as a visible ghost sheet behind the pill.
+            // No DWM shadow: renders as a ghost sheet on transparent windows.
             .shadow(false)
             .focusable(false)
             .focused(false)
@@ -419,9 +416,8 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
 static LAST_OVERLAY_POS: once_cell::sync::Lazy<std::sync::Mutex<Option<(f64, f64)>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
-/// Windows work area (screen minus taskbar) for the monitor containing the
-/// cursor, in physical pixels: (left, top, right, bottom). Returns None if
-/// the Win32 query fails (caller falls back to the full display rect).
+/// Work area (screen minus taskbar) for the cursor monitor, physical pixels.
+/// None if the Win32 query fails; caller falls back to the full rect.
 #[cfg(target_os = "windows")]
 fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32, i32)> {
     use windows::Win32::Foundation::POINT;
@@ -471,9 +467,7 @@ fn overlay_pos_for(
     }
     let monitor = monitor_with_cursor(app)?;
     let scale = monitor.scale_factor();
-    // Windows: Tauri reports the FULL display rect including the taskbar,
-    // so bottom-anchored overlays slide underneath it. Prefer the work area
-    // (screen minus taskbar) from GetMonitorInfo when available.
+    // Windows: anchor to the work area so the pill clears the taskbar.
     #[cfg(target_os = "windows")]
     let (mx, my, mw, mh) = match windows_work_area_for_cursor(app) {
         Some((l, t, r, b)) => (
@@ -576,10 +570,7 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 if crate::coordinator::active_job_count() > 0 {
                     let _ = win.eval("window.__mode && window.__mode('processing')");
                 } else {
-                    // Windows: creating a WebView2 window costs 1-3s, so keep
-                    // the hidden window alive instead of rebuilding it on
-                    // every hotkey press. Linux WebKit rebuilds are instant,
-                    // keep destroy there.
+                    // Windows: WebView2 creation costs 1-3s, so hide instead of rebuild.
                     #[cfg(target_os = "windows")]
                     {
                         let _ = win.hide();
@@ -761,18 +752,13 @@ pub fn run() {
             }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh();
-            // Windows: pre-create the hidden overlay after startup settles so
-            // even the first hotkey press doesn't pay WebView2 window-creation
-            // cost (1-3s). Serialized on the main thread with update_overlay,
-            // and create_overlay_with no-ops if the window already exists.
+            // Windows: pre-create the hidden overlay so the first hotkey is instant too.
             #[cfg(target_os = "windows")]
             {
                 let prewarm_handle = app_handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
-                    // Move a separate clone into the closure (same pattern as
-                    // update_overlay): the method receiver borrows
-                    // prewarm_handle, so the closure must own its own copy.
+                    // Separate clone: the receiver borrows prewarm_handle.
                     let inner = prewarm_handle.clone();
                     let _ = prewarm_handle.run_on_main_thread(move || {
                         create_overlay(&inner);

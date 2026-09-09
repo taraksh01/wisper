@@ -48,13 +48,9 @@ sherpa-onnx = "1.13.5"
 ort = "2.0.0-rc.12"
 ndarray = "0.17"
 
-# Windows only: pin windows-core to the 0.61 line. cpal 0.18 allows
-# windows-core <=0.62, so Cargo otherwise mixes windows 0.61.3 with
-# windows-core 0.62.2, whose `implement` macro output no longer satisfies
-# cpal's trait bounds (E0277/E0599 in cpal's WASAPI backend).
+# Pin windows-core: cpal 0.18 breaks against 0.62 (E0277/E0599).
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = "=0.61.2"
-# Minimal Win32 surface for taskbar-aware overlay placement
-# (GetMonitorInfoW/MONITORINFOEXW live in Win32_Graphics_Gdi).
+# Win32 surface for taskbar-aware overlay placement.
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
