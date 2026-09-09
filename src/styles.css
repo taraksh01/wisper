@@ -106,7 +106,7 @@ body {
   opacity: 0.35;
   mask-image: radial-gradient(ellipse 800px 600px at 50% 0%, black 40%, transparent 75%);
 }
-.light .app-canvas::before {
+.light.app-canvas::before {
   opacity: 0.5;
 }
 
