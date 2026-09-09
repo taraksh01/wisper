@@ -212,7 +212,13 @@ fn cancel_recording() {
 fn get_current_state() -> String {
     let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     match *state {
-        CoordinatorState::Idle => "idle".into(),
+        CoordinatorState::Idle => {
+            if crate::coordinator::active_job_count() > 0 {
+                "processing".into()
+            } else {
+                "idle".into()
+            }
+        }
         CoordinatorState::Recording => "recording".into(),
         CoordinatorState::Processing => "processing".into(),
         CoordinatorState::Error => "error".into(),
@@ -573,6 +579,7 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                     // Windows: WebView2 creation costs 1-3s, so hide instead of rebuild.
                     #[cfg(target_os = "windows")]
                     {
+                        let _ = win.eval("window.__mode && window.__mode('idle')");
                         let _ = win.hide();
                     }
                     #[cfg(not(target_os = "windows"))]
@@ -618,6 +625,7 @@ pub fn hide_overlay() {
     let hide_handle = handle.clone();
     let _ = handle.run_on_main_thread(move || {
         if let Some(win) = hide_handle.get_webview_window(OVERLAY_LABEL) {
+            let _ = win.eval("window.__mode && window.__mode('idle')");
             let _ = win.hide();
         }
     });
