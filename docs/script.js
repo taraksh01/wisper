@@ -10,9 +10,9 @@ const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").match
 // click, holds, then true-backspaces one character at a time before typing
 // the next one. Web Audio click is only created on first user gesture.
 const DICTATIONS = [
-  'git commit -m "3.1.0: pill inside, beam on"',
-  'git tag v3.1.0 && git push --tags',
-  'gh release create v3.1.0 --generate-notes',
+  "hold the hotkey and just talk",
+  "your words, typed at your cursor",
+  "dictate the whole email hands free",
 ];
 const textEl = document.getElementById("t-text");
 let audioCtx = null;
