@@ -340,7 +340,7 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
         </div>
         <div class="setup-card">
           <h3><span class="setup-num mono">3</span> Pick your mic</h3>
-          <p>In <strong>General</strong> settings, choose a specific input device or leave it on system default. Test the level before you rely on it.</p>
+          <p>In <strong>General</strong> settings, choose a specific input device or leave it on system default. Test the level before you rely on it. On Windows, if the meter stays flat, check Settings → Privacy → Microphone access: Windows delivers silence when access is blocked.</p>
           <p class="setup-foot mono">General tab · input device</p>
         </div>
       </div>
@@ -354,6 +354,18 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
         <p class="section-lead">The honest answers, including the platform-specific rough edges.</p>
       </header>
       <div class="faq">
+        <details>
+          <summary>How do I install on Windows?</summary>
+          <p>Grab the NSIS installer from the download section above and run it. Windows builds are currently tagged beta: fully usable, updating in-app from the beta channel while the stable Windows release is prepared.</p>
+        </details>
+        <details>
+          <summary>Why is my mic silent on Windows?</summary>
+          <p>Almost always the privacy switch: open Settings → Privacy → Microphone access and allow apps to use the microphone. When blocked, Windows feeds silence instead of an error, so the mic meter in General stays flat. The built-in Test paste button helps confirm everything past the mic is working.</p>
+        </details>
+        <details>
+          <summary>Is there a macOS build?</summary>
+          <p>Not yet. Windows came first; macOS is next after the signing setup is in place. The download section will list it when it lands.</p>
+        </details>
         <details>
           <summary>Is my audio sent to the cloud?</summary>
           <p>No, not by default. Transcription runs on your machine with local ONNX models. Cloud providers are optional and only used if you add a key in Engine or Process settings.</p>
