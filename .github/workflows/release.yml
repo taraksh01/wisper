@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: "Platform to build (linux, windows, all)"
+        description: "Platform to build (linux, windows, macos, all)"
         required: false
         default: "all"
         type: choice
-        options: ["all", "linux", "windows"]
+        options: ["all", "linux", "windows", "macos"]
 
 permissions:
   contents: write
@@ -20,11 +20,13 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# Two separate jobs (not a matrix) so beta tags can skip Linux entirely:
+# Three separate jobs (not a matrix) so beta tags can skip Linux/macOS entirely:
 # a skipped job shows gray instead of failing the run. Job-level `if`
 # only uses github/event/inputs contexts - never matrix (unavailable
 # there and fails the run at startup). Plain v tags are the only
 # supported trigger: tagName v__VERSION__ must match the pushed tag.
+# macOS skips beta tags like Linux does: the beta channel stays
+# Windows-only until the first signed mac build is verified.
 
 jobs:
   release-linux:
@@ -143,8 +145,61 @@ jobs:
           # keep the default endpoint from tauri.conf.json.
           args: ${{ contains(github.ref_name, 'beta') && format('--config "{0}/src-tauri/tauri.beta.json"', github.workspace) || '' }}
 
-  # Republishes this tag's latest.json to a floating `beta` release so
-  # installed betas (which point at .../releases/download/beta/latest.json)
+  release-macos:
+    # Stable tags only. Beta tags (containing 'beta') are Windows-only.
+    if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Guard tag matches version
+        shell: bash
+        run: |
+          ver=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          pkg=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          cargo=$(python3 -c "import re; print(re.search(r'^version\s*=\s*\"([^\"]+)\"', open('src-tauri/Cargo.toml').read(), re.M).group(1))")
+          [ "$ver" = "$pkg" ] && [ "$ver" = "$cargo" ] || { echo "version drift: tauri=$ver pkg=$pkg cargo=$cargo"; exit 1; }
+          if [ "${{ github.event_name }}" = "push" ]; then [ "v$ver" = "${{ github.ref_name }}" ] || { echo "tag ${{ github.ref_name }} != v$ver"; exit 1; }; fi
+
+      - name: Build + release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: src-tauri
+          tagName: v__VERSION__
+          releaseName: Wisper v__VERSION__
+          releaseBody: "See the assets below for the macOS disk image (dmg, Apple Silicon)."
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          uploadUpdaterJson: true
+
+  # Republishes this tag's latest.json to a floating `beta` release so  # installed betas (which point at .../releases/download/beta/latest.json)
   # discover new betas in-app. Stable /latest never includes prereleases,
   # so stable installs are unaffected.
   beta-feed:
