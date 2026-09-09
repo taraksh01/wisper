@@ -16,46 +16,69 @@ on:
 permissions:
   contents: write
 
-jobs:
-  release:
-    # NOTE: do NOT filter here with matrix context - jobs.<job_id>.if is
-    # evaluated before matrix expansion, so matrix.* is unavailable and the
-    # whole run fails at startup with 0 jobs. Platform filtering lives in the
-    # "Check if this platform should build" step below (step-level ifs fully
-    # support matrix). Plain v tags are the only supported trigger: tagName
-    # v__VERSION__ must match the pushed tag.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-24.04
-            os: linux
-            args: ""
-          - platform: windows-latest
-            os: windows
-            args: ""
-        exclude: []
-    runs-on: ${{ matrix.platform }}
-    steps:
-      # Beta tags (e.g. v3.3.0-beta.1) build Windows only; stable tags build
-      # all platforms. Exit 78 marks this job neutral so the Linux leg ends
-      # in seconds without running the build.
-      - name: Check if this platform should build
-        if: github.event_name == 'push' && contains(github.ref_name, 'beta') && matrix.os == 'linux'
-        run: echo "Beta tag detected - Windows-only release, skipping Linux." && exit 78
+# Two separate jobs (not a matrix) so beta tags can skip Linux entirely:
+# a skipped job shows gray instead of failing the run. Job-level `if`
+# only uses github/event/inputs contexts - never matrix (unavailable
+# there and fails the run at startup). Plain v tags are the only
+# supported trigger: tagName v__VERSION__ must match the pushed tag.
 
+jobs:
+  release-linux:
+    # Stable tags only. Beta tags (containing 'beta') are Windows-only.
+    if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux')) }}
+    runs-on: ubuntu-24.04
+    steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Linux build deps
-        if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev librsvg2-dev libasound2-dev libayatana-appindicator3-dev patchelf rpm
 
-      - name: Skip non-matching platform (manual dispatch)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.platform != 'all' && github.event.inputs.platform != matrix.os
-        run: echo "Skipping ${{ matrix.os }} (requested ${{ github.event.inputs.platform }})" && exit 78
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build + release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: src-tauri
+          tagName: v__VERSION__
+          releaseName: Wisper v__VERSION__
+          releaseBody: "See the assets below for the Linux packages (deb, rpm, AppImage)."
+          releaseDraft: true
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          uploadUpdaterJson: true
+
+  release-windows:
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -89,8 +112,7 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: Wisper v__VERSION__${{ contains(github.ref_name, 'beta') && ' (Windows beta)' || '' }}
-          releaseBody: ${{ contains(github.ref_name, 'beta') && 'Windows beta - NSIS installer below. Not for production use yet.' || 'See the assets below for the Linux packages (deb, rpm, AppImage).' }}
+          releaseBody: ${{ contains(github.ref_name, 'beta') && 'Windows beta - NSIS installer below. Not for production use yet.' || 'See the assets below for the Windows installer (NSIS).' }}
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, 'beta') }}
           uploadUpdaterJson: true
-          args: ${{ matrix.args }}
