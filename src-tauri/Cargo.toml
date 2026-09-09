@@ -54,4 +54,7 @@ ndarray = "0.17"
 # cpal's trait bounds (E0277/E0599 in cpal's WASAPI backend).
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-core = "=0.61.2"
+# Minimal Win32 surface for taskbar-aware overlay placement
+# (GetMonitorInfoW/MONITORINFOEXW live in Win32_Graphics_Gdi).
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 

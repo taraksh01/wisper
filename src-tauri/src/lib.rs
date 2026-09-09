@@ -406,6 +406,34 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
 static LAST_OVERLAY_POS: once_cell::sync::Lazy<std::sync::Mutex<Option<(f64, f64)>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
+/// Windows work area (screen minus taskbar) for the monitor containing the
+/// cursor, in physical pixels: (left, top, right, bottom). Returns None if
+/// the Win32 query fails (caller falls back to the full display rect).
+#[cfg(target_os = "windows")]
+fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
+    };
+    let pos = app.cursor_position().ok()?;
+    let pt = POINT {
+        x: pos.x as i32,
+        y: pos.y as i32,
+    };
+    let hmon = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+    if hmon.is_invalid() {
+        return None;
+    }
+    let mut info: MONITORINFOEXW = unsafe { std::mem::zeroed() };
+    info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    let ok = unsafe { GetMonitorInfoW(hmon, &mut info.monitorInfo as *mut MONITORINFO) };
+    if !ok.as_bool() {
+        return None;
+    }
+    let r = info.monitorInfo.rcWork;
+    Some((r.left, r.top, r.right, r.bottom))
+}
+
 /// Computes the overlay's (x, y) logical position for a window of the given
 /// size. When `prefer_cache` is true it reuses the last recording position (so
 /// an error/recreated window stays put); otherwise it tracks the live cursor
@@ -430,10 +458,31 @@ fn overlay_pos_for(
     }
     let monitor = monitor_with_cursor(app)?;
     let scale = monitor.scale_factor();
-    let mx = monitor.position().x as f64 / scale;
-    let my = monitor.position().y as f64 / scale;
-    let mw = monitor.size().width as f64 / scale;
-    let mh = monitor.size().height as f64 / scale;
+    // Windows: Tauri reports the FULL display rect including the taskbar,
+    // so bottom-anchored overlays slide underneath it. Prefer the work area
+    // (screen minus taskbar) from GetMonitorInfo when available.
+    #[cfg(target_os = "windows")]
+    let (mx, my, mw, mh) = match windows_work_area_for_cursor(app) {
+        Some((l, t, r, b)) => (
+            l as f64 / scale,
+            t as f64 / scale,
+            (r - l) as f64 / scale,
+            (b - t) as f64 / scale,
+        ),
+        None => (
+            monitor.position().x as f64 / scale,
+            monitor.position().y as f64 / scale,
+            monitor.size().width as f64 / scale,
+            monitor.size().height as f64 / scale,
+        ),
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (mx, my, mw, mh) = (
+        monitor.position().x as f64 / scale,
+        monitor.position().y as f64 / scale,
+        monitor.size().width as f64 / scale,
+        monitor.size().height as f64 / scale,
+    );
     let x = mx + (mw - win_w) / 2.0;
     let y = if top {
         my + OVERLAY_TOP_OFFSET
