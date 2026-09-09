@@ -67,6 +67,18 @@ fn play_wav(data: &'static [u8]) {
         let path = tmp.to_string_lossy().to_string();
         let tmp_path = tmp.clone();
         let mut played = false;
+        // macOS has no aplay/paplay/pw-play; afplay ships with the OS.
+        if cfg!(target_os = "macos") {
+            if let Ok(mut child) = std::process::Command::new("afplay")
+                .arg(&path)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                let _ = child.wait();
+                played = true;
+            }
+        }
         for prog in &["aplay", "paplay", "pw-play"] {
             let mut cmd = std::process::Command::new(prog);
             if *prog == "aplay" {
