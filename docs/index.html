@@ -177,18 +177,18 @@
       </header>
       <ol class="pipeline">
         <li class="step">
-          <span class="step-num mono">01</span>
           <h3>Speak</h3>
+          <p class="step-tel mono">hotkey · push-to-talk / toggle</p>
           <p>Hold the global hotkey for push-to-talk, or tap it to toggle. Your mic records locally, and the overlay pill shows a live waveform.</p>
         </li>
         <li class="step">
-          <span class="step-num mono">02</span>
           <h3>Transcribe</h3>
+          <p class="step-tel mono">onnx · on-device · stays loaded</p>
           <p>Local ONNX engines: Parakeet, Moonshine, or IndicConformer. They turn speech into text on your machine, silence is trimmed, and models stay loaded so your next dictation starts instantly.</p>
         </li>
         <li class="step">
-          <span class="step-num mono">03</span>
           <h3>Insert</h3>
+          <p class="step-tel mono">typed @ cursor · any app</p>
           <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland, X11, or Windows. Optionally polished by AI first.</p>
         </li>
       </ol>
@@ -202,60 +202,76 @@
         <p class="section-lead">Wisper does one job and stays out of your way. These are the controls you actually get.</p>
       </header>
       <ul class="bento">
-        <li class="cell cell-demo span-7">
-          <h3>The overlay that follows you</h3>
-          <p>A small pill floats at the bottom of whichever monitor your cursor is on. The voice-reactive waveform, a rotating radiant beam, and one button to cancel.</p>
-          <div class="demo-pill" data-beam aria-hidden="true">
-            <svg class="ov-wave" width="56" height="30" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg"><g class="ov-bars-g js-bars ov-bars-dim"></g></svg>
-            <span class="ov-divider"></span>
-            <span class="ov-cancel"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg></span>
+        <li class="cell cell-flag span-12">
+          <div class="flag-copy">
+            <p class="cell-kicker mono">presence</p>
+            <h3>The overlay that follows you</h3>
+            <p>A small pill floats at the bottom of whichever monitor your cursor is on. The voice-reactive waveform, a rotating radiant beam, and one button to cancel.</p>
           </div>
-          <p class="err-chip mono" aria-hidden="true">No speech detected. Try speaking closer to the mic.</p>
+          <div class="flag-media" aria-hidden="true">
+            <div class="demo-pill" data-beam>
+              <svg class="ov-wave" width="56" height="30" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg"><g class="ov-bars-g js-bars ov-bars-dim"></g></svg>
+              <span class="ov-divider"></span>
+              <span class="ov-cancel"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg></span>
+            </div>
+            <p class="err-chip mono">No speech detected. Try speaking closer to the mic.</p>
+          </div>
         </li>
-        <li class="cell span-5">
+        <li class="cell span-4">
+          <p class="cell-kicker mono">feedback</p>
           <h3>Hear it work</h3>
           <p>Subtle sounds mark recording start and text ready. Master toggle plus per-event controls. Silence it whenever you want.</p>
           <div class="snd-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">control</p>
           <h3>Push-to-talk</h3>
           <p>Hold to record, release to transcribe. Prefer toggle? One tap. Any key or key combo works.</p>
           <span class="keycap" aria-hidden="true">F9</span>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">privacy</p>
           <h3>Nothing leaves</h3>
           <p>Transcription runs on your machine. Cloud is strictly opt-in.</p>
           <p class="stat mono" aria-hidden="true"><span class="dot-ok"></span>0 bytes sent</p>
         </li>
-        <li class="cell span-4">
-          <h3>Pick your microphone</h3>
-          <p>Choose a specific input device or stay on system default. Virtual sinks are filtered out. Test the level before you rely on it.</p>
-        </li>
         <li class="cell span-6">
+          <p class="cell-kicker mono">refine</p>
           <h3>AI cleanup, your voice</h3>
           <p>An optional pass reformats and polishes the transcript. It never answers for you. Six writing styles: Auto, Clean-up, Email, Developer, Messaging, Formal, plus custom instructions.</p>
         </li>
         <li class="cell span-6">
+          <p class="cell-kicker mono">vocabulary</p>
           <h3>Your words, your way</h3>
           <p>Custom vocabulary turns shortcuts into proper terms. Say "gpt", get "GPT". 4 dictionary profiles (developer, email, messaging, general) with import/export and per-profile toggle. Scan past dictations to find new words worth saving.</p>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">input</p>
+          <h3>Pick your microphone</h3>
+          <p>Choose a specific input device or stay on system default. Virtual sinks are filtered out. Test the level before you rely on it.</p>
+        </li>
+        <li class="cell span-4">
+          <p class="cell-kicker mono">memory</p>
           <h3>Look back</h3>
           <p>Searchable history: replay the recording, re-transcribe, edit, copy. Collapsible Today shows today dictations/words/time saved. Set retention limits.</p>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">engines</p>
           <h3>Local or cloud</h3>
           <p>Stay fully offline, or plug in a cloud speech key: OpenAI, Groq, or any OpenAI-compatible endpoint. Switch any time.</p>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">tray</p>
           <h3>Out of the way</h3>
           <p>Lives in the system tray - Copy last transcription without opening the window. Close the window and it keeps running.</p>
         </li>
-        <li class="cell span-6">
+        <li class="cell span-4">
+          <p class="cell-kicker mono">fresh</p>
           <h3>Updates itself</h3>
           <p>Checks GitHub releases and installs in-app (About → Check for updates, also sidebar banner), with signed auto-updates. No manual download.</p>
         </li>
-        <li class="cell span-6">
+        <li class="cell span-4">
+          <p class="cell-kicker mono">launch</p>
           <h3>Starts with you</h3>
           <p>Launch at login, start hidden in the tray. First run walks you through the model download and push-to-talk vs toggle.</p>
         </li>
