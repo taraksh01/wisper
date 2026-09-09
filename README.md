@@ -60,7 +60,7 @@ By default Wisper auto-detects the best available tool, but you can pick a speci
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
 - **Backend:** Tauri v2 (Rust)
 - **STT:** local ONNX models + optional cloud APIs (OpenAI-compatible)
-- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm — Windows beta in progress (`feat/windows-beta`, same Rust logic with WASAPI/Enigo shims, `nsis` bundle)
+- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio)
 
 ## Development
 
