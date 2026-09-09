@@ -27,11 +27,13 @@
   },
   "bundle": {
     "active": true,
+    "category": "Productivity",
     "targets": [
       "appimage",
       "deb",
       "rpm",
-      "nsis"
+      "nsis",
+      "dmg"
     ],
     "publisher": "Tarak Shaw",
     "shortDescription": "Turn your voice into text right on your device, with your privacy always in your hands.",
@@ -43,7 +45,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "./entitlements.plist",
+      "infoPlist": "./Info.plist"
+    }
   },
   "plugins": {
     "updater": {
