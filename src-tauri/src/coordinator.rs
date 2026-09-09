@@ -627,6 +627,7 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 {
                     let (lock, cvar) = &*SEQ_CV;
                     let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    let wait_start = std::time::Instant::now();
                     while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
                         if cancelled() {
                             drop(guard);
@@ -635,9 +636,15 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                             );
                             return;
                         }
+                        if wait_start.elapsed() > std::time::Duration::from_secs(30) {
+                            eprintln!(
+                                "[paste] seq {my_seq} turn wait timed out - pasting out of order"
+                            );
+                            break;
+                        }
                         let (g, _) = cvar
                             .wait_timeout(guard, std::time::Duration::from_millis(25))
-                            .unwrap();
+                            .unwrap_or_else(|e| e.into_inner());
                         guard = g;
                     }
                 }
