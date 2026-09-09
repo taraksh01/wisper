@@ -276,7 +276,11 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     if ready {
         thread::sleep(Duration::from_millis(30));
     } else {
-        eprintln!("[paste] clipboard poll timed out after 100ms");
+        // Clipboard never confirmed our text (another app raced the update,
+        // e.g. a clipboard manager). Sending Ctrl+V now would paste STALE
+        // content, so type directly instead.
+        eprintln!("[paste] clipboard poll timed out after 100ms - falling back to direct typing");
+        return type_text_directly(text);
     }
 
     let paste_result = simulate_key_combo(method);
