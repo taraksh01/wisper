@@ -60,7 +60,7 @@ export function Select({
       if (idx === -1) idx = 0;
     }
     activeIndexRef.current = Math.max(0, idx);
-  }, [value, visibleOptions]);
+  }, [value, query, options]);
 
   useEffect(() => {
     if (activeIndexRef.current >= visibleOptions.length) {
