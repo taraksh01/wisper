@@ -63,6 +63,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Guard tag matches version
+        shell: bash
         run: |
           ver=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
           pkg=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
@@ -115,6 +116,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Guard tag matches version
+        shell: bash
         run: |
           ver=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
           pkg=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
