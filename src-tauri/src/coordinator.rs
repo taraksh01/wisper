@@ -222,11 +222,6 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
                 if cur == my_seq {
                     break;
                 }
-                if cur < my_seq {
-                    SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
-                    cvar.notify_all();
-                    return;
-                }
             }
             guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
         }
