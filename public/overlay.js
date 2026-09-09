@@ -114,6 +114,7 @@
 
   if (tauri && tauri.core) {
     setInterval(function () {
+      if (document.hidden) return;
       var t = performance.now() - start;
       tauri.core.invoke("get_input_level")
         .then(function (l) { render(l, t); })

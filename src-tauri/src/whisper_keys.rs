@@ -154,15 +154,14 @@ fn do_unregister_all(
 
 /// Forward a press/release into the coordinator's hotkey channel.
 fn forward(pressed: bool) {
-    if let Ok(guard) = HOTKEY_SENDER.lock() {
-        if let Some(tx) = guard.as_ref() {
-            if let Ok(s) = tx.lock() {
-                let _ = s.send(if pressed {
-                    HotkeyEvent::Pressed
-                } else {
-                    HotkeyEvent::Released
-                });
-            }
+    let guard = HOTKEY_SENDER.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(tx) = guard.as_ref() {
+        if let Ok(s) = tx.lock() {
+            let _ = s.send(if pressed {
+                HotkeyEvent::Pressed
+            } else {
+                HotkeyEvent::Released
+            });
         }
     }
 }

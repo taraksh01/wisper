@@ -1,6 +1,6 @@
 [package]
 name = "wisper"
-version = "3.2.1"
+version = "3.3.0-beta.3"
 description = "Turn your voice into text right on your device, with your privacy always in your hands."
 authors = ["Tarak Shaw <taraksh01@gmail.com>"]
 edition = "2021"
@@ -47,4 +47,10 @@ image = "0.25"
 sherpa-onnx = "1.13.5"
 ort = "2.0.0-rc.12"
 ndarray = "0.17"
+
+# Pin windows-core: cpal 0.18 breaks against 0.62 (E0277/E0599).
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-core = "=0.61.2"
+# Win32 surface for taskbar-aware overlay placement.
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 

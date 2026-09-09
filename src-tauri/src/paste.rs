@@ -26,21 +26,29 @@ fn command_exists(tool: &str) -> bool {
             }
         }
     }
+    let path_search = || {
+        std::env::var_os("PATH").map_or(false, |paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let full = dir.join(tool);
+                full.is_file() && is_executable(&full)
+            })
+        })
+    };
+    // No `which` on stock Windows; search PATH directly.
+    if cfg!(target_os = "windows") {
+        let result = path_search();
+        if let Ok(mut cache) = CMD_CACHE.lock() {
+            cache.insert(tool.to_string(), (result, std::time::Instant::now()));
+        }
+        return result;
+    }
     let result = Command::new("which")
         .arg(tool)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
-        .unwrap_or_else(|_| {
-            // Fallback: try `command -v` via direct PATH search
-            std::env::var_os("PATH").map_or(false, |paths| {
-                std::env::split_paths(&paths).any(|dir| {
-                    let full = dir.join(tool);
-                    full.is_file() && is_executable(&full)
-                })
-            })
-        });
+        .unwrap_or_else(|_| path_search());
     if let Ok(mut cache) = CMD_CACHE.lock() {
         cache.insert(tool.to_string(), (result, std::time::Instant::now()));
     }
@@ -59,8 +67,12 @@ fn is_executable(path: &std::path::Path) -> bool {
     path.is_file()
 }
 
-/// Detects the current display server session: "wayland", "x11", or "unknown".
+/// Detects the current display server session: "wayland", "x11", "windows", or "unknown".
 pub fn detect_session_type() -> String {
+    // cfg!: #[cfg] return would orphan the code below on Windows.
+    if cfg!(target_os = "windows") {
+        return "windows".into();
+    }
     if let Ok(t) = std::env::var("XDG_SESSION_TYPE") {
         let t = t.to_lowercase();
         if t == "wayland" || t == "x11" {
@@ -164,12 +176,13 @@ fn active_backend() -> String {
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
+    let backend = active_backend();
     if cfg!(debug_assertions) {
         eprintln!(
             "[paste] paste_text method={} len={} backend={}",
             method,
             text.len(),
-            active_backend()
+            backend
         );
     }
     if text.trim().is_empty() {
@@ -185,18 +198,12 @@ pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
     match &r {
         Ok(_) => {
             if cfg!(debug_assertions) {
-                eprintln!(
-                    "[paste] success method={} backend={}",
-                    method,
-                    active_backend()
-                );
+                eprintln!("[paste] success method={} backend={}", method, backend);
             }
         }
         Err(e) => eprintln!(
             "[paste] failed method={} backend={} err={}",
-            method,
-            active_backend(),
-            e
+            method, backend, e
         ),
     }
     r
@@ -272,7 +279,9 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     if ready {
         thread::sleep(Duration::from_millis(30));
     } else {
-        eprintln!("[paste] clipboard poll timed out after 100ms");
+        // Clipboard never confirmed our text; Ctrl+V would paste stale content.
+        eprintln!("[paste] clipboard poll timed out after 100ms - falling back to direct typing");
+        return type_text_directly(text);
     }
 
     let paste_result = simulate_key_combo(method);
@@ -280,18 +289,16 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     let restore_text: Option<String> = original_text.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(100));
-        // Only restore if no newer dictation has overwritten the clipboard
         if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
             return;
         }
+        let Some(orig) = restore_text else {
+            return;
+        };
         if let Ok(mut c) = Clipboard::new() {
             if let Ok(cur) = c.get_text() {
                 if cur == expected {
-                    if let Some(orig) = restore_text {
-                        let _ = c.set_text(orig);
-                    } else {
-                        let _ = c.set_text(String::new());
-                    }
+                    let _ = c.set_text(orig);
                 }
             }
         }

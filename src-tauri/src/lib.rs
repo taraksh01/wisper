@@ -154,6 +154,17 @@ fn list_audio_devices() -> Vec<(String, String)> {
     crate::audio::list_input_devices()
 }
 
+/// Types a fixed pangram through the configured paste path (paste self-test).
+#[tauri::command]
+fn test_paste() -> Result<(), String> {
+    let method = crate::coordinator::PASTE_METHOD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let method = if method.is_empty() { "auto".to_string() } else { method };
+    crate::paste::paste_text("The quick brown fox 123", &method)
+}
+
 #[tauri::command]
 fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
@@ -193,7 +204,13 @@ fn cancel_recording() {
 fn get_current_state() -> String {
     let state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     match *state {
-        CoordinatorState::Idle => "idle".into(),
+        CoordinatorState::Idle => {
+            if crate::coordinator::active_job_count() > 0 {
+                "processing".into()
+            } else {
+                "idle".into()
+            }
+        }
         CoordinatorState::Recording => "recording".into(),
         CoordinatorState::Processing => "processing".into(),
         CoordinatorState::Error => "error".into(),
@@ -365,6 +382,8 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
+            // No DWM shadow: renders as a ghost sheet on transparent windows.
+            .shadow(false)
             .focusable(false)
             .focused(false)
             .visible(false);
@@ -395,6 +414,33 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
 static LAST_OVERLAY_POS: once_cell::sync::Lazy<std::sync::Mutex<Option<(f64, f64)>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
+/// Work area (screen minus taskbar) for the cursor monitor, physical pixels.
+/// None if the Win32 query fails; caller falls back to the full rect.
+#[cfg(target_os = "windows")]
+fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITORINFOEXW, MONITOR_DEFAULTTONEAREST,
+    };
+    let pos = app.cursor_position().ok()?;
+    let pt = POINT {
+        x: pos.x as i32,
+        y: pos.y as i32,
+    };
+    let hmon = unsafe { MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST) };
+    if hmon.is_invalid() {
+        return None;
+    }
+    let mut info: MONITORINFOEXW = unsafe { std::mem::zeroed() };
+    info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    let ok = unsafe { GetMonitorInfoW(hmon, &mut info.monitorInfo as *mut MONITORINFO) };
+    if !ok.as_bool() {
+        return None;
+    }
+    let r = info.monitorInfo.rcWork;
+    Some((r.left, r.top, r.right, r.bottom))
+}
+
 /// Computes the overlay's (x, y) logical position for a window of the given
 /// size. When `prefer_cache` is true it reuses the last recording position (so
 /// an error/recreated window stays put); otherwise it tracks the live cursor
@@ -419,10 +465,29 @@ fn overlay_pos_for(
     }
     let monitor = monitor_with_cursor(app)?;
     let scale = monitor.scale_factor();
-    let mx = monitor.position().x as f64 / scale;
-    let my = monitor.position().y as f64 / scale;
-    let mw = monitor.size().width as f64 / scale;
-    let mh = monitor.size().height as f64 / scale;
+    // Windows: anchor to the work area so the pill clears the taskbar.
+    #[cfg(target_os = "windows")]
+    let (mx, my, mw, mh) = match windows_work_area_for_cursor(app) {
+        Some((l, t, r, b)) => (
+            l as f64 / scale,
+            t as f64 / scale,
+            (r - l) as f64 / scale,
+            (b - t) as f64 / scale,
+        ),
+        None => (
+            monitor.position().x as f64 / scale,
+            monitor.position().y as f64 / scale,
+            monitor.size().width as f64 / scale,
+            monitor.size().height as f64 / scale,
+        ),
+    };
+    #[cfg(not(target_os = "windows"))]
+    let (mx, my, mw, mh) = (
+        monitor.position().x as f64 / scale,
+        monitor.position().y as f64 / scale,
+        monitor.size().width as f64 / scale,
+        monitor.size().height as f64 / scale,
+    );
     let x = mx + (mw - win_w) / 2.0;
     let y = if top {
         my + OVERLAY_TOP_OFFSET
@@ -503,7 +568,16 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 if crate::coordinator::active_job_count() > 0 {
                     let _ = win.eval("window.__mode && window.__mode('processing')");
                 } else {
-                    let _ = win.destroy();
+                    // Windows: WebView2 creation costs 1-3s, so hide instead of rebuild.
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = win.eval("window.__mode && window.__mode('idle')");
+                        let _ = win.hide();
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        let _ = win.destroy();
+                    }
                 }
             }
             CoordinatorState::Recording | CoordinatorState::Processing => {
@@ -543,6 +617,7 @@ pub fn hide_overlay() {
     let hide_handle = handle.clone();
     let _ = handle.run_on_main_thread(move || {
         if let Some(win) = hide_handle.get_webview_window(OVERLAY_LABEL) {
+            let _ = win.eval("window.__mode && window.__mode('idle')");
             let _ = win.hide();
         }
     });
@@ -677,6 +752,19 @@ pub fn run() {
             }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh();
+            // Windows: pre-create the hidden overlay so the first hotkey is instant too.
+            #[cfg(target_os = "windows")]
+            {
+                let prewarm_handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    // Separate clone: the receiver borrows prewarm_handle.
+                    let inner = prewarm_handle.clone();
+                    let _ = prewarm_handle.run_on_main_thread(move || {
+                        create_overlay(&inner);
+                    });
+                });
+            }
             // Enforce history retention limit on startup
             if saved_settings.max_history_entries > 0 {
                 let mode = if saved_settings.keep_recordings
@@ -869,6 +957,7 @@ pub fn run() {
             start_mic_preview,
             stop_mic_preview,
             list_audio_devices,
+            test_paste,
             hide_main_window,
             quit_app
         ])

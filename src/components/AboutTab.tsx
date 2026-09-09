@@ -1,6 +1,6 @@
 import { IconAbout, IconMic, IconRecord, IconBars, IconProcess, IconInsert, IconShield } from "./ui/icons";
 import type { ComponentType, SVGProps } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { SectionCard } from "./SectionCard";
 import { APP_NAME, storageKey } from "../appConfig";
@@ -38,18 +38,23 @@ const STEPS: Step[] = [
 export function AboutTab() {
   const [version, setVersion] = useState("");
   const [stars, setStars] = useState<number | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "available" | "upToDate" | "error">("idle");
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "available" | "installing" | "upToDate" | "error">("idle");
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const pendingUpdate = useRef<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => {});
   }, []);
 
   const checkForUpdates = async () => {
+    if (updateStatus === "checking" || updateStatus === "installing") return;
     setUpdateStatus("checking");
+    setUpdateError(null);
     try {
       const { check } = await import("@tauri-apps/plugin-updater");
       const update = await check();
+      pendingUpdate.current = update ?? null;
       if (update?.available) {
         setLatestVersion(update.version);
         setUpdateStatus("available");
@@ -57,22 +62,28 @@ export function AboutTab() {
         setUpdateStatus("upToDate");
         setTimeout(() => setUpdateStatus("idle"), 3000);
       }
-    } catch {
+    } catch (e) {
+      console.error("Update check failed:", e);
+      setUpdateError(e instanceof Error ? e.message : "Check failed");
       setUpdateStatus("error");
       setTimeout(() => setUpdateStatus("idle"), 3000);
     }
   };
 
   const handleUpdate = async () => {
+    const update = pendingUpdate.current;
+    if (updateStatus !== "available" || !update) return;
+    setUpdateStatus("installing");
+    setUpdateError(null);
     try {
-      const { check } = await import("@tauri-apps/plugin-updater");
       const { relaunch } = await import("@tauri-apps/plugin-process");
-      const update = await check();
-      if (update?.available) {
-        await update.downloadAndInstall();
-        await relaunch();
-      }
-    } catch {}
+      await update.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      console.error("Update install failed:", e);
+      setUpdateError(e instanceof Error ? e.message : "Install failed");
+      setUpdateStatus("available");
+    }
   };
 
   useEffect(() => {
@@ -148,10 +159,10 @@ export function AboutTab() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={checkForUpdates}
-              disabled={updateStatus === "checking"}
+              disabled={updateStatus === "checking" || updateStatus === "installing"}
               className="px-3 py-1.5 text-xs font-mono font-medium text-ink bg-elevated ring-1 ring-stroke hover:bg-elevated/80 rounded-lg transition-colors disabled:opacity-50 pressable"
             >
-              {updateStatus === "checking" ? "Checking…" : "Check for updates"}
+              {updateStatus === "checking" ? "Checking…" : updateStatus === "installing" ? "Installing…" : "Check for updates"}
             </button>
             {updateStatus === "available" && latestVersion && (
               <button
@@ -167,10 +178,13 @@ export function AboutTab() {
           <p className="text-[11px] font-mono text-ready mt-2">You are up to date (v{version}).</p>
         )}
         {updateStatus === "error" && (
-          <p className="text-[11px] font-mono text-recording mt-2">Check failed — try again.</p>
+          <p className="text-[11px] font-mono text-recording mt-2">{updateError ?? "Check failed"} — try again.</p>
         )}
         {updateStatus === "available" && (
           <p className="text-[11px] font-mono text-muted mt-2">v{latestVersion} ready — installs in-app, no manual download.</p>
+        )}
+        {updateStatus === "available" && updateError && (
+          <p className="text-[11px] font-mono text-recording mt-2">Install failed: {updateError}</p>
         )}
         {updateStatus === "idle" && (
           <p className="text-[10px] font-mono text-muted/60 mt-2">Current: v{version} · Updates install directly from the app.</p>

@@ -222,13 +222,12 @@ function AppShell() {
   const settingsRef = useRef<AppSettings | null>(null);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   const saveSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
-    if (!settingsRef.current) return;
+    const base = settingsRef.current;
+    if (!base) return;
+    const updated = { ...base, [key]: value } as AppSettings;
     const msg = settingToast(key, value);
     setSettings((prev) => (prev ? ({ ...prev, [key]: value } as AppSettings) : prev));
     const task = async () => {
-      const base = settingsRef.current;
-      if (!base) return;
-      const updated = { ...base, [key]: value } as AppSettings;
       try {
         const trimmed = await invoke<number>("save_settings", { settings: updated });
         if (key === "max_history_entries" || key === "history_retention_mode") {
@@ -256,12 +255,11 @@ function AppShell() {
   };
 
   const saveAllSettings = (updates: Partial<AppSettings>) => {
-    if (!settingsRef.current) return;
+    const base = settingsRef.current;
+    if (!base) return;
+    const merged = { ...base, ...updates } as AppSettings;
     setSettings((prev) => (prev ? ({ ...prev, ...updates } as AppSettings) : prev));
     const task = async () => {
-      const base = settingsRef.current;
-      if (!base) return;
-      const merged = { ...base, ...updates } as AppSettings;
       try {
         await invoke("save_settings", { settings: merged });
         toast.addToast("Settings saved", "success");

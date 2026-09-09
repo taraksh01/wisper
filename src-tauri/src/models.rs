@@ -35,7 +35,8 @@ pub fn get_models_dir() -> PathBuf {
 
 fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
     if name.starts_with("parakeet-") {
-        return true;
+        return dir.join("model.onnx").exists()
+            && (dir.join("tokens.txt").exists() || dir.join("vocab.json").exists());
     }
     if dir.join("model.onnx").exists() || dir.join("encoder_model.onnx").exists() {
         return true;

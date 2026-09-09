@@ -74,6 +74,8 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
   const [retranscribingId, setRetranscribingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [showDeleteSelectedConfirm, setShowDeleteSelectedConfirm] = useState(false);
   const [query, setQuery] = useState("");
   const [todayOpen, setTodayOpen] = useState(() => {
     try {
@@ -162,10 +164,15 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
   const deleteSelected = useCallback(async () => {
     const ids = Array.from(selectedIds);
     const results = await Promise.allSettled(ids.map((id) => invoke("delete_history_entry", { id })));
-    const fulfilled = results.filter((r) => r.status === "fulfilled").length;
-    const rejected = results.filter((r) => r.status === "rejected").length;
+    const failed = new Set<number>();
+    let fulfilled = 0;
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") fulfilled++;
+      else failed.add(ids[i]);
+    });
+    const rejected = failed.size;
     if (rejected > 0) console.error("Delete selected partially failed:", results);
-    setSelectedIds(new Set());
+    setSelectedIds(failed);
     onRefresh();
     if (rejected === 0) addToast(`${fulfilled} entries deleted`, "success");
     else if (fulfilled === 0) addToast("Failed to delete entries", "error");
@@ -474,7 +481,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
               </button>
             )}
             <button
-              onClick={deleteSelected}
+              onClick={() => setShowDeleteSelectedConfirm(true)}
               className="ml-auto text-[11px] font-mono text-recording/70 hover:text-recording transition-colors"
             >
               Delete selected
@@ -521,7 +528,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
                 onStartEdit={startEdit}
                 onCancelEdit={cancelEdit}
                 onSaveEdit={saveEdit}
-                onDelete={deleteEntry}
+                onDelete={() => setPendingDeleteId(entry.id)}
                 onEditRawChange={setEditRaw}
                 onEditFormattedChange={setEditFormatted}
               />
@@ -554,6 +561,33 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
           onToggle={togglePlayPause}
           onSeek={seekTo}
           onClose={closePlayer}
+        />
+      )}
+
+      {pendingDeleteId !== null && (
+        <ConfirmModal
+          title="Delete this entry?"
+          message="This will permanently delete the dictation and its recording."
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            const id = pendingDeleteId;
+            setPendingDeleteId(null);
+            await deleteEntry(id);
+          }}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
+
+      {showDeleteSelectedConfirm && (
+        <ConfirmModal
+          title={`Delete ${selectedIds.size} entries?`}
+          message="This will permanently delete the selected dictations and their recordings."
+          confirmLabel="Delete"
+          onConfirm={async () => {
+            setShowDeleteSelectedConfirm(false);
+            await deleteSelected();
+          }}
+          onCancel={() => setShowDeleteSelectedConfirm(false)}
         />
       )}
 
