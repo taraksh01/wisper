@@ -116,3 +116,34 @@ jobs:
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, 'beta') }}
           uploadUpdaterJson: true
+          # Beta builds point the in-app updater at the rolling beta feed
+          # instead of /latest (which excludes prereleases). Stable builds
+          # keep the default endpoint from tauri.conf.json.
+          args: ${{ contains(github.ref_name, 'beta') && format('--config {0}/src-tauri/tauri.beta.json', github.workspace) || '' }}
+
+  # Republishes this tag's latest.json to a floating `beta` release so
+  # installed betas (which point at .../releases/download/beta/latest.json)
+  # discover new betas in-app. Stable /latest never includes prereleases,
+  # so stable installs are unaffected.
+  beta-feed:
+    needs: release-windows
+    if: github.event_name == 'push' && contains(github.ref_name, 'beta')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch this tag's latest.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf /tmp/betafeed && mkdir -p /tmp/betafeed
+          gh release download "${{ github.ref_name }}" --pattern "latest.json" --dir /tmp/betafeed
+
+      - name: Republish floating beta feed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete beta --yes || true
+          git push origin :refs/tags/beta || true
+          gh release create beta --prerelease --title "Beta channel" --notes "Rolling beta feed for Wisper beta installs. Use the latest versioned beta for full installers." /tmp/betafeed/latest.json
