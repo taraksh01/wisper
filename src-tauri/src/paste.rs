@@ -67,11 +67,14 @@ fn is_executable(path: &std::path::Path) -> bool {
     path.is_file()
 }
 
-/// Detects the current display server session: "wayland", "x11", "windows", or "unknown".
+/// Detects the current display server session: "wayland", "x11", "windows", "macos", or "unknown".
 pub fn detect_session_type() -> String {
     // cfg!: #[cfg] return would orphan the code below on Windows.
     if cfg!(target_os = "windows") {
         return "windows".into();
+    }
+    if cfg!(target_os = "macos") {
+        return "macos".into();
     }
     if let Ok(t) = std::env::var("XDG_SESSION_TYPE") {
         let t = t.to_lowercase();
@@ -95,6 +98,11 @@ pub fn detect_session_type() -> String {
 /// outright on compositors that don't (e.g. "Compositor does not support the
 /// virtual keyboard protocol").
 pub fn detect_paste_backend() -> String {
+    // ydotool/wtype are Linux-only; macOS always uses the built-in backend
+    // (enigo via CGEvent, needs an Accessibility grant).
+    if cfg!(target_os = "macos") {
+        return "enigo".into();
+    }
     if command_exists("ydotool") {
         "ydotool".into()
     } else if command_exists("wtype") {
@@ -121,7 +129,7 @@ pub fn resolve_paste_backend(preference: &str) -> String {
 
 #[derive(Serialize)]
 pub struct PasteEnvironment {
-    /// "wayland", "x11", or "unknown"
+    /// "wayland", "x11", "windows", "macos", or "unknown"
     pub session_type: String,
     /// The paste backend that will actually be used: "wtype", "ydotool", or "enigo"
     pub backend: String,
@@ -409,12 +417,18 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
 }
 
 fn enigo_paste(method: &str) -> Result<(), String> {
+    // macOS pastes with Cmd (Meta), not Ctrl. Shift+Insert has no macOS
+    // equivalent, so it maps to plain Cmd+V.
+    #[cfg(target_os = "macos")]
+    let paste_mod = Key::Meta;
+    #[cfg(not(target_os = "macos"))]
+    let paste_mod = Key::Control;
     with_enigo(|enigo| {
         let res: Result<(), String> = match method {
             "Ctrl+Shift+V" => {
                 enigo
-                    .key(Key::Control, Direction::Press)
-                    .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
+                    .key(paste_mod, Direction::Press)
+                    .map_err(|e| format!("Enigo paste-mod press failed: {:?}", e))?;
                 enigo
                     .key(Key::Shift, Direction::Press)
                     .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
@@ -423,25 +437,39 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                     .map_err(|e| format!("Enigo V failed: {:?}", e))
             }
             "Shift+Insert" => {
-                enigo
-                    .key(Key::Shift, Direction::Press)
-                    .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
-                enigo
-                    .key(Key::Insert, Direction::Click)
-                    .map_err(|e| format!("Enigo Insert failed: {:?}", e))
+                #[cfg(target_os = "macos")]
+                {
+                    enigo
+                        .key(paste_mod, Direction::Press)
+                        .map_err(|e| format!("Enigo paste-mod press failed: {:?}", e))?;
+                    enigo
+                        .key(Key::Unicode('v'), Direction::Click)
+                        .map_err(|e| format!("Enigo V failed: {:?}", e))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    enigo
+                        .key(Key::Shift, Direction::Press)
+                        .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
+                    enigo
+                        .key(Key::Insert, Direction::Click)
+                        .map_err(|e| format!("Enigo Insert failed: {:?}", e))
+                }
             }
             _ => {
                 enigo
-                    .key(Key::Control, Direction::Press)
-                    .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
+                    .key(paste_mod, Direction::Press)
+                    .map_err(|e| format!("Enigo paste-mod press failed: {:?}", e))?;
                 enigo
                     .key(Key::Unicode('v'), Direction::Click)
                     .map_err(|e| format!("Enigo V failed: {:?}", e))
             }
         };
-        // Always release modifiers - never leave Ctrl/Shift stuck on partial failure.
+        // Always release modifiers - never leave paste-mod/Shift stuck on partial failure.
         // Releasing a non-pressed key is harmless.
         let _ = enigo.key(Key::Shift, Direction::Release);
+        let _ = enigo.key(paste_mod, Direction::Release);
+        #[cfg(not(target_os = "macos"))]
         let _ = enigo.key(Key::Control, Direction::Release);
         res
     })
