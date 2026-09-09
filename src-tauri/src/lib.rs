@@ -770,8 +770,12 @@ pub fn run() {
                 let prewarm_handle = app_handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
+                    // Move a separate clone into the closure (same pattern as
+                    // update_overlay): the method receiver borrows
+                    // prewarm_handle, so the closure must own its own copy.
+                    let inner = prewarm_handle.clone();
                     let _ = prewarm_handle.run_on_main_thread(move || {
-                        create_overlay(&prewarm_handle);
+                        create_overlay(&inner);
                     });
                 });
             }
