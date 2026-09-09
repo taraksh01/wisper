@@ -509,6 +509,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
   const [pendingMax, setPendingMax] = useState(settings.max_history_entries);
   const [trimConfirm, setTrimConfirm] = useState<{ newLimit: number; excess: number } | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [pasteTestIn, setPasteTestIn] = useState<number | null>(null);
   const dragIdxRef = useRef<number | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const pendingModsRef = useRef<Set<string>>(new Set());
@@ -555,6 +556,19 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
   useEffect(() => {
     return () => clearTimeout(timerRef.current);
   }, []);
+
+  // Paste-test countdown: gives the user 3s to focus a target field
+  // (clicking the button steals focus, so typing must be deferred).
+  useEffect(() => {
+    if (pasteTestIn === null) return;
+    if (pasteTestIn <= 0) {
+      setPasteTestIn(null);
+      invoke("test_paste").catch((e) => console.error("test_paste failed:", e));
+      return;
+    }
+    const t = setTimeout(() => setPasteTestIn((v) => (v === null ? null : v - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [pasteTestIn]);
 
   const showMessage = useCallback((text: string, ok: boolean) => {
     setMessage({ text, ok });
@@ -875,6 +889,28 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
             onChange={(v) => onSave("paste_method", v)}
           />
           <PasteToolControl value={settings.paste_tool} onChange={(v) => onSave("paste_tool", v)} />
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
+            <div>
+              <span className="text-xs text-muted">Test paste</span>
+              <p className="text-[10px] font-mono text-muted/60 leading-relaxed">
+                {pasteTestIn === null
+                  ? "Click, focus any text field, types “The quick brown fox 123”."
+                  : `Focus your target field — typing in ${pasteTestIn}…`}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (pasteTestIn !== null) {
+                  setPasteTestIn(null);
+                } else {
+                  setPasteTestIn(3);
+                }
+              }}
+              className="shrink-0 px-3 py-1.5 text-xs font-mono text-accent ring-1 ring-stroke hover:bg-elevated/50 rounded-md transition-colors cursor-pointer"
+            >
+              {pasteTestIn === null ? "Type test" : `Cancel (${pasteTestIn})`}
+            </button>
+          </div>
           <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
             <div>
               <span className="text-xs text-muted">Add space after paste</span>

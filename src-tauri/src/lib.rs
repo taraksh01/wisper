@@ -162,6 +162,19 @@ fn list_audio_devices() -> Vec<(String, String)> {
     crate::audio::list_input_devices()
 }
 
+/// Types a fixed pangram via the normal paste path so users can isolate
+/// injection problems (wrong chars/spaces) from transcription problems.
+/// Uses the currently configured paste method.
+#[tauri::command]
+fn test_paste() -> Result<(), String> {
+    let method = crate::coordinator::PASTE_METHOD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let method = if method.is_empty() { "auto".to_string() } else { method };
+    crate::paste::paste_text("The quick brown fox 123", &method)
+}
+
 #[tauri::command]
 fn hide_main_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
@@ -954,6 +967,7 @@ pub fn run() {
             start_mic_preview,
             stop_mic_preview,
             list_audio_devices,
+            test_paste,
             hide_main_window,
             quit_app
         ])
