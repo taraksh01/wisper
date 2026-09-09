@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wisper: Voice dictation for Linux that runs on your device</title>
-  <meta name="description" content="Wisper: privacy-first voice dictation for Linux. Speak and your words are typed at your cursor. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup. Wayland and X11." />
+  <title>Wisper: Voice dictation for Linux and Windows that runs on your device</title>
+  <meta name="description" content="Wisper: privacy-first voice dictation for Linux and Windows. Speak and your words are typed at your cursor. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup. Wayland, X11, and Windows." />
   <meta name="theme-color" content="#100d0a" />
   <meta name="color-scheme" content="light dark" />
   <script>
@@ -24,15 +24,15 @@
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Wisper" />
-  <meta property="og:title" content="Wisper: Voice dictation for Linux, on your device" />
-  <meta property="og:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default. For Wayland and X11." />
+  <meta property="og:title" content="Wisper: Voice dictation for Linux and Windows, on your device" />
+  <meta property="og:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default. For Wayland, X11, and Windows." />
   <meta property="og:url" content="https://taraksh01.github.io/wisper/" />
   <meta property="og:image" content="https://taraksh01.github.io/wisper/assets/wisper-og.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="Wisper: local voice dictation for Linux" />
+  <meta property="og:image:alt" content="Wisper: local voice dictation for Linux and Windows" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Wisper: Voice dictation for Linux, on your device" />
+  <meta name="twitter:title" content="Wisper: Voice dictation for Linux and Windows, on your device" />
   <meta name="twitter:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default." />
   <meta name="twitter:image" content="https://taraksh01.github.io/wisper/assets/wisper-og.png" />
 
@@ -47,11 +47,10 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Wisper",
-    "operatingSystem": "Linux",
+    "operatingSystem": ["Linux", "Windows"],
     "applicationCategory": "UtilitiesApplication",
     "applicationSubCategory": "Voice dictation",
-    "description": "Privacy-first voice dictation for Linux. Local ONNX transcription (Parakeet, Moonshine, IndicConformer), optional AI cleanup, types at your cursor. Works on Wayland and X11.",
-    "softwareVersion": "3.2.1",
+    "description": "Privacy-first voice dictation for Linux and Windows. Local ONNX transcription (Parakeet, Moonshine, IndicConformer), optional AI cleanup, types at your cursor. Works on Wayland, X11, and Windows.",
     "url": "https://taraksh01.github.io/wisper/",
     "downloadUrl": "https://github.com/taraksh01/wisper/releases/latest",
     "license": "https://opensource.org/licenses/MIT",
@@ -109,28 +108,38 @@
   </header>
 
   <main id="main" tabindex="-1">
-    <!-- Hero: a Linux terminal, a Wisper session in progress, the pill on the line being dictated. -->
+    <!-- Hero: the dictation moment. Copy left, live terminal demo right. -->
     <section class="hero">
-      <div class="hero-head">
-        <p class="hero-tag mono">Wisper 3.2.1 &middot; Linux &middot; MIT</p>
-        <h1 class="hero-title">Dictation, at your cursor.</h1>
-        <p class="hero-sub">
-          Hold a key, talk, and your words type where you were going to type them anyway.
-        </p>
-      </div>
-
-      <div class="terminal" aria-hidden="true">
-        <div class="t-bar">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="hero-head">
+            <p class="hero-tag mono">Linux &amp; Windows &middot; MIT</p>
+            <h1 class="hero-title">Dictation, <span class="title-accent">at your cursor.</span></h1>
+            <p class="hero-sub">
+              Hold your shortcut key, talk, and your words type where you were going to type them anyway.
+            </p>
+          </div>
+          <div class="hero-foot">
+            <div class="hero-cta-row">
+              <a class="btn btn-primary btn-lg" href="#download">Download</a>
+              <a class="btn btn-ghost btn-lg" href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">All releases</a>
+            </div>
+            <ul class="hero-facts mono" aria-label="At a glance">
+              <li><span class="dot-ok"></span>on-device by default</li>
+              <li>Wayland, X11 &amp; Windows</li>
+              <li>free &middot; MIT</li>
+            </ul>
+          </div>
+        </div>
+        <figure class="hero-demo">
+          <div class="terminal" aria-hidden="true">
+            <div class="t-bar">
           <span class="t-title mono">taraksh01@linux: ~/wisper</span>
           <span class="t-close" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </span>
         </div>
         <div class="t-body">
-          <p class="t-line t-dim mono"><span class="prompt">$</span>cargo test --quiet</p>
-          <p class="t-line t-dim mono"><span class="prompt">&gt;</span>ok · 14 passed</p>
-          <p class="t-line t-dim mono"><span class="prompt">$</span>git status --short</p>
-          <p class="t-line t-dim mono"><span class="prompt">&gt;</span>M docs/index.html</p>
           <p class="t-line t-typed mono"><span class="prompt">$</span><span class="t-stream"><span id="t-text"></span><span class="t-caret" id="t-caret"></span></span></p>
         </div>
         <div class="overlay-pill" data-beam>
@@ -147,16 +156,10 @@
           <span class="ov-cancel">
             <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </span>
+          </div>
         </div>
-      </div>
-
-      <div class="hero-foot">
-        <a class="btn btn-primary btn-lg" href="#download">Download for Linux</a>
-        <ul class="hero-facts mono" aria-label="At a glance">
-          <li><span class="dot-ok"></span>on-device by default</li>
-          <li>Wayland &amp; X11</li>
-          <li>free &middot; MIT</li>
-        </ul>
+        <figcaption class="terminal-caption mono">Live demo · hold your hotkey, talk, watch it type</figcaption>
+      </figure>
       </div>
     </section>
 
@@ -169,19 +172,19 @@
       </header>
       <ol class="pipeline">
         <li class="step">
-          <span class="step-num mono">01</span>
           <h3>Speak</h3>
+          <p class="step-tel mono">hotkey · push-to-talk / toggle</p>
           <p>Hold the global hotkey for push-to-talk, or tap it to toggle. Your mic records locally, and the overlay pill shows a live waveform.</p>
         </li>
         <li class="step">
-          <span class="step-num mono">02</span>
           <h3>Transcribe</h3>
+          <p class="step-tel mono">onnx · on-device · stays loaded</p>
           <p>Local ONNX engines: Parakeet, Moonshine, or IndicConformer. They turn speech into text on your machine, silence is trimmed, and models stay loaded so your next dictation starts instantly.</p>
         </li>
         <li class="step">
-          <span class="step-num mono">03</span>
           <h3>Insert</h3>
-          <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland or X11. Optionally polished by AI first.</p>
+          <p class="step-tel mono">typed @ cursor · any app</p>
+          <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland, X11, or Windows. Optionally polished by AI first.</p>
         </li>
       </ol>
     </section>
@@ -194,60 +197,76 @@
         <p class="section-lead">Wisper does one job and stays out of your way. These are the controls you actually get.</p>
       </header>
       <ul class="bento">
-        <li class="cell cell-demo span-7">
-          <h3>The overlay that follows you</h3>
-          <p>A small pill floats at the bottom of whichever monitor your cursor is on. The voice-reactive waveform, a rotating radiant beam, and one button to cancel.</p>
-          <div class="demo-pill" data-beam aria-hidden="true">
-            <svg class="ov-wave" width="56" height="30" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg"><g class="ov-bars-g js-bars ov-bars-dim"></g></svg>
-            <span class="ov-divider"></span>
-            <span class="ov-cancel"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg></span>
+        <li class="cell cell-flag span-12">
+          <div class="flag-copy">
+            <p class="cell-kicker mono">presence</p>
+            <h3>The overlay that follows you</h3>
+            <p>A small pill floats at the bottom of whichever monitor your cursor is on. The voice-reactive waveform, a rotating radiant beam, and one button to cancel.</p>
           </div>
-          <p class="err-chip mono" aria-hidden="true">No speech detected. Try speaking closer to the mic.</p>
+          <div class="flag-media" aria-hidden="true">
+            <div class="demo-pill" data-beam>
+              <svg class="ov-wave" width="56" height="30" viewBox="0 0 312 160" fill="none" xmlns="http://www.w3.org/2000/svg"><g class="ov-bars-g js-bars ov-bars-dim"></g></svg>
+              <span class="ov-divider"></span>
+              <span class="ov-cancel"><svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18M6 6l12 12" /></svg></span>
+            </div>
+            <p class="err-chip mono">No speech detected. Try speaking closer to the mic.</p>
+          </div>
         </li>
-        <li class="cell span-5">
+        <li class="cell span-4">
+          <p class="cell-kicker mono">feedback</p>
           <h3>Hear it work</h3>
           <p>Subtle sounds mark recording start and text ready. Master toggle plus per-event controls. Silence it whenever you want.</p>
           <div class="snd-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">control</p>
           <h3>Push-to-talk</h3>
           <p>Hold to record, release to transcribe. Prefer toggle? One tap. Any key or key combo works.</p>
           <span class="keycap" aria-hidden="true">F9</span>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">privacy</p>
           <h3>Nothing leaves</h3>
           <p>Transcription runs on your machine. Cloud is strictly opt-in.</p>
           <p class="stat mono" aria-hidden="true"><span class="dot-ok"></span>0 bytes sent</p>
         </li>
-        <li class="cell span-4">
-          <h3>Pick your microphone</h3>
-          <p>Choose a specific input device or stay on system default. Virtual sinks are filtered out. Test the level before you rely on it.</p>
-        </li>
         <li class="cell span-6">
+          <p class="cell-kicker mono">refine</p>
           <h3>AI cleanup, your voice</h3>
           <p>An optional pass reformats and polishes the transcript. It never answers for you. Six writing styles: Auto, Clean-up, Email, Developer, Messaging, Formal, plus custom instructions.</p>
         </li>
         <li class="cell span-6">
+          <p class="cell-kicker mono">vocabulary</p>
           <h3>Your words, your way</h3>
           <p>Custom vocabulary turns shortcuts into proper terms. Say "gpt", get "GPT". 4 dictionary profiles (developer, email, messaging, general) with import/export and per-profile toggle. Scan past dictations to find new words worth saving.</p>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">input</p>
+          <h3>Pick your microphone</h3>
+          <p>Choose a specific input device or stay on system default. Virtual sinks are filtered out. Test the level before you rely on it.</p>
+        </li>
+        <li class="cell span-4">
+          <p class="cell-kicker mono">memory</p>
           <h3>Look back</h3>
           <p>Searchable history: replay the recording, re-transcribe, edit, copy. Collapsible Today shows today dictations/words/time saved. Set retention limits.</p>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">engines</p>
           <h3>Local or cloud</h3>
           <p>Stay fully offline, or plug in a cloud speech key: OpenAI, Groq, or any OpenAI-compatible endpoint. Switch any time.</p>
         </li>
         <li class="cell span-4">
+          <p class="cell-kicker mono">tray</p>
           <h3>Out of the way</h3>
           <p>Lives in the system tray - Copy last transcription without opening the window. Close the window and it keeps running.</p>
         </li>
-        <li class="cell span-6">
+        <li class="cell span-4">
+          <p class="cell-kicker mono">fresh</p>
           <h3>Updates itself</h3>
           <p>Checks GitHub releases and installs in-app (About → Check for updates, also sidebar banner), with signed auto-updates. No manual download.</p>
         </li>
-        <li class="cell span-6">
+        <li class="cell span-4">
+          <p class="cell-kicker mono">launch</p>
           <h3>Starts with you</h3>
           <p>Launch at login, start hidden in the tray. First run walks you through the model download and push-to-talk vs toggle.</p>
         </li>
@@ -274,14 +293,14 @@
     <section class="section download" id="download">
       <header class="section-head">
         <p class="eyebrow mono"># download</p>
-        <h2 class="section-title">Download for Linux</h2>
+        <h2 class="section-title">Download</h2>
         <p class="section-lead">Wisper <span class="mono" id="version">v3.2.1</span>. The site fetches the latest release when it loads. Auto-update is built in.</p>
       </header>
       <div class="download-grid" id="download-grid" data-repo="taraksh01/wisper">
         <p class="download-loading">Loading the latest release…</p>
       </div>
       <p class="download-note">
-        All releases are signed. Prefer the AppImage if your distro isn't DEB or RPM based.
+        All releases are signed. Prefer the AppImage if your distro isn't DEB or RPM based. On Windows, grab the NSIS installer card.
         <a href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">View all releases →</a>
       </p>
     </section>
@@ -311,12 +330,12 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
               <svg class="ic-check" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/></svg>
             </button>
           </div>
-          <p class="muted">wtype also works on compositors that support the Wayland virtual-keyboard protocol. enigo is built in but prompts for the RemoteDesktop portal once on Wayland.</p>
-          <p class="setup-foot mono">Wayland · ydotool recommended</p>
+          <p class="muted">wtype also works on compositors that support the Wayland virtual-keyboard protocol. enigo is built in but prompts for the RemoteDesktop portal once on Wayland. On Windows nothing extra is needed: paste works out of the box.</p>
+          <p class="setup-foot mono">Wayland · ydotool recommended · Windows needs nothing</p>
         </div>
         <div class="setup-card">
           <h3><span class="setup-num mono">3</span> Pick your mic</h3>
-          <p>In <strong>General</strong> settings, choose a specific input device or leave it on system default. Test the level before you rely on it.</p>
+          <p>In <strong>General</strong> settings, choose a specific input device or leave it on system default. Test the level before you rely on it. On Windows, if the meter stays flat, check Settings → Privacy → Microphone access: Windows delivers silence when access is blocked.</p>
           <p class="setup-foot mono">General tab · input device</p>
         </div>
       </div>
@@ -327,12 +346,28 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
       <header class="section-head">
         <p class="eyebrow mono"># faq</p>
         <h2 class="section-title">Questions people ask</h2>
-        <p class="section-lead">The honest answers, including the Linux-specific rough edges.</p>
+        <p class="section-lead">The honest answers, including the platform-specific rough edges.</p>
       </header>
       <div class="faq">
         <details>
+          <summary>How do I install on Windows?</summary>
+          <p>Grab the NSIS installer from the download section above and run it. Windows builds are currently tagged beta: fully usable, updating in-app from the beta channel while the stable Windows release is prepared.</p>
+        </details>
+        <details>
+          <summary>Why is my mic silent on Windows?</summary>
+          <p>Almost always the privacy switch: open Settings → Privacy → Microphone access and allow apps to use the microphone. When blocked, Windows feeds silence instead of an error, so the mic meter in General stays flat. The built-in Test paste button helps confirm everything past the mic is working.</p>
+        </details>
+        <details>
+          <summary>Is there a macOS build?</summary>
+          <p>Not yet. Windows came first; macOS is next after the signing setup is in place. The download section will list it when it lands.</p>
+        </details>
+        <details>
           <summary>Is my audio sent to the cloud?</summary>
           <p>No, not by default. Transcription runs on your machine with local ONNX models. Cloud providers are optional and only used if you add a key in Engine or Process settings.</p>
+        </details>
+        <details>
+          <summary>Does Wisper work on Windows?</summary>
+          <p>Yes. Windows ships as an NSIS installer with the same local transcription, overlay, and paste flow as Linux. Audio uses WASAPI and the overlay sits above the taskbar. If the mic meter stays flat, check Settings → Privacy → Microphone access: Windows delivers silence when access is blocked.</p>
         </details>
         <details>
           <summary>Which Linux desktops are supported?</summary>
@@ -380,7 +415,7 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
       <img src="assets/wisper.svg" alt="" width="24" height="24" />
       <span>Wisper</span>
     </div>
-    <p>Privacy-first voice dictation for Linux. MIT licensed, 2026 Tarak Shaw.</p>
+    <p>Privacy-first voice dictation for Linux and Windows. MIT licensed, 2026 Tarak Shaw.</p>
     <nav class="foot-links" aria-label="Footer">
       <a href="https://github.com/taraksh01/wisper" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">Releases</a>
