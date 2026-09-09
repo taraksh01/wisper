@@ -26,21 +26,29 @@ fn command_exists(tool: &str) -> bool {
             }
         }
     }
+    let path_search = || {
+        std::env::var_os("PATH").map_or(false, |paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let full = dir.join(tool);
+                full.is_file() && is_executable(&full)
+            })
+        })
+    };
+    // No `which` on stock Windows; search PATH directly.
+    if cfg!(target_os = "windows") {
+        let result = path_search();
+        if let Ok(mut cache) = CMD_CACHE.lock() {
+            cache.insert(tool.to_string(), (result, std::time::Instant::now()));
+        }
+        return result;
+    }
     let result = Command::new("which")
         .arg(tool)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
-        .unwrap_or_else(|_| {
-            // Fallback: try `command -v` via direct PATH search
-            std::env::var_os("PATH").map_or(false, |paths| {
-                std::env::split_paths(&paths).any(|dir| {
-                    let full = dir.join(tool);
-                    full.is_file() && is_executable(&full)
-                })
-            })
-        });
+        .unwrap_or_else(|_| path_search());
     if let Ok(mut cache) = CMD_CACHE.lock() {
         cache.insert(tool.to_string(), (result, std::time::Instant::now()));
     }
@@ -168,12 +176,13 @@ fn active_backend() -> String {
 }
 
 pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
+    let backend = active_backend();
     if cfg!(debug_assertions) {
         eprintln!(
             "[paste] paste_text method={} len={} backend={}",
             method,
             text.len(),
-            active_backend()
+            backend
         );
     }
     if text.trim().is_empty() {
@@ -189,18 +198,12 @@ pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
     match &r {
         Ok(_) => {
             if cfg!(debug_assertions) {
-                eprintln!(
-                    "[paste] success method={} backend={}",
-                    method,
-                    active_backend()
-                );
+                eprintln!("[paste] success method={} backend={}", method, backend);
             }
         }
         Err(e) => eprintln!(
             "[paste] failed method={} backend={} err={}",
-            method,
-            active_backend(),
-            e
+            method, backend, e
         ),
     }
     r
