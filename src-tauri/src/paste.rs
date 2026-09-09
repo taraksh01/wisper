@@ -61,8 +61,8 @@ fn is_executable(path: &std::path::Path) -> bool {
 
 /// Detects the current display server session: "wayland", "x11", "windows", or "unknown".
 pub fn detect_session_type() -> String {
-    #[cfg(target_os = "windows")]
-    {
+    // cfg!: #[cfg] return would orphan the code below on Windows.
+    if cfg!(target_os = "windows") {
         return "windows".into();
     }
     if let Ok(t) = std::env::var("XDG_SESSION_TYPE") {

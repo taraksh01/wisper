@@ -19,8 +19,8 @@ pub fn was_capped_and_reset() -> bool {
 /// are skipped since they are not real microphones.
 /// Returns an empty vector if enumeration fails.
 pub fn list_input_devices() -> Vec<(String, String)> {
-    #[cfg(target_os = "windows")]
-    {
+    // cfg!: #[cfg] return would orphan the code below on Windows.
+    if cfg!(target_os = "windows") {
         let host = cpal::default_host();
         let Ok(devices) = host.input_devices() else {
             return Vec::new();
