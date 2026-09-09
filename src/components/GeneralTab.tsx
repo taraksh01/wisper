@@ -239,6 +239,7 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
 }
 
 function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { threshold: number; onChange: (v: number) => void; inputDevice: string; disabled?: boolean }) {
+  const isWindows = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
   const [level, setLevel] = useState(0);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const historyRef = useRef<number[]>([]);
@@ -469,6 +470,11 @@ function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { t
           </span>
           <span className="text-[10px] font-mono text-muted/80 text-right">Speak — bars should hit green, not red</span>
         </div>
+        {isWindows && isTooQuiet && (
+          <p className="text-[10px] font-mono text-muted/80 leading-relaxed pt-1.5 border-t border-stroke/50">
+            Meter flat on Windows? Allow microphone access: Settings → Privacy &amp; security → Microphone → let desktop apps use it.
+          </p>
+        )}
       </div>
 
       {/* Noise cutoff slider */}

@@ -268,6 +268,14 @@ impl AudioRecorder {
             let mut sr = self.sample_rate.lock().unwrap_or_else(|e| e.into_inner());
             *sr = config.sample_rate();
         }
+        if cfg!(debug_assertions) {
+            eprintln!(
+                "[audio] input config: {}Hz {}ch {:?}",
+                config.sample_rate(),
+                config.channels(),
+                config.sample_format()
+            );
+        }
 
         // Clear the buffer before starting
         self.buffer
