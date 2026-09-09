@@ -16,6 +16,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 # Two separate jobs (not a matrix) so beta tags can skip Linux entirely:
 # a skipped job shows gray instead of failing the run. Job-level `if`
 # only uses github/event/inputs contexts - never matrix (unavailable
@@ -29,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Linux build deps
         run: |
@@ -39,10 +43,10 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: "11"
+          version: "12"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -78,15 +82,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: "11"
+          version: "12"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: pnpm
@@ -119,7 +123,7 @@ jobs:
           # Beta builds point the in-app updater at the rolling beta feed
           # instead of /latest (which excludes prereleases). Stable builds
           # keep the default endpoint from tauri.conf.json.
-          args: ${{ contains(github.ref_name, 'beta') && format('--config {0}/src-tauri/tauri.beta.json', github.workspace) || '' }}
+          args: ${{ contains(github.ref_name, 'beta') && format('--config "{0}/src-tauri/tauri.beta.json"', github.workspace) || '' }}
 
   # Republishes this tag's latest.json to a floating `beta` release so
   # installed betas (which point at .../releases/download/beta/latest.json)
@@ -131,7 +135,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Fetch this tag's latest.json
         env:

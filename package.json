@@ -6,7 +6,7 @@
   "author": "Tarak Shaw <taraksh01@gmail.com>",
   "engines": {
     "node": "24",
-    "pnpm": "11"
+    "pnpm": "12"
   },
   "type": "module",
   "scripts": {
