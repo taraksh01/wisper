@@ -66,9 +66,14 @@ interface PasteEnvironment {
   has_ydotool: boolean;
 }
 
+function isMacOS(): boolean {
+  return typeof navigator !== "undefined" && /macintosh|mac os x/i.test(navigator.userAgent);
+}
+
 function PasteToolControl({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [env, setEnv] = useState<PasteEnvironment | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const isMac = isMacOS();
 
   useEffect(() => {
     let alive = true;
@@ -80,40 +85,58 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
     };
   }, [value]);
 
-  const options = [
-    { value: "auto", label: "Auto" },
-    { value: "wtype", label: "wtype", disabled: env ? !env.has_wtype : false, title: env && !env.has_wtype ? "wtype is not installed" : undefined },
-    { value: "ydotool", label: "ydotool", disabled: env ? !env.has_ydotool : false, title: env && !env.has_ydotool ? "ydotool is not installed" : undefined },
-    { value: "enigo", label: "Built-in" },
-  ];
+  // macOS has no wtype/ydotool: only Auto (which resolves to Built-in) and Built-in.
+  const options = isMac
+    ? [
+      { value: "auto", label: "Auto" },
+      { value: "enigo", label: "Built-in" },
+    ]
+    : [
+      { value: "auto", label: "Auto" },
+      { value: "wtype", label: "wtype", disabled: env ? !env.has_wtype : false, title: env && !env.has_wtype ? "wtype is not installed" : undefined },
+      { value: "ydotool", label: "ydotool", disabled: env ? !env.has_ydotool : false, title: env && !env.has_ydotool ? "ydotool is not installed" : undefined },
+      { value: "enigo", label: "Built-in" },
+    ];
 
   return (
     <div>
       <div className="flex items-center gap-1.5 mb-2">
         <label className="label-soft">Tool</label>
-        <button
-          type="button"
-          onClick={() => setShowHelp((v) => !v)}
-          title="How to set up ydotool"
-          className="shrink-0 w-4 h-4 rounded-full border border-stroke text-[10px] text-muted hover:text-accent flex items-center justify-center"
-        >
-          ?
-        </button>
+        {!isMac && (
+          <button
+            type="button"
+            onClick={() => setShowHelp((v) => !v)}
+            title="How to set up ydotool"
+            className="shrink-0 w-4 h-4 rounded-full border border-stroke text-[10px] text-muted hover:text-accent flex items-center justify-center"
+          >
+            ?
+          </button>
+        )}
       </div>
       <PillGroup value={value} options={options} onChange={onChange} />
 
-      {showHelp && (
+      {showHelp && !isMac && (
         <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
           ydotool never asks for permission. wtype/Built-in may ask once.
           <a href="https://github.com/taraksh01/wisper#setting-up-ydotool-no-prompts" target="_blank" rel="noopener noreferrer" className="text-accent ml-1">Guide →</a>
         </div>
       )}
 
+      {isMac && (
+        <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
+          Built-in pastes with Cmd+V and needs an Accessibility grant: System Settings → Privacy &amp; Security → Accessibility → enable Wisper.
+        </div>
+      )}
+
       {env && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-muted">
           <span>Using <span className="text-ink">{env.backend === "enigo" ? "Built-in" : env.backend}</span> · {env.session_type}</span>
-          <span className={env.has_wtype ? "text-ready" : "text-muted/40"}>{env.has_wtype ? "✓" : "✗"} wtype</span>
-          <span className={env.has_ydotool ? "text-ready" : "text-muted/40"}>{env.has_ydotool ? "✓" : "✗"} ydotool</span>
+          {!isMac && (
+            <>
+              <span className={env.has_wtype ? "text-ready" : "text-muted/40"}>{env.has_wtype ? "✓" : "✗"} wtype</span>
+              <span className={env.has_ydotool ? "text-ready" : "text-muted/40"}>{env.has_ydotool ? "✓" : "✗"} ydotool</span>
+            </>
+          )}
           {env.preference_unavailable && <span className="text-warning">fallback: {value} unavailable</span>}
           {!env.reliable && <span className="text-recording">Install wtype or ydotool for Wayland</span>}
         </div>
@@ -239,6 +262,7 @@ function SupportedKeysModal({ onClose }: { onClose: () => void }) {
 
 function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { threshold: number; onChange: (v: number) => void; inputDevice: string; disabled?: boolean }) {
   const isWindows = typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+  const isMac = isMacOS();
   const [level, setLevel] = useState(0);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const historyRef = useRef<number[]>([]);
@@ -472,6 +496,11 @@ function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { t
         {isWindows && isTooQuiet && (
           <p className="text-[10px] font-mono text-muted/80 leading-relaxed pt-1.5 border-t border-stroke/50">
             Meter flat on Windows? Allow microphone access: Settings → Privacy &amp; security → Microphone → let desktop apps use it.
+          </p>
+        )}
+        {isMac && isTooQuiet && (
+          <p className="text-[10px] font-mono text-muted/80 leading-relaxed pt-1.5 border-t border-stroke/50">
+            Meter flat on macOS? Allow microphone access: System Settings → Privacy &amp; Security → Microphone → enable Wisper.
           </p>
         )}
       </div>
@@ -878,12 +907,18 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
         <div className="space-y-3">
           <PillGroup
             value={settings.paste_method}
-            options={[
-              { value: "Ctrl+V", label: "Ctrl+V" },
-              { value: "Ctrl+Shift+V", label: "Ctrl+Shift+V" },
-              { value: "Shift+Insert", label: "Shift+Insert" },
-              { value: "Direct Typing", label: "Direct Typing" },
-            ]}
+            options={(() => {
+              // Stored values stay shared across platforms; only labels adapt.
+              // Shift+Insert has no macOS equivalent (it pastes as Cmd+V), so it is hidden there.
+              const mac = isMacOS();
+              const all = [
+                { value: "Ctrl+V", label: mac ? "Cmd+V" : "Ctrl+V" },
+                { value: "Ctrl+Shift+V", label: mac ? "Cmd+Shift+V" : "Ctrl+Shift+V" },
+                { value: "Shift+Insert", label: "Shift+Insert" },
+                { value: "Direct Typing", label: "Direct Typing" },
+              ];
+              return mac ? all.filter((o) => o.value !== "Shift+Insert") : all;
+            })()}
             onChange={(v) => onSave("paste_method", v)}
           />
           <PasteToolControl value={settings.paste_tool} onChange={(v) => onSave("paste_tool", v)} />
