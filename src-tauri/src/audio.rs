@@ -459,6 +459,9 @@ impl AudioRecorder {
         f32: FromSample<T>,
     {
         let channels = config.channels as usize;
+        if channels == 0 {
+            return Err("Audio device reports zero channels".into());
+        }
         let err_fn = |err: cpal::Error| {
             if matches!(err.kind(), cpal::ErrorKind::Xrun) {
                 return;
