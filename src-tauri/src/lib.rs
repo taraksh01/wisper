@@ -514,7 +514,18 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 if crate::coordinator::active_job_count() > 0 {
                     let _ = win.eval("window.__mode && window.__mode('processing')");
                 } else {
-                    let _ = win.destroy();
+                    // Windows: creating a WebView2 window costs 1-3s, so keep
+                    // the hidden window alive instead of rebuilding it on
+                    // every hotkey press. Linux WebKit rebuilds are instant,
+                    // keep destroy there.
+                    #[cfg(target_os = "windows")]
+                    {
+                        let _ = win.hide();
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        let _ = win.destroy();
+                    }
                 }
             }
             CoordinatorState::Recording | CoordinatorState::Processing => {
@@ -688,6 +699,20 @@ pub fn run() {
             }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh();
+            // Windows: pre-create the hidden overlay after startup settles so
+            // even the first hotkey press doesn't pay WebView2 window-creation
+            // cost (1-3s). Serialized on the main thread with update_overlay,
+            // and create_overlay_with no-ops if the window already exists.
+            #[cfg(target_os = "windows")]
+            {
+                let prewarm_handle = app_handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let _ = prewarm_handle.run_on_main_thread(move || {
+                        create_overlay(&prewarm_handle);
+                    });
+                });
+            }
             // Enforce history retention limit on startup
             if saved_settings.max_history_entries > 0 {
                 let mode = if saved_settings.keep_recordings
