@@ -238,6 +238,7 @@ document.querySelectorAll(".cmd-copy").forEach((btn) => {
 const iconAppImage = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v6"/><path d="M9 6l3 3 3-3"/><path d="M4 11l8-4 8 4v8l-8 4-8-4z"/><path d="M4 11l8 4 8-4M12 15v8"/></svg>`;
 const iconDebian = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12c0-3.5 2.5-5.5 5.5-5 2.2.4 3.5 2.3 3 4.3-.6 2.3-3.6 2.8-4.8.8-.9-1.5.2-3.4 2-3.4"/><path d="M12 12c0 3.5-2.5 5.5-5.5 5-2.2-.4-3.5-2.3-3-4.3.6-2.3 3.6-2.8 4.8-.8.9 1.5-.2 3.4-2 3.4"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg>`;
 const iconRpm = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21V7.5C9 6 10 5 11.5 5H17"/><path d="M13 9l3.5 1.2c1.6.5 2.5 1.8 2.5 3.4 0 1.7-1.1 3-2.8 3.3"/><path d="M9 12.5h5"/></svg>`;
+const iconWindows = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5l7-1v7H4zM11 4l9-1.3V11h-9zM4 12h7v7l-7-1zM11 12h9v8.3L11 19z"/></svg>`;
 
 function fmtSize(b) {
   if (!b) return "";
@@ -266,6 +267,7 @@ function fmtSize(b) {
       { test: (n) => n.endsWith(".AppImage"), label: "AppImage", ext: ".AppImage", icon: iconAppImage },
       { test: (n) => n.endsWith(".deb"), label: "Debian / Ubuntu", ext: ".deb", icon: iconDebian },
       { test: (n) => n.endsWith(".rpm"), label: "Fedora / RPM", ext: ".rpm", icon: iconRpm },
+      { test: (n) => n.endsWith("-setup.exe"), label: "Windows", ext: ".exe", icon: iconWindows },
     ];
 
     const cards = [];

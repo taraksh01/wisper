@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wisper: Voice dictation for Linux that runs on your device</title>
-  <meta name="description" content="Wisper: privacy-first voice dictation for Linux. Speak and your words are typed at your cursor. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup. Wayland and X11." />
+  <title>Wisper: Voice dictation for Linux and Windows that runs on your device</title>
+  <meta name="description" content="Wisper: privacy-first voice dictation for Linux and Windows. Speak and your words are typed at your cursor. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup. Wayland, X11, and Windows." />
   <meta name="theme-color" content="#100d0a" />
   <meta name="color-scheme" content="light dark" />
   <script>
@@ -24,15 +24,15 @@
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Wisper" />
-  <meta property="og:title" content="Wisper: Voice dictation for Linux, on your device" />
-  <meta property="og:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default. For Wayland and X11." />
+  <meta property="og:title" content="Wisper: Voice dictation for Linux and Windows, on your device" />
+  <meta property="og:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default. For Wayland, X11, and Windows." />
   <meta property="og:url" content="https://taraksh01.github.io/wisper/" />
   <meta property="og:image" content="https://taraksh01.github.io/wisper/assets/wisper-og.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="Wisper: local voice dictation for Linux" />
+  <meta property="og:image:alt" content="Wisper: local voice dictation for Linux and Windows" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="Wisper: Voice dictation for Linux, on your device" />
+  <meta name="twitter:title" content="Wisper: Voice dictation for Linux and Windows, on your device" />
   <meta name="twitter:description" content="Speak and your words are typed where your cursor sits. Local ONNX transcription with Parakeet, Moonshine and IndicConformer, optional AI cleanup, zero data sent by default." />
   <meta name="twitter:image" content="https://taraksh01.github.io/wisper/assets/wisper-og.png" />
 
@@ -47,10 +47,10 @@
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Wisper",
-    "operatingSystem": "Linux",
+    "operatingSystem": ["Linux", "Windows"],
     "applicationCategory": "UtilitiesApplication",
     "applicationSubCategory": "Voice dictation",
-    "description": "Privacy-first voice dictation for Linux. Local ONNX transcription (Parakeet, Moonshine, IndicConformer), optional AI cleanup, types at your cursor. Works on Wayland and X11.",
+    "description": "Privacy-first voice dictation for Linux and Windows. Local ONNX transcription (Parakeet, Moonshine, IndicConformer), optional AI cleanup, types at your cursor. Works on Wayland, X11, and Windows.",
     "softwareVersion": "3.2.1",
     "url": "https://taraksh01.github.io/wisper/",
     "downloadUrl": "https://github.com/taraksh01/wisper/releases/latest",
@@ -112,7 +112,7 @@
     <!-- Hero: a Linux terminal, a Wisper session in progress, the pill on the line being dictated. -->
     <section class="hero">
       <div class="hero-head">
-        <p class="hero-tag mono">Wisper 3.2.1 &middot; Linux &middot; MIT</p>
+        <p class="hero-tag mono">Wisper 3.2.1 &middot; Linux &amp; Windows &middot; MIT</p>
         <h1 class="hero-title">Dictation, at your cursor.</h1>
         <p class="hero-sub">
           Hold a key, talk, and your words type where you were going to type them anyway.
@@ -151,10 +151,10 @@
       </div>
 
       <div class="hero-foot">
-        <a class="btn btn-primary btn-lg" href="#download">Download for Linux</a>
+        <a class="btn btn-primary btn-lg" href="#download">Download</a>
         <ul class="hero-facts mono" aria-label="At a glance">
           <li><span class="dot-ok"></span>on-device by default</li>
-          <li>Wayland &amp; X11</li>
+          <li>Wayland, X11 &amp; Windows</li>
           <li>free &middot; MIT</li>
         </ul>
       </div>
@@ -181,7 +181,7 @@
         <li class="step">
           <span class="step-num mono">03</span>
           <h3>Insert</h3>
-          <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland or X11. Optionally polished by AI first.</p>
+          <p>The text is typed at your cursor or copied to the clipboard, in any app, on Wayland, X11, or Windows. Optionally polished by AI first.</p>
         </li>
       </ol>
     </section>
@@ -274,14 +274,14 @@
     <section class="section download" id="download">
       <header class="section-head">
         <p class="eyebrow mono"># download</p>
-        <h2 class="section-title">Download for Linux</h2>
+        <h2 class="section-title">Download</h2>
         <p class="section-lead">Wisper <span class="mono" id="version">v3.2.1</span>. The site fetches the latest release when it loads. Auto-update is built in.</p>
       </header>
       <div class="download-grid" id="download-grid" data-repo="taraksh01/wisper">
         <p class="download-loading">Loading the latest release…</p>
       </div>
       <p class="download-note">
-        All releases are signed. Prefer the AppImage if your distro isn't DEB or RPM based.
+        All releases are signed. Prefer the AppImage if your distro isn't DEB or RPM based. On Windows, grab the NSIS installer card.
         <a href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">View all releases →</a>
       </p>
     </section>
@@ -311,8 +311,8 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
               <svg class="ic-check" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/></svg>
             </button>
           </div>
-          <p class="muted">wtype also works on compositors that support the Wayland virtual-keyboard protocol. enigo is built in but prompts for the RemoteDesktop portal once on Wayland.</p>
-          <p class="setup-foot mono">Wayland · ydotool recommended</p>
+          <p class="muted">wtype also works on compositors that support the Wayland virtual-keyboard protocol. enigo is built in but prompts for the RemoteDesktop portal once on Wayland. On Windows nothing extra is needed: paste works out of the box.</p>
+          <p class="setup-foot mono">Wayland · ydotool recommended · Windows needs nothing</p>
         </div>
         <div class="setup-card">
           <h3><span class="setup-num mono">3</span> Pick your mic</h3>
@@ -327,12 +327,16 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
       <header class="section-head">
         <p class="eyebrow mono"># faq</p>
         <h2 class="section-title">Questions people ask</h2>
-        <p class="section-lead">The honest answers, including the Linux-specific rough edges.</p>
+        <p class="section-lead">The honest answers, including the platform-specific rough edges.</p>
       </header>
       <div class="faq">
         <details>
           <summary>Is my audio sent to the cloud?</summary>
           <p>No, not by default. Transcription runs on your machine with local ONNX models. Cloud providers are optional and only used if you add a key in Engine or Process settings.</p>
+        </details>
+        <details>
+          <summary>Does Wisper work on Windows?</summary>
+          <p>Yes. Windows ships as an NSIS installer with the same local transcription, overlay, and paste flow as Linux. Audio uses WASAPI and the overlay sits above the taskbar. If the mic meter stays flat, check Settings → Privacy → Microphone access: Windows delivers silence when access is blocked.</p>
         </details>
         <details>
           <summary>Which Linux desktops are supported?</summary>
@@ -380,7 +384,7 @@ sudo usermod -aG input $USER" aria-label="Copy install commands" title="Copy">
       <img src="assets/wisper.svg" alt="" width="24" height="24" />
       <span>Wisper</span>
     </div>
-    <p>Privacy-first voice dictation for Linux. MIT licensed, 2026 Tarak Shaw.</p>
+    <p>Privacy-first voice dictation for Linux and Windows. MIT licensed, 2026 Tarak Shaw.</p>
     <nav class="foot-links" aria-label="Footer">
       <a href="https://github.com/taraksh01/wisper" target="_blank" rel="noopener noreferrer">GitHub</a>
       <a href="https://github.com/taraksh01/wisper/releases" target="_blank" rel="noopener noreferrer">Releases</a>
