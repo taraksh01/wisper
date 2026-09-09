@@ -18,9 +18,12 @@ permissions:
 
 jobs:
   release:
-    # Beta tags (e.g. v3.3.0-beta.1) build Windows only; stable tags build all platforms.
-    # Plain v tags are the only supported trigger: tagName v__VERSION__ must match the pushed tag.
-    if: ${{ github.event_name != 'push' || !contains(github.ref_name, 'beta') || matrix.os == 'windows' }}
+    # NOTE: do NOT filter here with matrix context - jobs.<job_id>.if is
+    # evaluated before matrix expansion, so matrix.* is unavailable and the
+    # whole run fails at startup with 0 jobs. Platform filtering lives in the
+    # "Check if this platform should build" step below (step-level ifs fully
+    # support matrix). Plain v tags are the only supported trigger: tagName
+    # v__VERSION__ must match the pushed tag.
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +37,13 @@ jobs:
         exclude: []
     runs-on: ${{ matrix.platform }}
     steps:
+      # Beta tags (e.g. v3.3.0-beta.1) build Windows only; stable tags build
+      # all platforms. Exit 78 marks this job neutral so the Linux leg ends
+      # in seconds without running the build.
+      - name: Check if this platform should build
+        if: github.event_name == 'push' && contains(github.ref_name, 'beta') && matrix.os == 'linux'
+        run: echo "Beta tag detected - Windows-only release, skipping Linux." && exit 78
+
       - name: Checkout
         uses: actions/checkout@v4
 
