@@ -2,7 +2,7 @@
 
 Turn your voice into text right on your device, with your privacy always in your hands. Just speak, and your words are ready to paste anywhere. Everything stays on your computer by default, with optional cloud providers available whenever you choose to use them.
 
-Wisper is a lightweight, privacy-first desktop dictation app for Linux. Press a global hotkey, speak, and the transcribed text is inserted wherever your cursor is. An optional AI step can clean up and format the result before it lands.
+Wisper is a lightweight, privacy-first desktop dictation app for Linux and Windows, with a macOS beta in testing. Press a global hotkey, speak, and the transcribed text is inserted wherever your cursor is. An optional AI step can clean up and format the result before it lands.
 
 ## Features
 
@@ -55,16 +55,42 @@ By default Wisper auto-detects the best available tool, but you can pick a speci
 
 > **Note:** If you install the `.deb` or `.rpm` package, these tools may be pulled in automatically. AppImage users should install them manually as shown above.
 
+## macOS beta
+
+macOS support is in beta and ships as an unsigned DMG (Apple Silicon). The website does not list it yet; this section is the documentation for beta testers.
+
+### Install
+
+1. Download the `Wisper ... .dmg` asset from the latest `v*-beta*` GitHub release.
+2. Open the DMG and drag Wisper to Applications.
+3. First launch: right-click (Control-click) Wisper in Applications, choose Open, then confirm. This one-time bypass is needed because the beta is not Apple-notarized. If macOS still refuses, run `xattr -d com.apple.quarantine /Applications/Wisper.app` and try again.
+4. Grant access when prompted:
+   - Microphone: System Settings → Privacy & Security → Microphone → enable Wisper. Without this, recording captures silence.
+   - Accessibility: System Settings → Privacy & Security → Accessibility → enable Wisper. Without this, the global hotkey never fires and pasting types nothing.
+
+### What works
+
+- Local ONNX transcription (Parakeet, Moonshine, IndicConformer) plus cloud engines.
+- Paste via the Built-in tool: Direct Typing, or Cmd+V / Cmd+Shift+V clipboard paste.
+- Global hotkey (default F9), overlay pill, tray icon, autostart, history, words, and in-app beta updates.
+
+### Known limitations
+
+- Unsigned build, so the Gatekeeper bypass above is needed on every fresh install.
+- Apple Silicon only; no Intel build yet.
+- No ydotool/wtype on macOS; paste always uses the Built-in backend.
+- Beta builds update from the beta channel (About → Check for updates). Stable releases do not include macOS yet.
+
 ## Tech Stack
 
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
 - **Backend:** Tauri v2 (Rust)
 - **STT:** local ONNX models + optional cloud APIs (OpenAI-compatible)
-- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio)
+- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio); macOS beta (unsigned DMG, Apple Silicon, CoreAudio)
 
 ## Development
 
-Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https://nodejs.org/), and [pnpm](https://pnpm.io/), plus the [Tauri Linux system dependencies](https://tauri.app/start/prerequisites/). For paste testing, `ydotool ≥1.0.4` is recommended (see Requirements - older versions lack `-d 0 -H 0` and will be slower).
+Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https://nodejs.org/), and [pnpm](https://pnpm.io/), plus the [Tauri Linux system dependencies](https://tauri.app/start/prerequisites/). For paste testing, `ydotool ≥1.0.4` is recommended (see Requirements - older versions lack `-d 0 -H 0` and will be slower). On macOS you need the Xcode Command Line Tools (`xcode-select --install`) instead of the Linux system dependencies.
 
 ```bash
 # install JS dependencies
@@ -73,7 +99,7 @@ pnpm install
 # dev: Wisper Dev (violet) - isolated config, runs alongside installed Wisper
 pnpm tauri:dev
 
-# prod bundle (orange) - AppImage / deb / rpm
+# prod bundle (orange) - AppImage / deb / rpm on Linux, NSIS on Windows, dmg on macOS
 pnpm tauri build
 # alias:
 pnpm tauri:build
