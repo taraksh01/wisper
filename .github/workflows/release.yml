@@ -20,17 +20,16 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# Three separate jobs (not a matrix) so beta tags can skip Linux/macOS entirely:
-# a skipped job shows gray instead of failing the run. Job-level `if`
-# only uses github/event/inputs contexts - never matrix (unavailable
+# Three separate jobs (not a matrix) so each channel builds only its
+# platforms: stable tags build Linux + Windows, beta tags build macOS
+# only. A skipped job shows gray instead of failing the run. Job-level
+# `if` only uses github/event/inputs contexts - never matrix (unavailable
 # there and fails the run at startup). Plain v tags are the only
 # supported trigger: tagName v__VERSION__ must match the pushed tag.
-# macOS skips beta tags like Linux does: the beta channel stays
-# Windows-only until the first signed mac build is verified.
 
 jobs:
   release-linux:
-    # Stable tags only. Beta tags (containing 'beta') are Windows-only.
+    # Stable tags only. Beta tags (containing 'beta') build macOS only.
     if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux')) }}
     runs-on: ubuntu-24.04
     steps:
@@ -89,7 +88,8 @@ jobs:
           uploadUpdaterJson: true
 
   release-windows:
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) }}
+    # Stable tags only. Windows graduated from beta; beta tags build macOS only.
+    if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -135,19 +135,15 @@ jobs:
         with:
           projectPath: src-tauri
           tagName: v__VERSION__
-          releaseName: Wisper v__VERSION__${{ contains(github.ref_name, 'beta') && ' (Windows beta)' || '' }}
-          releaseBody: ${{ contains(github.ref_name, 'beta') && 'Windows beta - NSIS installer below. Not for production use yet.' || 'See the assets below for the Windows installer (NSIS).' }}
+          releaseName: Wisper v__VERSION__
+          releaseBody: "See the assets below for the Windows installer (NSIS)."
           releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          prerelease: false
           uploadUpdaterJson: true
-          # Beta builds point the in-app updater at the rolling beta feed
-          # instead of /latest (which excludes prereleases). Stable builds
-          # keep the default endpoint from tauri.conf.json.
-          args: ${{ contains(github.ref_name, 'beta') && format('--config "{0}/src-tauri/tauri.beta.json"', github.workspace) || '' }}
 
   release-macos:
-    # Stable tags only. Beta tags (containing 'beta') are Windows-only.
-    if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
+    # Beta tags only. macOS is in beta verification; stable tags build Linux + Windows.
+    if: ${{ (github.event_name == 'push' && contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -193,17 +189,21 @@ jobs:
         with:
           projectPath: src-tauri
           tagName: v__VERSION__
-          releaseName: Wisper v__VERSION__
-          releaseBody: "See the assets below for the macOS disk image (dmg, Apple Silicon)."
+          releaseName: Wisper v__VERSION__ (macOS beta)
+          releaseBody: "macOS beta - unsigned DMG below (Apple Silicon). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
           releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          prerelease: true
           uploadUpdaterJson: true
+          # Beta builds point the in-app updater at the rolling beta feed
+          # instead of /latest (which excludes prereleases).
+          args: ${{ format('--config "{0}/src-tauri/tauri.beta.json"', github.workspace) }}
 
-  # Republishes this tag's latest.json to a floating `beta` release so  # installed betas (which point at .../releases/download/beta/latest.json)
+  # Republishes this tag's latest.json to a floating `beta` release so
+  # installed mac betas (which point at .../releases/download/beta/latest.json)
   # discover new betas in-app. Stable /latest never includes prereleases,
   # so stable installs are unaffected.
   beta-feed:
-    needs: release-windows
+    needs: release-macos
     if: github.event_name == 'push' && contains(github.ref_name, 'beta')
     runs-on: ubuntu-latest
     steps:
