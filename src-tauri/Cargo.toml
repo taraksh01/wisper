@@ -53,3 +53,8 @@ windows-core = "=0.61.2"
 # Win32 surface for taskbar-aware overlay placement.
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 
+# WebviewWindowBuilder::transparent only exists on macOS with this feature;
+# the overlay pill needs it (see app.macosPrivateApi in tauri.conf.json).
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+

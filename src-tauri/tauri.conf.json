@@ -12,6 +12,7 @@
   "app": {
     "withGlobalTauri": true,
     "enableGTKAppId": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Wisper",
