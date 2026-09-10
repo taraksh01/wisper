@@ -145,6 +145,11 @@ jobs:
     # Beta tags only. macOS is in beta verification; stable tags build Linux + Windows.
     if: ${{ (github.event_name == 'push' && contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
     runs-on: macos-latest
+    # Apple Silicon + Intel DMGs. fail-fast false so one arch still ships if the other breaks.
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -162,6 +167,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -190,13 +197,13 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: Wisper v__VERSION__ (macOS beta)
-          releaseBody: "macOS beta - unsigned DMG below (Apple Silicon). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
+          releaseBody: "macOS beta - unsigned DMGs below (Apple Silicon and Intel). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
           releaseDraft: true
           prerelease: true
           uploadUpdaterJson: true
           # Beta builds point the in-app updater at the rolling beta feed
           # instead of /latest (which excludes prereleases).
-          args: ${{ format('--config "{0}/src-tauri/tauri.beta.json"', github.workspace) }}
+          args: ${{ format('--target {0} --config "{1}/src-tauri/tauri.beta.json"', matrix.target, github.workspace) }}
 
   # Republishes this tag's latest.json to a floating `beta` release so
   # installed mac betas (which point at .../releases/download/beta/latest.json)
