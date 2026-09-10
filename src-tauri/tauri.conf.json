@@ -34,7 +34,8 @@
       "deb",
       "rpm",
       "nsis",
-      "dmg"
+      "dmg",
+      "app"
     ],
     "publisher": "Tarak Shaw",
     "shortDescription": "Turn your voice into text right on your device, with your privacy always in your hands.",
