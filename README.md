@@ -57,7 +57,7 @@ By default Wisper auto-detects the best available tool, but you can pick a speci
 
 ## macOS beta
 
-macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel). The website does not list it yet; this section is the documentation for beta testers.
+macOS support is in beta and ships as an unsigned DMG (Apple Silicon). The website does not list it yet; this section is the documentation for beta testers.
 
 ### Install
 
@@ -77,7 +77,7 @@ macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel).
 ### Known limitations
 
 - Unsigned build, so the Gatekeeper bypass above is needed on every fresh install.
-- Apple Silicon and Intel builds, on macOS 13 or newer.
+- Apple Silicon only, on macOS 13 or newer; no Intel build (the ONNX runtime we use ships no Intel macOS binaries).
 - No ydotool/wtype on macOS; paste always uses the Built-in backend.
 - Beta builds update from the beta channel (About → Check for updates). Stable releases do not include macOS yet.
 
@@ -86,7 +86,7 @@ macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel).
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
 - **Backend:** Tauri v2 (Rust)
 - **STT:** local ONNX models + optional cloud APIs (OpenAI-compatible)
-- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio); macOS beta (unsigned DMG, Apple Silicon and Intel, CoreAudio)
+- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio); macOS beta (unsigned DMG, Apple Silicon, CoreAudio)
 
 ## Development
 
