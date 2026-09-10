@@ -1,6 +1,6 @@
 [package]
 name = "wisper"
-version = "3.3.0-beta.5"
+version = "3.3.0-beta.6"
 description = "Turn your voice into text right on your device, with your privacy always in your hands."
 authors = ["Tarak Shaw <taraksh01@gmail.com>"]
 edition = "2021"
