@@ -77,7 +77,7 @@ macOS support is in beta and ships as an unsigned DMG (Apple Silicon). The websi
 ### Known limitations
 
 - Unsigned build, so the Gatekeeper bypass above is needed on every fresh install.
-- Apple Silicon only; no Intel build yet.
+- Apple Silicon only, on macOS 13 or newer; no Intel build yet.
 - No ydotool/wtype on macOS; paste always uses the Built-in backend.
 - Beta builds update from the beta channel (About → Check for updates). Stable releases do not include macOS yet.
 
