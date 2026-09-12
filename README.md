@@ -63,7 +63,8 @@ macOS support is in beta and ships as an unsigned DMG (Apple Silicon). The websi
 
 1. Download the `Wisper ... .dmg` asset from the latest `v*-beta*` GitHub release.
 2. Open the DMG and drag Wisper to Applications.
-3. First launch: right-click (Control-click) Wisper in Applications, choose Open, then confirm. This one-time bypass is needed because the beta is not Apple-notarized. If macOS still refuses, run `xattr -d com.apple.quarantine /Applications/Wisper.app` and try again.
+3. First launch: macOS will say the app "is damaged". It is not. When you download anything with your browser, macOS attaches a hidden "downloaded from the internet" marker to it. Because this beta does not carry Apple's paid approval stamp, macOS sees the marker plus the missing stamp and wrongly calls the app damaged. Clearing the marker fixes it and changes nothing else: it does not modify the app and does not lower your Mac's security. Open Terminal, paste the line below, press Enter, then right-click (Control-click) Wisper in Applications, choose Open, then confirm:
+   `xattr -cr /Applications/Wisper.app`
 4. Grant access when prompted:
    - Microphone: System Settings → Privacy & Security → Microphone → enable Wisper. Without this, recording captures silence.
    - Accessibility: System Settings → Privacy & Security → Accessibility → enable Wisper. Without this, the global hotkey never fires and pasting types nothing.
