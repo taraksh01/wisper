@@ -49,6 +49,12 @@ fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
             && dir.join("vocab.txt").exists()
             && dir.join("language_spans.json").exists();
     }
+    if name.starts_with("moonshine-tiny-en-int8") || name.starts_with("sherpa-onnx-moonshine-tiny-en") {
+        return dir.join("encode.int8.onnx").exists()
+            && dir.join("cached_decode.int8.onnx").exists()
+            && dir.join("uncached_decode.int8.onnx").exists()
+            && dir.join("tokens.txt").exists();
+    }
     if name.starts_with("whisper-large-v3") {
         return dir.join("large-v3-encoder.int8.onnx").exists()
             && dir.join("large-v3-decoder.int8.onnx").exists()
@@ -97,6 +103,7 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
         "indicconformer-8lang" => "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
         "moonshine-base" => "https://blob.handy.computer/moonshine-base.tar.gz",
+        "moonshine-tiny-en-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
         "indicconformer-600m-multi" => "https://huggingface.co/christopherthompson81/indicconformer-600m-onnx/resolve/main/encoder-model.onnx",
         "whisper-large-v3-int8" => "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx",
         _ => return None,
@@ -119,6 +126,7 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => Some("indicconformer-120m-pa".into()),
         "indicconformer-8lang" => Some("indicconformer-8lang".into()),
         "moonshine-base" => Some("moonshine-base".into()),
+        "moonshine-tiny-en-int8" => Some("sherpa-onnx-moonshine-tiny-en-int8".into()),
         "indicconformer-600m-multi" => Some("indicconformer-600m-multi".into()),
         "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
         _ => None,
@@ -326,6 +334,8 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         "onnx"
     } else if url.ends_with(".tar.gz") {
         "tar.gz"
+    } else if url.ends_with(".tar.bz2") {
+        "tar.bz2"
     } else {
         "bin"
     };
@@ -434,54 +444,106 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
         }
     } else {
-        // Extract archive with path traversal validation
-        let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+        // Extract archive with path traversal validation (supports .tar.gz and .tar.bz2)
+        let is_bz2 = ext == "tar.bz2";
         let mut validated_paths: Vec<PathBuf> = Vec::new();
-        for entry in archive
-            .entries()
-            .map_err(|e| format!("Failed to read archive: {}", e))?
-        {
-            let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
-            if matches!(entry.link_name(), Ok(Some(_))) {
-                return Err("Archive contains symlink".into());
-            }
-            let et = entry.header().entry_type();
-            if et == tar::EntryType::Block
-                || et == tar::EntryType::Char
-                || et == tar::EntryType::Fifo
+        if is_bz2 {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(bzip2::read::BzDecoder::new(archive_file));
+            for entry in archive
+                .entries()
+                .map_err(|e| format!("Failed to read archive: {}", e))?
             {
-                return Err(format!("Archive contains special file: {:?}", et));
-            }
-            if !(et.is_file() || et.is_dir()) {
-                if et != tar::EntryType::GNULongName
-                    && et != tar::EntryType::GNULongLink
-                    && et != tar::EntryType::XHeader
-                    && et != tar::EntryType::XGlobalHeader
-                {
-                    return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+                if matches!(entry.link_name(), Ok(Some(_))) {
+                    return Err("Archive contains symlink".into());
                 }
+                let et = entry.header().entry_type();
+                if et == tar::EntryType::Block
+                    || et == tar::EntryType::Char
+                    || et == tar::EntryType::Fifo
+                {
+                    return Err(format!("Archive contains special file: {:?}", et));
+                }
+                if !(et.is_file() || et.is_dir()) {
+                    if et != tar::EntryType::GNULongName
+                        && et != tar::EntryType::GNULongLink
+                        && et != tar::EntryType::XHeader
+                        && et != tar::EntryType::XGlobalHeader
+                    {
+                        return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                    }
+                }
+                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
+                if path.is_absolute()
+                    || path
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err("Archive contains invalid path".into());
+                }
+                let dest = models_dir.join(&path);
+                if !dest.starts_with(&models_dir) {
+                    return Err("Archive path escapes models dir".into());
+                }
+                validated_paths.push(dest);
             }
-            let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
-            if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
+        } else {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+            for entry in archive
+                .entries()
+                .map_err(|e| format!("Failed to read archive: {}", e))?
             {
-                return Err("Archive contains invalid path".into());
+                let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+                if matches!(entry.link_name(), Ok(Some(_))) {
+                    return Err("Archive contains symlink".into());
+                }
+                let et = entry.header().entry_type();
+                if et == tar::EntryType::Block
+                    || et == tar::EntryType::Char
+                    || et == tar::EntryType::Fifo
+                {
+                    return Err(format!("Archive contains special file: {:?}", et));
+                }
+                if !(et.is_file() || et.is_dir()) {
+                    if et != tar::EntryType::GNULongName
+                        && et != tar::EntryType::GNULongLink
+                        && et != tar::EntryType::XHeader
+                        && et != tar::EntryType::XGlobalHeader
+                    {
+                        return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                    }
+                }
+                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
+                if path.is_absolute()
+                    || path
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err("Archive contains invalid path".into());
+                }
+                let dest = models_dir.join(&path);
+                if !dest.starts_with(&models_dir) {
+                    return Err("Archive path escapes models dir".into());
+                }
+                validated_paths.push(dest);
             }
-            let dest = models_dir.join(&path);
-            if !dest.starts_with(&models_dir) {
-                return Err("Archive path escapes models dir".into());
-            }
-            validated_paths.push(dest);
         }
         // Re-open and unpack after validation (entries consumed above)
-        let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
-        archive
-            .unpack(&models_dir)
-            .map_err(|e| format!("Failed to extract model: {}", e))?;
+        if is_bz2 {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(bzip2::read::BzDecoder::new(archive_file));
+            archive
+                .unpack(&models_dir)
+                .map_err(|e| format!("Failed to extract model: {}", e))?;
+        } else {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+            archive
+                .unpack(&models_dir)
+                .map_err(|e| format!("Failed to extract model: {}", e))?;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

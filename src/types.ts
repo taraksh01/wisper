@@ -377,6 +377,19 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
+  "moonshine-tiny-en-int8": {
+    name: "Moonshine Tiny EN (INT8)",
+    size: "~118 MB",
+    accuracy: 89,
+    speed: 98,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+    languages: ["en"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
 };
 
 export const allModelKeys = Object.keys(modelCatalog);
@@ -458,6 +471,7 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
     "indicconformer-600m-multi": "indicconformer-600m-multi",
     "whisper-large-v3-int8": "whisper-large-v3-int8",
     "moonshine-base": "moonshine-base",
+    "moonshine-tiny-en-int8": "sherpa-onnx-moonshine-tiny-en-int8",
   };
   return map[key] || key;
 }
