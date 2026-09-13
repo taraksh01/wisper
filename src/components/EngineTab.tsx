@@ -349,10 +349,12 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                   }}
                   className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_provider === p ? "text-white" : "text-muted hover:text-ink"}`}
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : p === "sarvam" ? "Sarvam" : "Custom"}
-                    {p === "sarvam" && <span className="px-1 py-0.5 text-[8px] font-semibold tracking-wide leading-none rounded bg-emerald-500 text-white">Best in class</span>}
-                  </span>
+                  {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : p === "sarvam" ? "Sarvam" : "Custom"}
+                  {p === "sarvam" && settings.engine_provider === "sarvam" && (
+                    <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2.5 px-2 py-1 text-[10px] font-bold tracking-widest leading-none rounded-full bg-neutral-900 text-amber-300 border border-amber-400/60 whitespace-nowrap">
+                      Best in class
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

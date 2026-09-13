@@ -61,6 +61,7 @@ function AppShell() {
     const saved = safeStorageGet(storageKey("active-tab"));
     return saved && tabs.some((t) => t.id === saved) ? saved : "general";
   });
+
   const [appState, setAppState] = useState("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
