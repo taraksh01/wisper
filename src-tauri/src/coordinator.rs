@@ -5,7 +5,9 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::engine::{create_local_engine, CloudEngineProvider, EngineProvider};
+use crate::engine::{
+    create_local_engine, CloudEngineProvider, EngineProvider, SarvamCloudProvider,
+};
 use crate::paste::paste_text;
 
 const START_WAV: &[u8] = include_bytes!("../../public/sounds/start.wav");
@@ -149,6 +151,7 @@ pub static CLOUD_PROVIDER: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_MODEL: Mutex<String> = Mutex::new(String::new());
+pub static CLOUD_SARVAM_MODE: Mutex<String> = Mutex::new(String::new());
 
 pub fn model_display_name(path: &std::path::Path) -> String {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
@@ -448,30 +451,57 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
-            let mut base_url = CLOUD_BASE_URL
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            if base_url.trim().is_empty() {
-                base_url = match provider.as_str() {
-                    "openai" => "https://api.openai.com/v1".into(),
-                    "groq" => "https://api.groq.com/openai/v1".into(),
-                    _ => base_url,
-                };
-            }
-            if base_url.trim().is_empty() {
-                Err("Cloud provider not configured (missing base URL)".into())
-            } else {
+            if provider == "sarvam" {
                 let api_key = CLOUD_API_KEY
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
-                let model = CLOUD_MODEL
+                if api_key.trim().is_empty() {
+                    Err("Sarvam API key not configured".into())
+                } else {
+                    let mut model = CLOUD_MODEL
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    if model.trim().is_empty() {
+                        model = "saaras:v4".to_string();
+                    }
+                    let mut sarvam_mode = CLOUD_SARVAM_MODE
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    if sarvam_mode.trim().is_empty() {
+                        sarvam_mode = "transcribe".to_string();
+                    }
+                    let engine = SarvamCloudProvider::new(api_key, model, sarvam_mode);
+                    engine.transcribe(&trimmed, 16000)
+                }
+            } else {
+                let mut base_url = CLOUD_BASE_URL
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     .clone();
-                let engine = CloudEngineProvider::new(base_url, api_key, model);
-                engine.transcribe(&trimmed, 16000)
+                if base_url.trim().is_empty() {
+                    base_url = match provider.as_str() {
+                        "openai" => "https://api.openai.com/v1".into(),
+                        "groq" => "https://api.groq.com/openai/v1".into(),
+                        _ => base_url,
+                    };
+                }
+                if base_url.trim().is_empty() {
+                    Err("Cloud provider not configured (missing base URL)".into())
+                } else {
+                    let api_key = CLOUD_API_KEY
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    let model = CLOUD_MODEL
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    let engine = CloudEngineProvider::new(base_url, api_key, model);
+                    engine.transcribe(&trimmed, 16000)
+                }
             }
         } else {
             let model_path = {

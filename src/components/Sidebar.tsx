@@ -110,6 +110,8 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
                         return settings.voice_api_key_openai.trim() !== "" || settings.voice_api_key.trim() !== "";
                       case "groq":
                         return settings.voice_api_key_groq.trim() !== "" || settings.voice_api_key.trim() !== "";
+                      case "sarvam":
+                        return (settings.voice_api_key_sarvam || "").trim() !== "" || settings.voice_api_key.trim() !== "";
                       case "custom":
                         return settings.voice_api_key_custom.trim() !== "" || settings.voice_api_key.trim() !== "";
                       default:
@@ -125,6 +127,8 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
                       ? "OpenAI"
                       : settings.engine_provider === "groq"
                       ? "Groq"
+                      : settings.engine_provider === "sarvam"
+                      ? "Sarvam"
                       : "Custom";
                   const cloudName = `${providerLabel} · ${settings.engine_model}`;
                   return (

@@ -75,6 +75,7 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
             let label = match s.engine_provider.as_str() {
                 "openai" => "OpenAI",
                 "groq" => "Groq",
+                "sarvam" => "Sarvam",
                 _ => "Custom",
             };
             if s.engine_model.trim().is_empty() {
@@ -112,6 +113,9 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
                 !s.voice_api_key_openai.trim().is_empty() || !s.voice_api_key.trim().is_empty()
             }
             "groq" => !s.voice_api_key_groq.trim().is_empty() || !s.voice_api_key.trim().is_empty(),
+            "sarvam" => {
+                !s.voice_api_key_sarvam.trim().is_empty() || !s.voice_api_key.trim().is_empty()
+            }
             "custom" => {
                 !s.voice_api_key_custom.trim().is_empty() || !s.voice_api_key.trim().is_empty()
             }

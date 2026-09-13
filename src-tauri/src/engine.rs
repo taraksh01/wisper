@@ -294,6 +294,110 @@ impl EngineProvider for CloudEngineProvider {
     }
 }
 
+pub struct SarvamCloudProvider {
+    api_key: String,
+    model: String,
+    mode: String,
+}
+
+impl SarvamCloudProvider {
+    pub fn new(api_key: String, model: String, mode: String) -> Self {
+        Self {
+            api_key,
+            model,
+            mode,
+        }
+    }
+}
+
+const SARVAM_CHUNK_SECS: usize = 25;
+
+impl EngineProvider for SarvamCloudProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        let samples_16k = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+
+        let chunk_samples = SARVAM_CHUNK_SECS * 16000;
+        let mut all_text = Vec::new();
+        let mut offset = 0;
+
+        while offset < samples_16k.len() {
+            let end = (offset + chunk_samples).min(samples_16k.len());
+            let chunk = &samples_16k[offset..end];
+
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
+            let mut wav_path = std::env::temp_dir();
+            wav_path.push(format!(
+                "wisper_sarvam_{}_{}_{}.wav",
+                std::process::id(),
+                nanos,
+                ctr
+            ));
+            struct Guard(std::path::PathBuf);
+            impl Drop for Guard {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_file(&self.0);
+                }
+            }
+            let _guard = Guard(wav_path.clone());
+            crate::audio::save_wav(&wav_path, chunk, 16000)
+                .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
+
+            let file_bytes = std::fs::read(&wav_path)
+                .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
+
+            let client = cloud_client();
+            let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+                .file_name("audio.wav")
+                .mime_str("audio/wav")
+                .map_err(|e| format!("Failed to construct multipart: {}", e))?;
+
+            let form = reqwest::blocking::multipart::Form::new()
+                .text("model", self.model.clone())
+                .text("mode", self.mode.clone())
+                .part("file", part);
+
+            let resp = client
+                .post("https://api.sarvam.ai/speech-to-text")
+                .header("api-subscription-key", &self.api_key)
+                .multipart(form)
+                .send()
+                .map_err(|e| format!("Sarvam API request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                return Err(format!(
+                    "Sarvam API error ({}): {}",
+                    resp.status(),
+                    resp.text().unwrap_or_default()
+                ));
+            }
+
+            let json: serde_json::Value = resp
+                .json()
+                .map_err(|e| format!("Failed to parse Sarvam response: {}", e))?;
+
+            let text = json["transcript"]
+                .as_str()
+                .ok_or("No 'transcript' field in Sarvam response")?;
+
+            if !text.trim().is_empty() {
+                all_text.push(text.trim().to_string());
+            }
+
+            offset = end;
+        }
+
+        Ok(all_text.join(" "))
+    }
+}
+
 pub struct SherpaIndicProvider {
     model_dir: PathBuf,
 }

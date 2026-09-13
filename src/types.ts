@@ -71,8 +71,10 @@ export interface AppSettings {
   voice_api_key: string;
   voice_api_key_openai: string;
   voice_api_key_groq: string;
+  voice_api_key_sarvam: string;
   voice_api_key_custom: string;
   engine_model: string;
+  engine_sarvam_mode: string;
   local_model_file: string;
   process_enabled: boolean;
   process_provider: string;
@@ -151,6 +153,19 @@ export const groqModels = [
   "whisper-large-v3",
   "whisper-large-v3-turbo",
 ];
+
+export const sarvamModels = [
+  "saaras:v4",
+  "saaras:v3",
+];
+
+export const sarvamModes = [
+  { value: "transcribe", label: "Transcribe" },
+  { value: "translate", label: "Translate to English" },
+  { value: "verbatim", label: "Verbatim" },
+  { value: "translit", label: "Transliterate" },
+  { value: "codemix", label: "Code-mix" },
+] as const;
 
 export const modelCatalog: Record<string, ModelInfo> = {
   "parakeet-onnx-tdt-0.6b-v3": {
