@@ -1199,6 +1199,171 @@ impl EngineProvider for SenseVoiceProvider {
     }
 }
 
+pub struct Qwen3ASRProvider {
+    model_dir: PathBuf,
+}
+
+impl Qwen3ASRProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedQwen3ASR {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static QWEN3_ASR_CACHE: OnceLock<Mutex<Option<CachedQwen3ASR>>> = OnceLock::new();
+
+fn qwen3_asr_cache() -> &'static Mutex<Option<CachedQwen3ASR>> {
+    QWEN3_ASR_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static QWEN3_ASR_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_qwen3_asr_eviction(dir: PathBuf) {
+    if QWEN3_ASR_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            QWEN3_ASR_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = qwen3_asr_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = qwen3_asr_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_qwen3_asr_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for Qwen3ASRProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineQwen3ASRModelConfig, OfflineRecognizerConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_qwen3_asr_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "Qwen3 ASR decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedQwen3ASR {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let conv_frontend = self.model_dir.join("conv_frontend.onnx");
+        let encoder = self.model_dir.join("encoder.int8.onnx");
+        let encoder = if encoder.exists() {
+            encoder
+        } else {
+            self.model_dir.join("encoder.onnx")
+        };
+        let decoder = self.model_dir.join("decoder.int8.onnx");
+        let decoder = if decoder.exists() {
+            decoder
+        } else {
+            self.model_dir.join("decoder.onnx")
+        };
+        let tokenizer = self.model_dir.join("tokenizer");
+        if !conv_frontend.exists() || !encoder.exists() || !decoder.exists() || !tokenizer.exists()
+        {
+            return Err(format!(
+                "Qwen3 ASR files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.qwen3_asr = OfflineQwen3ASRModelConfig {
+            conv_frontend: Some(conv_frontend.to_string_lossy().to_string()),
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            decoder: Some(decoder.to_string_lossy().to_string()),
+            tokenizer: Some(tokenizer.to_string_lossy().to_string()),
+            max_total_len: 512,
+            max_new_tokens: 256,
+            temperature: 1e-6,
+            top_p: 0.8,
+            seed: 42,
+            hotwords: None,
+        };
+        config.model_config.tokens = Some(String::new());
+        config.model_config.num_threads = 4;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Qwen3 ASR recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Qwen3 ASR decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedQwen3ASR {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_qwen3_asr_eviction(self.model_dir.clone());
+        Ok(text)
+    }
+}
+
 pub struct IndicConformer600MProvider {
     model_dir: PathBuf,
 }
@@ -1669,6 +1834,8 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
         Box::new(WhisperBaseProvider::new(model_path))
     } else if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
         Box::new(SenseVoiceProvider::new(model_path))
+    } else if name.starts_with("qwen3-asr") || name.starts_with("sherpa-onnx-qwen3-asr") {
+        Box::new(Qwen3ASRProvider::new(model_path))
     } else if name.starts_with("sherpa-onnx-moonshine-tiny") || name.starts_with("moonshine-tiny") {
         Box::new(SherpaMoonshineProvider::new(model_path))
     } else if name.starts_with("indicconformer-600m-multi") {

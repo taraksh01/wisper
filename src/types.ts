@@ -451,6 +451,23 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
+  "qwen3-asr-0.6b-int8": {
+    name: "Qwen3-ASR 0.6B (INT8)",
+    size: "~940 MB",
+    accuracy: 92,
+    speed: 40,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+    languages: [
+      "en", "zh", "ja", "ko", "yue", "vi", "de", "es", "ru", "fr",
+      "pt", "it", "ar", "hi", "id", "tr", "pl", "nl", "sv", "cs",
+      "da", "fi", "el", "hu", "ro", "no", "uk", "hr", "bg", "th",
+    ],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
 };
 
 export const allModelKeys = Object.keys(modelCatalog);
@@ -536,6 +553,7 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
     "whisper-tiny-int8": "sherpa-onnx-whisper-tiny",
     "whisper-base-int8": "sherpa-onnx-whisper-base",
     "sensevoice-small-int8": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+    "qwen3-asr-0.6b-int8": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
   };
   return map[key] || key;
 }
