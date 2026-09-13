@@ -349,7 +349,10 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                   }}
                   className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_provider === p ? "text-white" : "text-muted hover:text-ink"}`}
                 >
-                  {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : p === "sarvam" ? "Sarvam" : "Custom"}
+                  <span className="inline-flex items-center gap-1.5">
+                    {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : p === "sarvam" ? "Sarvam" : "Custom"}
+                    {p === "sarvam" && <span className="px-1 py-0.5 text-[8px] font-semibold tracking-wide leading-none rounded bg-emerald-500 text-white">Best in class</span>}
+                  </span>
                 </button>
               ))}
             </div>
@@ -406,6 +409,9 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] leading-snug text-muted mt-2">
+                  {sarvamModes.find((m) => m.value === (settings.engine_sarvam_mode || "transcribe"))?.desc}
+                </p>
               </div>
             )}
             <p className="text-[10px] text-muted/70 mt-1">Saved on this device only - it's sent nowhere except to your chosen service.</p>

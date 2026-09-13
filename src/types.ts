@@ -160,11 +160,11 @@ export const sarvamModels = [
 ];
 
 export const sarvamModes = [
-  { value: "transcribe", label: "Transcribe" },
-  { value: "translate", label: "Translate to English" },
-  { value: "verbatim", label: "Verbatim" },
-  { value: "translit", label: "Transliterate" },
-  { value: "codemix", label: "Code-mix" },
+  { value: "transcribe", label: "Transcribe", desc: "Writes what you said in its original language." },
+  { value: "translate", label: "Translate to English", desc: "Translates your speech directly into English." },
+  { value: "verbatim", label: "Verbatim", desc: "Writes every word exactly as spoken, including fillers like 'uh' and repeats." },
+  { value: "translit", label: "Transliterate", desc: "Writes Indic speech in English letters, like 'namaste' instead of 'नमस्ते'." },
+  { value: "codemix", label: "Code-mix", desc: "Keeps Hindi-English mixed speech natural, each word in its own script." },
 ] as const;
 
 export const modelCatalog: Record<string, ModelInfo> = {
