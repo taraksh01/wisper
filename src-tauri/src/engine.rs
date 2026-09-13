@@ -294,6 +294,110 @@ impl EngineProvider for CloudEngineProvider {
     }
 }
 
+pub struct SarvamCloudProvider {
+    api_key: String,
+    model: String,
+    mode: String,
+}
+
+impl SarvamCloudProvider {
+    pub fn new(api_key: String, model: String, mode: String) -> Self {
+        Self {
+            api_key,
+            model,
+            mode,
+        }
+    }
+}
+
+const SARVAM_CHUNK_SECS: usize = 25;
+
+impl EngineProvider for SarvamCloudProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        let samples_16k = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+
+        let chunk_samples = SARVAM_CHUNK_SECS * 16000;
+        let mut all_text = Vec::new();
+        let mut offset = 0;
+
+        while offset < samples_16k.len() {
+            let end = (offset + chunk_samples).min(samples_16k.len());
+            let chunk = &samples_16k[offset..end];
+
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
+            let mut wav_path = std::env::temp_dir();
+            wav_path.push(format!(
+                "wisper_sarvam_{}_{}_{}.wav",
+                std::process::id(),
+                nanos,
+                ctr
+            ));
+            struct Guard(std::path::PathBuf);
+            impl Drop for Guard {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_file(&self.0);
+                }
+            }
+            let _guard = Guard(wav_path.clone());
+            crate::audio::save_wav(&wav_path, chunk, 16000)
+                .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
+
+            let file_bytes = std::fs::read(&wav_path)
+                .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
+
+            let client = cloud_client();
+            let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
+                .file_name("audio.wav")
+                .mime_str("audio/wav")
+                .map_err(|e| format!("Failed to construct multipart: {}", e))?;
+
+            let form = reqwest::blocking::multipart::Form::new()
+                .text("model", self.model.clone())
+                .text("mode", self.mode.clone())
+                .part("file", part);
+
+            let resp = client
+                .post("https://api.sarvam.ai/speech-to-text")
+                .header("api-subscription-key", &self.api_key)
+                .multipart(form)
+                .send()
+                .map_err(|e| format!("Sarvam API request failed: {}", e))?;
+
+            if !resp.status().is_success() {
+                return Err(format!(
+                    "Sarvam API error ({}): {}",
+                    resp.status(),
+                    resp.text().unwrap_or_default()
+                ));
+            }
+
+            let json: serde_json::Value = resp
+                .json()
+                .map_err(|e| format!("Failed to parse Sarvam response: {}", e))?;
+
+            let text = json["transcript"]
+                .as_str()
+                .ok_or("No 'transcript' field in Sarvam response")?;
+
+            if !text.trim().is_empty() {
+                all_text.push(text.trim().to_string());
+            }
+
+            offset = end;
+        }
+
+        Ok(all_text.join(" "))
+    }
+}
+
 pub struct SherpaIndicProvider {
     model_dir: PathBuf,
 }
@@ -707,6 +811,659 @@ impl EngineProvider for WhisperLargeV3Provider {
         }
         schedule_whisper_v3_eviction(self.model_dir.clone());
 
+        Ok(text)
+    }
+}
+
+pub struct WhisperTinyProvider {
+    model_dir: PathBuf,
+}
+
+impl WhisperTinyProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedWhisperTiny {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static WHISPER_TINY_CACHE: OnceLock<Mutex<Option<CachedWhisperTiny>>> = OnceLock::new();
+
+fn whisper_tiny_cache() -> &'static Mutex<Option<CachedWhisperTiny>> {
+    WHISPER_TINY_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static WHISPER_TINY_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_whisper_tiny_eviction(dir: PathBuf) {
+    if WHISPER_TINY_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            WHISPER_TINY_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = whisper_tiny_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = whisper_tiny_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_whisper_tiny_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for WhisperTinyProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineRecognizerConfig, OfflineWhisperModelConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = whisper_tiny_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_whisper_tiny_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "Whisper tiny decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = whisper_tiny_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedWhisperTiny {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = whisper_tiny_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let encoder = self.model_dir.join("tiny-encoder.onnx");
+        let decoder = self.model_dir.join("tiny-decoder.onnx");
+        let tokens = self.model_dir.join("tiny-tokens.txt");
+        let encoder = if encoder.exists() {
+            encoder
+        } else {
+            self.model_dir.join("tiny-encoder.int8.onnx")
+        };
+        let decoder = if decoder.exists() {
+            decoder
+        } else {
+            self.model_dir.join("tiny-decoder.int8.onnx")
+        };
+        if !encoder.exists() || !decoder.exists() || !tokens.exists() {
+            return Err(format!(
+                "Whisper tiny files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.whisper = OfflineWhisperModelConfig {
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            decoder: Some(decoder.to_string_lossy().to_string()),
+            language: Some(String::new()),
+            task: Some("transcribe".to_string()),
+            tail_paddings: -1,
+            enable_token_timestamps: false,
+            enable_segment_timestamps: false,
+        };
+        config.model_config.model_type = Some("whisper".to_string());
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Whisper tiny recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Whisper tiny decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = whisper_tiny_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedWhisperTiny {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_whisper_tiny_eviction(self.model_dir.clone());
+        Ok(text)
+    }
+}
+
+pub struct WhisperBaseProvider {
+    model_dir: PathBuf,
+}
+
+impl WhisperBaseProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedWhisperBase {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static WHISPER_BASE_CACHE: OnceLock<Mutex<Option<CachedWhisperBase>>> = OnceLock::new();
+
+fn whisper_base_cache() -> &'static Mutex<Option<CachedWhisperBase>> {
+    WHISPER_BASE_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static WHISPER_BASE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_whisper_base_eviction(dir: PathBuf) {
+    if WHISPER_BASE_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            WHISPER_BASE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = whisper_base_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = whisper_base_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_whisper_base_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for WhisperBaseProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineRecognizerConfig, OfflineWhisperModelConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = whisper_base_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_whisper_base_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "Whisper base decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = whisper_base_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedWhisperBase {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = whisper_base_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let encoder = self.model_dir.join("base-encoder.onnx");
+        let decoder = self.model_dir.join("base-decoder.onnx");
+        let tokens = self.model_dir.join("base-tokens.txt");
+        let encoder = if encoder.exists() {
+            encoder
+        } else {
+            self.model_dir.join("base-encoder.int8.onnx")
+        };
+        let decoder = if decoder.exists() {
+            decoder
+        } else {
+            self.model_dir.join("base-decoder.int8.onnx")
+        };
+        if !encoder.exists() || !decoder.exists() || !tokens.exists() {
+            return Err(format!(
+                "Whisper base files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.whisper = OfflineWhisperModelConfig {
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            decoder: Some(decoder.to_string_lossy().to_string()),
+            language: Some(String::new()),
+            task: Some("transcribe".to_string()),
+            tail_paddings: -1,
+            enable_token_timestamps: false,
+            enable_segment_timestamps: false,
+        };
+        config.model_config.model_type = Some("whisper".to_string());
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Whisper base recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Whisper base decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = whisper_base_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedWhisperBase {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_whisper_base_eviction(self.model_dir.clone());
+        Ok(text)
+    }
+}
+
+pub struct SenseVoiceProvider {
+    model_dir: PathBuf,
+}
+
+impl SenseVoiceProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedSenseVoice {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static SENSEVOICE_CACHE: OnceLock<Mutex<Option<CachedSenseVoice>>> = OnceLock::new();
+
+fn sensevoice_cache() -> &'static Mutex<Option<CachedSenseVoice>> {
+    SENSEVOICE_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static SENSEVOICE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_sensevoice_eviction(dir: PathBuf) {
+    if SENSEVOICE_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            SENSEVOICE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = sensevoice_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = sensevoice_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_sensevoice_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for SenseVoiceProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineRecognizerConfig, OfflineSenseVoiceModelConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_sensevoice_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "SenseVoice decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedSenseVoice {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let model = self.model_dir.join("model.int8.onnx");
+        let model = if model.exists() {
+            model
+        } else {
+            self.model_dir.join("model.onnx")
+        };
+        let tokens = self.model_dir.join("tokens.txt");
+        if !model.exists() || !tokens.exists() {
+            return Err(format!(
+                "SenseVoice files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.sense_voice = OfflineSenseVoiceModelConfig {
+            model: Some(model.to_string_lossy().to_string()),
+            language: Some("auto".to_string()),
+            use_itn: true,
+        };
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create SenseVoice recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "SenseVoice decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedSenseVoice {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_sensevoice_eviction(self.model_dir.clone());
+        Ok(text)
+    }
+}
+
+pub struct Qwen3ASRProvider {
+    model_dir: PathBuf,
+}
+
+impl Qwen3ASRProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedQwen3ASR {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static QWEN3_ASR_CACHE: OnceLock<Mutex<Option<CachedQwen3ASR>>> = OnceLock::new();
+
+fn qwen3_asr_cache() -> &'static Mutex<Option<CachedQwen3ASR>> {
+    QWEN3_ASR_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static QWEN3_ASR_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_qwen3_asr_eviction(dir: PathBuf) {
+    if QWEN3_ASR_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            QWEN3_ASR_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = qwen3_asr_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = qwen3_asr_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_qwen3_asr_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for Qwen3ASRProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineQwen3ASRModelConfig, OfflineRecognizerConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_qwen3_asr_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "Qwen3 ASR decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedQwen3ASR {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let conv_frontend = self.model_dir.join("conv_frontend.onnx");
+        let encoder = self.model_dir.join("encoder.int8.onnx");
+        let encoder = if encoder.exists() {
+            encoder
+        } else {
+            self.model_dir.join("encoder.onnx")
+        };
+        let decoder = self.model_dir.join("decoder.int8.onnx");
+        let decoder = if decoder.exists() {
+            decoder
+        } else {
+            self.model_dir.join("decoder.onnx")
+        };
+        let tokenizer = self.model_dir.join("tokenizer");
+        if !conv_frontend.exists() || !encoder.exists() || !decoder.exists() || !tokenizer.exists()
+        {
+            return Err(format!(
+                "Qwen3 ASR files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.qwen3_asr = OfflineQwen3ASRModelConfig {
+            conv_frontend: Some(conv_frontend.to_string_lossy().to_string()),
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            decoder: Some(decoder.to_string_lossy().to_string()),
+            tokenizer: Some(tokenizer.to_string_lossy().to_string()),
+            max_total_len: 512,
+            max_new_tokens: 256,
+            temperature: 1e-6,
+            top_p: 0.8,
+            seed: 42,
+            hotwords: None,
+        };
+        config.model_config.tokens = Some(String::new());
+        config.model_config.num_threads = 4;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Qwen3 ASR recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Qwen3 ASR decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedQwen3ASR {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_qwen3_asr_eviction(self.model_dir.clone());
         Ok(text)
     }
 }
@@ -1175,7 +1932,17 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    if name.starts_with("indicconformer-600m-multi") {
+    if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
+        Box::new(WhisperTinyProvider::new(model_path))
+    } else if name.starts_with("whisper-base") || name.starts_with("sherpa-onnx-whisper-base") {
+        Box::new(WhisperBaseProvider::new(model_path))
+    } else if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
+        Box::new(SenseVoiceProvider::new(model_path))
+    } else if name.starts_with("qwen3-asr") || name.starts_with("sherpa-onnx-qwen3-asr") {
+        Box::new(Qwen3ASRProvider::new(model_path))
+    } else if name.starts_with("sherpa-onnx-moonshine-tiny") || name.starts_with("moonshine-tiny") {
+        Box::new(SherpaMoonshineProvider::new(model_path))
+    } else if name.starts_with("indicconformer-600m-multi") {
         Box::new(IndicConformer600MProvider::new(model_path))
     } else if name.starts_with("whisper-large-v3") {
         Box::new(WhisperLargeV3Provider::new(model_path))
@@ -1185,6 +1952,186 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
         Box::new(MoonshineProvider::new(model_path))
     } else {
         Box::new(ParakeetOnnxProvider::new(model_path))
+    }
+}
+
+pub struct SherpaMoonshineProvider {
+    model_dir: PathBuf,
+}
+
+impl SherpaMoonshineProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedSherpaMoonshine {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static SHERPA_MOONSHINE_CACHE: OnceLock<Mutex<Option<CachedSherpaMoonshine>>> = OnceLock::new();
+
+fn sherpa_moonshine_cache() -> &'static Mutex<Option<CachedSherpaMoonshine>> {
+    SHERPA_MOONSHINE_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static SHERPA_MOONSHINE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_sherpa_moonshine_eviction(dir: PathBuf) {
+    if SHERPA_MOONSHINE_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            SHERPA_MOONSHINE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = sherpa_moonshine_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = sherpa_moonshine_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_sherpa_moonshine_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for SherpaMoonshineProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineMoonshineModelConfig, OfflineRecognizerConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        // Try cached
+        let cached_take = {
+            let mut guard = sherpa_moonshine_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_sherpa_moonshine_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "Moonshine decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = sherpa_moonshine_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedSherpaMoonshine {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = sherpa_moonshine_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let preprocessor = self.model_dir.join("preprocess.onnx");
+        let encoder = self.model_dir.join("encode.int8.onnx");
+        let uncached_decoder = self.model_dir.join("uncached_decode.int8.onnx");
+        let cached_decoder = self.model_dir.join("cached_decode.int8.onnx");
+        let tokens = self.model_dir.join("tokens.txt");
+        // Fallback to float filenames if int8 not present (some mirrors)
+        let encoder = if encoder.exists() {
+            encoder
+        } else {
+            self.model_dir.join("encode.onnx")
+        };
+        let uncached_decoder = if uncached_decoder.exists() {
+            uncached_decoder
+        } else {
+            self.model_dir.join("uncached_decode.onnx")
+        };
+        let cached_decoder = if cached_decoder.exists() {
+            cached_decoder
+        } else {
+            self.model_dir.join("cached_decode.onnx")
+        };
+        if !preprocessor.exists()
+            || !encoder.exists()
+            || !uncached_decoder.exists()
+            || !cached_decoder.exists()
+            || !tokens.exists()
+        {
+            return Err(format!(
+                "Moonshine tiny files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.moonshine = OfflineMoonshineModelConfig {
+            preprocessor: Some(preprocessor.to_string_lossy().to_string()),
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            uncached_decoder: Some(uncached_decoder.to_string_lossy().to_string()),
+            cached_decoder: Some(cached_decoder.to_string_lossy().to_string()),
+            merged_decoder: None,
+        };
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create Moonshine recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "Moonshine decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = sherpa_moonshine_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedSherpaMoonshine {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_sherpa_moonshine_eviction(self.model_dir.clone());
+        Ok(text)
     }
 }
 

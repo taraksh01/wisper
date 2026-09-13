@@ -49,6 +49,31 @@ fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
             && dir.join("vocab.txt").exists()
             && dir.join("language_spans.json").exists();
     }
+    if name.starts_with("moonshine-tiny-en-int8") || name.starts_with("sherpa-onnx-moonshine-tiny-en") {
+        return dir.join("encode.int8.onnx").exists()
+            && dir.join("cached_decode.int8.onnx").exists()
+            && dir.join("uncached_decode.int8.onnx").exists()
+            && dir.join("tokens.txt").exists();
+    }
+    if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
+        return dir.join("tiny-encoder.onnx").exists()
+            && dir.join("tiny-decoder.onnx").exists()
+            && dir.join("tiny-tokens.txt").exists();
+    }
+    if name.starts_with("whisper-base") || name.starts_with("sherpa-onnx-whisper-base") {
+        return dir.join("base-encoder.onnx").exists()
+            && dir.join("base-decoder.onnx").exists()
+            && dir.join("base-tokens.txt").exists();
+    }
+    if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
+        return dir.join("model.int8.onnx").exists() || dir.join("model.onnx").exists();
+    }
+    if name.starts_with("qwen3-asr") || name.starts_with("sherpa-onnx-qwen3-asr") {
+        return dir.join("conv_frontend.onnx").exists()
+            && (dir.join("encoder.int8.onnx").exists() || dir.join("encoder.onnx").exists())
+            && (dir.join("decoder.int8.onnx").exists() || dir.join("decoder.onnx").exists())
+            && dir.join("tokenizer").join("vocab.json").exists();
+    }
     if name.starts_with("whisper-large-v3") {
         return dir.join("large-v3-encoder.int8.onnx").exists()
             && dir.join("large-v3-decoder.int8.onnx").exists()
@@ -69,7 +94,16 @@ pub fn list_local_models() -> Vec<String> {
                     && (name.starts_with("parakeet-")
                         || name.starts_with("indicconformer-")
                         || name.starts_with("moonshine-")
-                        || name.starts_with("whisper-large-v3"))
+                        || name.starts_with("sherpa-onnx-moonshine-")
+                        || name.starts_with("whisper-large-v3")
+                        || name.starts_with("whisper-tiny")
+                        || name.starts_with("sherpa-onnx-whisper-tiny")
+                        || name.starts_with("whisper-base")
+                        || name.starts_with("sherpa-onnx-whisper-base")
+                        || name.starts_with("sensevoice")
+                        || name.starts_with("sherpa-onnx-sense-voice")
+                        || name.starts_with("qwen3-asr")
+                        || name.starts_with("sherpa-onnx-qwen3-asr"))
                 {
                     let path = entry.path();
                     if is_model_complete(&path, &name) {
@@ -97,8 +131,13 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
         "indicconformer-8lang" => "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
         "moonshine-base" => "https://blob.handy.computer/moonshine-base.tar.gz",
+        "moonshine-tiny-en-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
         "indicconformer-600m-multi" => "https://huggingface.co/christopherthompson81/indicconformer-600m-onnx/resolve/main/encoder-model.onnx",
         "whisper-large-v3-int8" => "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx",
+        "whisper-tiny-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
+        "whisper-base-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2",
+        "sensevoice-small-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+        "qwen3-asr-0.6b-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
         _ => return None,
     };
     Some(url.to_string())
@@ -119,8 +158,13 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => Some("indicconformer-120m-pa".into()),
         "indicconformer-8lang" => Some("indicconformer-8lang".into()),
         "moonshine-base" => Some("moonshine-base".into()),
+        "moonshine-tiny-en-int8" => Some("sherpa-onnx-moonshine-tiny-en-int8".into()),
         "indicconformer-600m-multi" => Some("indicconformer-600m-multi".into()),
         "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
+        "whisper-tiny-int8" => Some("sherpa-onnx-whisper-tiny".into()),
+        "whisper-base-int8" => Some("sherpa-onnx-whisper-base".into()),
+        "sensevoice-small-int8" => Some("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17".into()),
+        "qwen3-asr-0.6b-int8" => Some("sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25".into()),
         _ => None,
     }
 }
@@ -326,6 +370,8 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         "onnx"
     } else if url.ends_with(".tar.gz") {
         "tar.gz"
+    } else if url.ends_with(".tar.bz2") {
+        "tar.bz2"
     } else {
         "bin"
     };
@@ -434,54 +480,106 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
         }
     } else {
-        // Extract archive with path traversal validation
-        let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+        // Extract archive with path traversal validation (supports .tar.gz and .tar.bz2)
+        let is_bz2 = ext == "tar.bz2";
         let mut validated_paths: Vec<PathBuf> = Vec::new();
-        for entry in archive
-            .entries()
-            .map_err(|e| format!("Failed to read archive: {}", e))?
-        {
-            let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
-            if matches!(entry.link_name(), Ok(Some(_))) {
-                return Err("Archive contains symlink".into());
-            }
-            let et = entry.header().entry_type();
-            if et == tar::EntryType::Block
-                || et == tar::EntryType::Char
-                || et == tar::EntryType::Fifo
+        if is_bz2 {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(bzip2::read::BzDecoder::new(archive_file));
+            for entry in archive
+                .entries()
+                .map_err(|e| format!("Failed to read archive: {}", e))?
             {
-                return Err(format!("Archive contains special file: {:?}", et));
-            }
-            if !(et.is_file() || et.is_dir()) {
-                if et != tar::EntryType::GNULongName
-                    && et != tar::EntryType::GNULongLink
-                    && et != tar::EntryType::XHeader
-                    && et != tar::EntryType::XGlobalHeader
-                {
-                    return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+                if matches!(entry.link_name(), Ok(Some(_))) {
+                    return Err("Archive contains symlink".into());
                 }
+                let et = entry.header().entry_type();
+                if et == tar::EntryType::Block
+                    || et == tar::EntryType::Char
+                    || et == tar::EntryType::Fifo
+                {
+                    return Err(format!("Archive contains special file: {:?}", et));
+                }
+                if !(et.is_file() || et.is_dir()) {
+                    if et != tar::EntryType::GNULongName
+                        && et != tar::EntryType::GNULongLink
+                        && et != tar::EntryType::XHeader
+                        && et != tar::EntryType::XGlobalHeader
+                    {
+                        return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                    }
+                }
+                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
+                if path.is_absolute()
+                    || path
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err("Archive contains invalid path".into());
+                }
+                let dest = models_dir.join(&path);
+                if !dest.starts_with(&models_dir) {
+                    return Err("Archive path escapes models dir".into());
+                }
+                validated_paths.push(dest);
             }
-            let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
-            if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
+        } else {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+            for entry in archive
+                .entries()
+                .map_err(|e| format!("Failed to read archive: {}", e))?
             {
-                return Err("Archive contains invalid path".into());
+                let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+                if matches!(entry.link_name(), Ok(Some(_))) {
+                    return Err("Archive contains symlink".into());
+                }
+                let et = entry.header().entry_type();
+                if et == tar::EntryType::Block
+                    || et == tar::EntryType::Char
+                    || et == tar::EntryType::Fifo
+                {
+                    return Err(format!("Archive contains special file: {:?}", et));
+                }
+                if !(et.is_file() || et.is_dir()) {
+                    if et != tar::EntryType::GNULongName
+                        && et != tar::EntryType::GNULongLink
+                        && et != tar::EntryType::XHeader
+                        && et != tar::EntryType::XGlobalHeader
+                    {
+                        return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                    }
+                }
+                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
+                if path.is_absolute()
+                    || path
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err("Archive contains invalid path".into());
+                }
+                let dest = models_dir.join(&path);
+                if !dest.starts_with(&models_dir) {
+                    return Err("Archive path escapes models dir".into());
+                }
+                validated_paths.push(dest);
             }
-            let dest = models_dir.join(&path);
-            if !dest.starts_with(&models_dir) {
-                return Err("Archive path escapes models dir".into());
-            }
-            validated_paths.push(dest);
         }
         // Re-open and unpack after validation (entries consumed above)
-        let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
-        archive
-            .unpack(&models_dir)
-            .map_err(|e| format!("Failed to extract model: {}", e))?;
+        if is_bz2 {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(bzip2::read::BzDecoder::new(archive_file));
+            archive
+                .unpack(&models_dir)
+                .map_err(|e| format!("Failed to extract model: {}", e))?;
+        } else {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+            archive
+                .unpack(&models_dir)
+                .map_err(|e| format!("Failed to extract model: {}", e))?;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -532,13 +630,16 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     if !(model_name.starts_with("parakeet-")
         || model_name.starts_with("indicconformer-")
         || model_name.starts_with("moonshine-")
-        || model_name.starts_with("whisper-large-v3"))
+        || model_name.starts_with("whisper-")
+        || model_name.starts_with("sensevoice-")
+        || model_name.starts_with("qwen3-asr"))
     {
         return Err("Invalid model name prefix".to_string());
     }
     let models_dir = get_models_dir();
     let canonical_base = models_dir.canonicalize().unwrap_or(models_dir.clone());
-    let path = models_dir.join(&model_name);
+    let dir_name = onnx_dir_name(&model_name).unwrap_or(model_name.clone());
+    let path = models_dir.join(&dir_name);
     let canonical_path = path.canonicalize().unwrap_or(path.clone());
     if !canonical_path.starts_with(&canonical_base) {
         return Err("Invalid model path".to_string());
