@@ -75,6 +75,7 @@ pub fn list_local_models() -> Vec<String> {
                     && (name.starts_with("parakeet-")
                         || name.starts_with("indicconformer-")
                         || name.starts_with("moonshine-")
+                        || name.starts_with("sherpa-onnx-moonshine-")
                         || name.starts_with("whisper-large-v3"))
                 {
                     let path = entry.path();
@@ -600,7 +601,8 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     }
     let models_dir = get_models_dir();
     let canonical_base = models_dir.canonicalize().unwrap_or(models_dir.clone());
-    let path = models_dir.join(&model_name);
+    let dir_name = onnx_dir_name(&model_name).unwrap_or(model_name.clone());
+    let path = models_dir.join(&dir_name);
     let canonical_path = path.canonicalize().unwrap_or(path.clone());
     if !canonical_path.starts_with(&canonical_base) {
         return Err("Invalid model path".to_string());
