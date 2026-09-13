@@ -438,6 +438,19 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
+  "sensevoice-small-int8": {
+    name: "SenseVoice Small (INT8)",
+    size: "~230 MB",
+    accuracy: 88,
+    speed: 80,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+    languages: ["en", "zh", "ja", "ko", "yue"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
 };
 
 export const allModelKeys = Object.keys(modelCatalog);
@@ -522,6 +535,7 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
     "moonshine-tiny-en-int8": "sherpa-onnx-moonshine-tiny-en-int8",
     "whisper-tiny-int8": "sherpa-onnx-whisper-tiny",
     "whisper-base-int8": "sherpa-onnx-whisper-base",
+    "sensevoice-small-int8": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
   };
   return map[key] || key;
 }

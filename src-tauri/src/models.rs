@@ -65,6 +65,9 @@ fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
             && dir.join("base-decoder.onnx").exists()
             && dir.join("base-tokens.txt").exists();
     }
+    if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
+        return dir.join("model.int8.onnx").exists() || dir.join("model.onnx").exists();
+    }
     if name.starts_with("whisper-large-v3") {
         return dir.join("large-v3-encoder.int8.onnx").exists()
             && dir.join("large-v3-decoder.int8.onnx").exists()
@@ -90,7 +93,9 @@ pub fn list_local_models() -> Vec<String> {
                         || name.starts_with("whisper-tiny")
                         || name.starts_with("sherpa-onnx-whisper-tiny")
                         || name.starts_with("whisper-base")
-                        || name.starts_with("sherpa-onnx-whisper-base"))
+                        || name.starts_with("sherpa-onnx-whisper-base")
+                        || name.starts_with("sensevoice")
+                        || name.starts_with("sherpa-onnx-sense-voice"))
                 {
                     let path = entry.path();
                     if is_model_complete(&path, &name) {
@@ -123,6 +128,7 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "whisper-large-v3-int8" => "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx",
         "whisper-tiny-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
         "whisper-base-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2",
+        "sensevoice-small-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
         _ => return None,
     };
     Some(url.to_string())
@@ -148,6 +154,7 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
         "whisper-tiny-int8" => Some("sherpa-onnx-whisper-tiny".into()),
         "whisper-base-int8" => Some("sherpa-onnx-whisper-base".into()),
+        "sensevoice-small-int8" => Some("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17".into()),
         _ => None,
     }
 }
@@ -613,7 +620,8 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     if !(model_name.starts_with("parakeet-")
         || model_name.starts_with("indicconformer-")
         || model_name.starts_with("moonshine-")
-        || model_name.starts_with("whisper-"))
+        || model_name.starts_with("whisper-")
+        || model_name.starts_with("sensevoice-"))
     {
         return Err("Invalid model name prefix".to_string());
     }

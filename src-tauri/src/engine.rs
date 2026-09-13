@@ -1049,6 +1049,156 @@ impl EngineProvider for WhisperBaseProvider {
     }
 }
 
+pub struct SenseVoiceProvider {
+    model_dir: PathBuf,
+}
+
+impl SenseVoiceProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedSenseVoice {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static SENSEVOICE_CACHE: OnceLock<Mutex<Option<CachedSenseVoice>>> = OnceLock::new();
+
+fn sensevoice_cache() -> &'static Mutex<Option<CachedSenseVoice>> {
+    SENSEVOICE_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static SENSEVOICE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_sensevoice_eviction(dir: PathBuf) {
+    if SENSEVOICE_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            SENSEVOICE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = sensevoice_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = sensevoice_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_sensevoice_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for SenseVoiceProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineRecognizerConfig, OfflineSenseVoiceModelConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_sensevoice_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream
+                .get_result()
+                .ok_or_else(|| "SenseVoice decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedSenseVoice {
+                    dir,
+                    recognizer,
+                    last_used: Instant::now(),
+                });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let model = self.model_dir.join("model.int8.onnx");
+        let model = if model.exists() {
+            model
+        } else {
+            self.model_dir.join("model.onnx")
+        };
+        let tokens = self.model_dir.join("tokens.txt");
+        if !model.exists() || !tokens.exists() {
+            return Err(format!(
+                "SenseVoice files missing in {}",
+                self.model_dir.display()
+            ));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.sense_voice = OfflineSenseVoiceModelConfig {
+            model: Some(model.to_string_lossy().to_string()),
+            language: Some("auto".to_string()),
+            use_itn: true,
+        };
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
+            format!(
+                "Failed to create SenseVoice recognizer for {}",
+                self.model_dir.display()
+            )
+        })?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream
+            .get_result()
+            .ok_or_else(|| "SenseVoice decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedSenseVoice {
+                dir: self.model_dir.clone(),
+                recognizer,
+                last_used: Instant::now(),
+            });
+        }
+        schedule_sensevoice_eviction(self.model_dir.clone());
+        Ok(text)
+    }
+}
+
 pub struct IndicConformer600MProvider {
     model_dir: PathBuf,
 }
@@ -1517,6 +1667,8 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
         Box::new(WhisperTinyProvider::new(model_path))
     } else if name.starts_with("whisper-base") || name.starts_with("sherpa-onnx-whisper-base") {
         Box::new(WhisperBaseProvider::new(model_path))
+    } else if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
+        Box::new(SenseVoiceProvider::new(model_path))
     } else if name.starts_with("sherpa-onnx-moonshine-tiny") || name.starts_with("moonshine-tiny") {
         Box::new(SherpaMoonshineProvider::new(model_path))
     } else if name.starts_with("indicconformer-600m-multi") {
