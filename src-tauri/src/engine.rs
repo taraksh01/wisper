@@ -711,6 +711,139 @@ impl EngineProvider for WhisperLargeV3Provider {
     }
 }
 
+pub struct WhisperTinyProvider {
+    model_dir: PathBuf,
+}
+
+impl WhisperTinyProvider {
+    pub fn new(model_dir: PathBuf) -> Self {
+        Self { model_dir }
+    }
+}
+
+struct CachedWhisperTiny {
+    dir: PathBuf,
+    recognizer: sherpa_onnx::OfflineRecognizer,
+    last_used: Instant,
+}
+
+static WHISPER_TINY_CACHE: OnceLock<Mutex<Option<CachedWhisperTiny>>> = OnceLock::new();
+
+fn whisper_tiny_cache() -> &'static Mutex<Option<CachedWhisperTiny>> {
+    WHISPER_TINY_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+static WHISPER_TINY_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+
+fn schedule_whisper_tiny_eviction(dir: PathBuf) {
+    if WHISPER_TINY_EVICTION_SCHEDULED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            std::thread::sleep(MODEL_TTL);
+            WHISPER_TINY_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
+            let should_reschedule = if let Ok(guard) = whisper_tiny_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if let Ok(mut guard) = whisper_tiny_cache().lock() {
+                if let Some(c) = guard.as_ref() {
+                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
+                        *guard = None;
+                    }
+                }
+            }
+            if should_reschedule {
+                schedule_whisper_tiny_eviction(dir);
+            }
+        });
+}
+
+impl EngineProvider for WhisperTinyProvider {
+    fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
+        use sherpa_onnx::{OfflineRecognizerConfig, OfflineWhisperModelConfig};
+        let samples = if sample_rate != 16000 {
+            resample(audio, sample_rate, 16000)
+        } else {
+            audio.to_vec()
+        };
+        let cached_take = {
+            let mut guard = whisper_tiny_cache().lock().unwrap_or_else(|e| e.into_inner());
+            match guard.as_mut() {
+                Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                    c.last_used = Instant::now();
+                    guard.take()
+                }
+                _ => None,
+            }
+        };
+        if let Some(cached) = cached_take {
+            let dir = cached.dir.clone();
+            let recognizer = cached.recognizer;
+            schedule_whisper_tiny_eviction(dir.clone());
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &samples);
+            recognizer.decode(&stream);
+            let result = stream.get_result().ok_or_else(|| "Whisper tiny decode: no result".to_string())?;
+            let text = result.text.trim().to_string();
+            {
+                let mut guard = whisper_tiny_cache().lock().unwrap_or_else(|e| e.into_inner());
+                *guard = Some(CachedWhisperTiny { dir, recognizer, last_used: Instant::now() });
+            }
+            return Ok(text);
+        }
+        {
+            let mut guard = whisper_tiny_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = None;
+        }
+        let encoder = self.model_dir.join("tiny-encoder.onnx");
+        let decoder = self.model_dir.join("tiny-decoder.onnx");
+        let tokens = self.model_dir.join("tiny-tokens.txt");
+        let encoder = if encoder.exists() { encoder } else { self.model_dir.join("tiny-encoder.int8.onnx") };
+        let decoder = if decoder.exists() { decoder } else { self.model_dir.join("tiny-decoder.int8.onnx") };
+        if !encoder.exists() || !decoder.exists() || !tokens.exists() {
+            return Err(format!("Whisper tiny files missing in {}", self.model_dir.display()));
+        }
+        let mut config = OfflineRecognizerConfig::default();
+        config.model_config.whisper = OfflineWhisperModelConfig {
+            encoder: Some(encoder.to_string_lossy().to_string()),
+            decoder: Some(decoder.to_string_lossy().to_string()),
+            language: Some(String::new()),
+            task: Some("transcribe".to_string()),
+            tail_paddings: -1,
+            enable_token_timestamps: false,
+            enable_segment_timestamps: false,
+        };
+        config.model_config.model_type = Some("whisper".to_string());
+        config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
+        config.model_config.num_threads = 2;
+        config.model_config.debug = false;
+        config.model_config.provider = Some("cpu".to_string());
+        let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| format!("Failed to create Whisper tiny recognizer for {}", self.model_dir.display()))?;
+        let stream = recognizer.create_stream();
+        stream.accept_waveform(16000, &samples);
+        recognizer.decode(&stream);
+        let result = stream.get_result().ok_or_else(|| "Whisper tiny decode: no result".to_string())?;
+        let text = result.text.trim().to_string();
+        {
+            let mut guard = whisper_tiny_cache().lock().unwrap_or_else(|e| e.into_inner());
+            *guard = Some(CachedWhisperTiny { dir: self.model_dir.clone(), recognizer, last_used: Instant::now() });
+        }
+        schedule_whisper_tiny_eviction(self.model_dir.clone());
+        Ok(text)
+    }
+}
+
 pub struct IndicConformer600MProvider {
     model_dir: PathBuf,
 }
@@ -1175,7 +1308,9 @@ pub fn create_local_engine(model_path: PathBuf) -> Box<dyn EngineProvider> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    if name.starts_with("sherpa-onnx-moonshine-tiny") || name.starts_with("moonshine-tiny") {
+    if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
+        Box::new(WhisperTinyProvider::new(model_path))
+    } else if name.starts_with("sherpa-onnx-moonshine-tiny") || name.starts_with("moonshine-tiny") {
         Box::new(SherpaMoonshineProvider::new(model_path))
     } else if name.starts_with("indicconformer-600m-multi") {
         Box::new(IndicConformer600MProvider::new(model_path))

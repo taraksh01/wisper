@@ -55,6 +55,11 @@ fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
             && dir.join("uncached_decode.int8.onnx").exists()
             && dir.join("tokens.txt").exists();
     }
+    if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
+        return dir.join("tiny-encoder.onnx").exists()
+            && dir.join("tiny-decoder.onnx").exists()
+            && dir.join("tiny-tokens.txt").exists();
+    }
     if name.starts_with("whisper-large-v3") {
         return dir.join("large-v3-encoder.int8.onnx").exists()
             && dir.join("large-v3-decoder.int8.onnx").exists()
@@ -76,7 +81,9 @@ pub fn list_local_models() -> Vec<String> {
                         || name.starts_with("indicconformer-")
                         || name.starts_with("moonshine-")
                         || name.starts_with("sherpa-onnx-moonshine-")
-                        || name.starts_with("whisper-large-v3"))
+                        || name.starts_with("whisper-large-v3")
+                        || name.starts_with("whisper-tiny")
+                        || name.starts_with("sherpa-onnx-whisper-tiny"))
                 {
                     let path = entry.path();
                     if is_model_complete(&path, &name) {
@@ -107,6 +114,7 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "moonshine-tiny-en-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
         "indicconformer-600m-multi" => "https://huggingface.co/christopherthompson81/indicconformer-600m-onnx/resolve/main/encoder-model.onnx",
         "whisper-large-v3-int8" => "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx",
+        "whisper-tiny-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
         _ => return None,
     };
     Some(url.to_string())
@@ -130,6 +138,7 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "moonshine-tiny-en-int8" => Some("sherpa-onnx-moonshine-tiny-en-int8".into()),
         "indicconformer-600m-multi" => Some("indicconformer-600m-multi".into()),
         "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
+        "whisper-tiny-int8" => Some("sherpa-onnx-whisper-tiny".into()),
         _ => None,
     }
 }
