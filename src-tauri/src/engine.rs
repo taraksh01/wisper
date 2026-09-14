@@ -1913,8 +1913,7 @@ fn decode_indic_600m_multi(
     Ok(text.trim().to_string())
 }
 
-#[allow(dead_code)]
-fn decode_indic_600m(
+fn _decode_indic_600m(
     sess: &mut Indic600MSession,
     samples: &[f32],
     language: &str,
