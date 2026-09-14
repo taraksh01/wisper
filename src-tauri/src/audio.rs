@@ -221,11 +221,11 @@ fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
 #[derive(Clone)]
 pub struct AudioRecorder {
     buffer: Arc<Mutex<Vec<f32>>>,
+    full_buffer: Arc<Mutex<Vec<f32>>>,
     stream: Arc<Mutex<Option<Stream>>>,
     preview_stream: Arc<Mutex<Option<Stream>>>,
     preview_device: Arc<Mutex<Option<String>>>,
     sample_rate: Arc<Mutex<u32>>,
-    /// Latest input RMS amplitude (f32 bits), updated live in the audio callback.
     level: Arc<AtomicU32>,
 }
 
@@ -233,6 +233,7 @@ impl AudioRecorder {
     pub fn new() -> Self {
         Self {
             buffer: Arc::new(Mutex::new(Vec::new())),
+            full_buffer: Arc::new(Mutex::new(Vec::new())),
             stream: Arc::new(Mutex::new(None)),
             preview_stream: Arc::new(Mutex::new(None)),
             preview_device: Arc::new(Mutex::new(None)),
@@ -277,42 +278,63 @@ impl AudioRecorder {
             );
         }
 
-        // Clear the buffer before starting
-        self.buffer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        {
+            self.buffer
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+            self.full_buffer
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        }
         self.level.store(0, Ordering::Relaxed);
 
         let buffer_clone = self.buffer.clone();
+        let full_clone = self.full_buffer.clone();
         let level_clone = self.level.clone();
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => {
-                Self::build_stream::<f32>(&device, &config.into(), buffer_clone, level_clone)
-            }
-            cpal::SampleFormat::I16 => {
-                Self::build_stream::<i16>(&device, &config.into(), buffer_clone, level_clone)
-            }
-            cpal::SampleFormat::U16 => {
-                Self::build_stream::<u16>(&device, &config.into(), buffer_clone, level_clone)
-            }
-            cpal::SampleFormat::I32 => Self::build_stream::<i32>(
+            cpal::SampleFormat::F32 => Self::build_stream_with_full::<f32>(
                 &device,
-                &config.clone().into(),
+                &config.into(),
                 buffer_clone,
+                Some(full_clone),
                 level_clone,
             ),
-            cpal::SampleFormat::U32 => Self::build_stream::<u32>(
+            cpal::SampleFormat::I16 => Self::build_stream_with_full::<i16>(
                 &device,
-                &config.clone().into(),
+                &config.into(),
                 buffer_clone,
-                level_clone,
+                Some(full_clone.clone()),
+                level_clone.clone(),
             ),
-            cpal::SampleFormat::F64 => Self::build_stream::<f64>(
+            cpal::SampleFormat::U16 => Self::build_stream_with_full::<u16>(
+                &device,
+                &config.into(),
+                buffer_clone,
+                Some(full_clone.clone()),
+                level_clone.clone(),
+            ),
+            cpal::SampleFormat::I32 => Self::build_stream_with_full::<i32>(
                 &device,
                 &config.clone().into(),
                 buffer_clone,
+                Some(full_clone.clone()),
+                level_clone.clone(),
+            ),
+            cpal::SampleFormat::U32 => Self::build_stream_with_full::<u32>(
+                &device,
+                &config.clone().into(),
+                buffer_clone,
+                Some(full_clone.clone()),
+                level_clone.clone(),
+            ),
+            cpal::SampleFormat::F64 => Self::build_stream_with_full::<f64>(
+                &device,
+                &config.clone().into(),
+                buffer_clone,
+                Some(full_clone),
                 level_clone,
             ),
             other => Err(format!("Unsupported sample format: {:?}", other))?,
@@ -332,9 +354,23 @@ impl AudioRecorder {
         let mut current_stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         *current_stream = None;
         self.level.store(0, Ordering::Relaxed);
-
         let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *buffer)
+    }
+
+    pub fn take_full_recording(&self) -> Vec<f32> {
+        self.full_buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect()
+    }
+
+    pub fn full_recorded_len(&self) -> usize {
+        self.full_buffer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 
     /// Open the input stream to feed the live level meter without recording
@@ -444,6 +480,22 @@ impl AudioRecorder {
         self.level.store(0, Ordering::Relaxed);
     }
 
+    pub fn buffered_len(&self) -> usize {
+        self.buffer.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    pub fn drain_chunk(&self, n: usize, overlap: usize) -> Option<Vec<f32>> {
+        let mut b = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
+        if b.len() < n {
+            return None;
+        }
+        let take = n;
+        let drain_end = n.saturating_sub(overlap);
+        let chunk: Vec<f32> = b[..take].to_vec();
+        b.drain(..drain_end);
+        Some(chunk)
+    }
+
     pub fn sample_rate(&self) -> u32 {
         *self.sample_rate.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -452,6 +504,20 @@ impl AudioRecorder {
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         buffer: Arc<Mutex<Vec<f32>>>,
+        level: Arc<AtomicU32>,
+    ) -> Result<Stream, String>
+    where
+        T: Sample + cpal::SizedSample,
+        f32: FromSample<T>,
+    {
+        Self::build_stream_with_full(device, config, buffer, None, level)
+    }
+
+    fn build_stream_with_full<T>(
+        device: &cpal::Device,
+        config: &cpal::StreamConfig,
+        buffer: Arc<Mutex<Vec<f32>>>,
+        full_buffer: Option<Arc<Mutex<Vec<f32>>>>,
         level: Arc<AtomicU32>,
     ) -> Result<Stream, String>
     where
@@ -473,12 +539,6 @@ impl AudioRecorder {
             .build_input_stream(
                 config.clone(),
                 move |data: &[T], _: &_| {
-                    // Real-time audio callback must never block. `try_lock` is
-                    // intentional: on contention we drop this chunk of frames
-                    // rather than stalling the audio thread. `parking_lot` or a
-                    // lock-free ring (crossbeam channel) would avoid drops but
-                    // adds dependency; current drop rate is logged via
-                    // AUDIO_DROP_CTR and is negligible under normal load.
                     let mut b = match buffer.try_lock() {
                         Ok(g) => g,
                         Err(_) => {
@@ -489,18 +549,23 @@ impl AudioRecorder {
                             return;
                         }
                     };
-                    // Cap at ~5 minutes at 48kHz (~14M mono samples) to avoid OOM if hotkey stuck
-                    if b.len() > 15_000_000 {
+                    if b.len() > 50_000_000 {
                         if !AUDIO_CAP_WARNED.swap(true, Ordering::Relaxed) {
                             eprintln!(
-                                "[audio] buffer cap reached (15M samples), dropping further input"
+                                "[audio] buffer cap reached (50M samples), dropping further input"
                             );
                         }
                         return;
                     }
+                    let mut fb_guard = full_buffer.as_ref().and_then(|fb| fb.try_lock().ok());
+                    if let Some(ref fb) = fb_guard {
+                        if fb.len() > 50_000_000 {
+                            drop(fb_guard);
+                            fb_guard = None;
+                        }
+                    }
                     let mut sum_sq: f32 = 0.0;
                     let mut count: usize = 0;
-                    // Downmix to mono if stereo, and convert to f32
                     for frame in data.chunks(channels) {
                         let mut sum: f32 = 0.0;
                         for sample in frame {
@@ -508,19 +573,20 @@ impl AudioRecorder {
                         }
                         let mono = sum / channels as f32;
                         b.push(mono);
+                        if let Some(ref mut fb) = fb_guard {
+                            fb.push(mono);
+                        }
                         sum_sq += mono * mono;
                         count += 1;
                     }
-                    // Update the live RMS amplitude for the UI, smoothing toward
-                    // the new value so the meter feels responsive but not jittery.
+                    drop(fb_guard);
+                    drop(b);
                     if count > 0 {
                         let rms = (sum_sq / count as f32).sqrt();
                         let prev = f32::from_bits(level.load(Ordering::Relaxed));
                         let smoothed = if rms > prev {
-                            // rise quickly
                             prev + (rms - prev) * 0.6
                         } else {
-                            // fall more gently
                             prev + (rms - prev) * 0.3
                         };
                         level.store(smoothed.to_bits(), Ordering::Relaxed);
