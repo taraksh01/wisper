@@ -980,6 +980,60 @@ pub fn get_origin_environment() -> OriginEnvironment {
     }
 }
 
+pub fn is_origin_alive(target: &OriginTarget) -> bool {
+    if target.backend == "wisper" {
+        if let Ok(id) = target.addr.parse::<u64>() {
+            if id == 0 {
+                return false;
+            }
+            let out = run_cmd_output(
+                "gdbus",
+                &[
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.gnome.Shell",
+                    "--object-path",
+                    "/org/gnome/Shell/Extensions/WisperWindows",
+                    "--method",
+                    "org.gnome.Shell.Extensions.WisperWindows.List",
+                ],
+                Duration::from_millis(500),
+            )
+            .unwrap_or_default();
+            if out.is_empty() || out.contains("Error") {
+                return true;
+            }
+            let Some(start) = out.find('[') else {
+                return true;
+            };
+            let Some(end) = out.rfind(']') else {
+                return true;
+            };
+            if end <= start {
+                return true;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&out[start..=end]) {
+                if let Some(arr) = v.as_array() {
+                    for win in arr {
+                        let win_id = win
+                            .get("id")
+                            .and_then(|v| v.as_u64())
+                            .or_else(|| win.get("id").and_then(|v| v.as_i64()).map(|v| v as u64))
+                            .unwrap_or(0);
+                        if win_id == id {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+    true
+}
+
 pub fn ensure_gnome_extension() -> Result<OriginEnvironment, String> {
     let Some(ext_dir) = extension_user_dir() else {
         return Err("Could not locate home directory".into());
