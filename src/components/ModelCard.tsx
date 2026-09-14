@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useEffect } from "react";
 import { Input } from "./ui/Input";
 
+type DownloadPhase = "downloading" | "verifying" | "extracting" | "installing" | "finalizing";
 interface ModelCardProps {
   modelKey: string;
   info: ModelInfo;
@@ -13,6 +14,7 @@ interface ModelCardProps {
   isActive: boolean;
   isDownloading: boolean;
   progress?: number;
+  phase?: DownloadPhase;
   speedBps?: number;
   downloaded?: number;
   total?: number;
@@ -47,6 +49,7 @@ function ModelCard({
   isActive,
   isDownloading,
   progress,
+  phase,
   speedBps,
   downloaded,
   total,
@@ -212,21 +215,40 @@ function ModelCard({
           </div>
         </div>
 
-        {/* Progress with real-time speed */}
-        {isDownloading && (
-          <div className="mt-3 space-y-1.5 pl-[44px]">
-            <div className="flex items-center justify-between text-[11px] font-mono">
-              <span className="text-muted">
-                {progress !== undefined ? `${progress}%` : "Starting…"}
-                {downloaded && total ? ` · ${formatBytes(downloaded)} / ${formatBytes(total)}` : ""}
-              </span>
-              <span className="text-accent tabular-nums">{formatSpeed(speedBps)}</span>
-            </div>
-            <div className="h-1.5 bg-elevated rounded-full overflow-hidden border border-stroke/50">
-              <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${progress ?? 0}%` }} />
-            </div>
-          </div>
-        )}
+        {/* Progress — distinct downloading vs post-download phases */}
+        {isDownloading &&
+          (() => {
+            const effectivePhase: DownloadPhase = phase ?? "downloading";
+            const isPostDownload = progress === 100 && effectivePhase !== "downloading";
+            const phaseLabel: Record<DownloadPhase, string> = {
+              downloading: progress !== undefined ? `${progress}%` : "Starting…",
+              verifying: "Verifying…",
+              extracting: "Extracting…",
+              installing: "Installing language data…",
+              finalizing: "Finalizing…",
+            };
+            return (
+              <div className="mt-3 space-y-1.5 pl-[44px]">
+                <div className="flex items-center justify-between text-[11px] font-mono">
+                  <span className={isPostDownload ? "text-ink font-medium" : "text-muted"}>
+                    {phaseLabel[effectivePhase]}
+                    {!isPostDownload && downloaded && total ? ` · ${formatBytes(downloaded)} / ${formatBytes(total)}` : ""}
+                  </span>
+                  <span className="text-accent tabular-nums">{isPostDownload ? "" : formatSpeed(speedBps)}</span>
+                </div>
+                <div className="h-1.5 bg-elevated rounded-full overflow-hidden border border-stroke/50">
+                  {isPostDownload ? (
+                    <div className="h-full w-full rounded-full bg-accent animate-[model-indeterminate_900ms_ease-in-out_infinite]" style={{ backgroundSize: "32px 100%", backgroundImage: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.35) 50%, transparent 100%)", backgroundRepeat: "no-repeat" }} />
+                  ) : (
+                    <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${progress ?? 0}%` }} />
+                  )}
+                </div>
+                {isPostDownload && (
+                  <p className="text-[10px] leading-snug text-muted">Almost done — placing files where they belong.</p>
+                )}
+              </div>
+            );
+          })()}
 
         {/* Accuracy / Speed progress bars with labels */}
         <div className="flex items-center gap-4 mt-3 pl-[44px]">
