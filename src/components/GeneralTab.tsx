@@ -122,6 +122,120 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
     );
  }
 
+interface OriginEnvironment {
+  session_type: string;
+  is_gnome: boolean;
+  needs_extension: boolean;
+  installed: boolean;
+  enabled_in_settings: boolean;
+  active: boolean;
+  ready: boolean;
+  needs_relogin: boolean;
+}
+
+function OriginStatusControl() {
+  const [env, setEnv] = useState<OriginEnvironment | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    invoke<OriginEnvironment>("get_origin_environment")
+      .then(setEnv)
+      .catch((e) => console.error("get_origin_environment failed:", e));
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const install = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await invoke<OriginEnvironment>("ensure_gnome_extension");
+      setEnv(next);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return (
+    <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-mono text-muted">Paste back to where you started</span>
+        {env ? (
+          env.ready ? (
+            <span className="text-[10px] font-mono text-ready">✓ Ready</span>
+          ) : env.needs_relogin ? (
+            <span className="text-[10px] font-mono text-warning">Relogin needed</span>
+          ) : env.needs_extension ? (
+            <span className="text-[10px] font-mono text-recording">Setup needed</span>
+          ) : (
+            <span className="text-[10px] font-mono text-muted">No helper needed</span>
+          )
+        ) : (
+          <span className="text-[10px] font-mono text-muted">Checking…</span>
+        )}
+      </div>
+      <p className="text-[10px] font-mono text-muted/80 leading-relaxed">
+        Wisper remembers the window where you press the hotkey and pastes there — even if you click
+        elsewhere while speaking. The recording pill shows that app&apos;s icon.
+      </p>
+      {env && !env.needs_extension && (
+        <p className="text-[10px] font-mono text-muted/60 leading-relaxed">
+          No helper needed on {env.session_type}
+          {env.is_gnome ? " GNOME (X11)" : ""} — works out of the box here.
+        </p>
+      )}
+      {env && env.needs_extension && env.ready && (
+        <p className="text-[10px] font-mono text-ready/90 leading-relaxed">
+          Helper active — on GNOME Wayland Wisper installed a tiny “Wisper Focus” extension (lists
+          windows + jumps back, nothing else, no sudo).
+        </p>
+      )}
+      {env && env.needs_extension && !env.ready && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-mono text-muted/80 leading-relaxed">
+            {env.needs_relogin
+              ? "Helper is installed but GNOME needs one logout/login to turn it on. After that, paste-back works."
+              : "GNOME Wayland blocks apps from seeing other windows, so Wisper bundles a tiny “Wisper Focus” extension (window list + jump back only, no content, no sudo, per-user)."}
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {!env.needs_relogin && (
+              <button
+                type="button"
+                onClick={install}
+                disabled={busy}
+                className="shrink-0 px-3 py-1.5 text-xs font-mono text-accent ring-1 ring-stroke hover:bg-elevated/50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {busy ? "Installing…" : env.installed ? "Enable helper" : "Install helper"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={refresh}
+              className="shrink-0 px-3 py-1.5 text-[11px] font-mono text-muted hover:text-ink transition-colors cursor-pointer"
+            >
+              Recheck
+            </button>
+            <a
+              href="https://github.com/taraksh01/wisper#paste-back-to-where-you-started"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] font-mono text-accent underline underline-offset-2"
+            >
+              Why?
+            </a>
+          </div>
+          {error && <p className="text-[10px] font-mono text-recording">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StartupControl({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -887,6 +1001,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
             onChange={(v) => onSave("paste_method", v)}
           />
           <PasteToolControl value={settings.paste_tool} onChange={(v) => onSave("paste_tool", v)} />
+          <OriginStatusControl />
           <div className="flex items-center justify-between gap-3 pt-3 border-t border-stroke">
             <div>
               <span className="text-xs text-muted">Test paste</span>
