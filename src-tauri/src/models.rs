@@ -471,14 +471,35 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         }
     }
 
-    // Handle single ONNX file vs tar.gz archive
+    // Post-download phase — keep the UI from looking stuck at 100%.
     if ext == "onnx" {
-        // Single file model (e.g., IndicConformer, Moonshine) - just move into target_dir
+        if model_name.starts_with("indicconformer-") {
+            let _ = app_handle.emit(
+                "download-progress",
+                serde_json::json!({
+                    "model": &model_name,
+                    "progress": 100,
+                    "phase": "installing",
+                    "downloaded": downloaded,
+                    "total": total,
+                }),
+            );
+        } else {
+            let _ = app_handle.emit(
+                "download-progress",
+                serde_json::json!({
+                    "model": &model_name,
+                    "progress": 100,
+                    "phase": "finalizing",
+                    "downloaded": downloaded,
+                    "total": total,
+                }),
+            );
+        }
         let _ = fs::create_dir_all(&target_dir);
         let dest = target_dir.join("model.onnx");
         fs::copy(&temp_archive, &dest).map_err(|e| format!("Failed to save model: {}", e))?;
         let _ = fs::remove_file(&temp_archive);
-        // For IndicConformer, also fetch tokens.txt / vocab.json for sherpa
         if model_name.starts_with("indicconformer-") {
             if let Err(e) = fetch_indic_assets(&target_dir, &model_name).await {
                 eprintln!("[models] asset fetch failed for {}: {}", model_name, e);
@@ -489,6 +510,16 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
         }
     } else {
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "model": &model_name,
+                "progress": 100,
+                "phase": "verifying",
+                "downloaded": downloaded,
+                "total": total,
+            }),
+        );
         // Extract archive with path traversal validation (supports .tar.gz and .tar.bz2)
         let is_bz2 = ext == "tar.bz2";
         let mut validated_paths: Vec<PathBuf> = Vec::new();
@@ -575,6 +606,16 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                 validated_paths.push(dest);
             }
         }
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "model": &model_name,
+                "progress": 100,
+                "phase": "extracting",
+                "downloaded": downloaded,
+                "total": total,
+            }),
+        );
         // Re-open and unpack after validation (entries consumed above)
         if is_bz2 {
             let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
