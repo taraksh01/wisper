@@ -203,6 +203,13 @@ static SEQ_TURN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 static SEQ_CV: once_cell::sync::Lazy<(Mutex<()>, std::sync::Condvar)> =
     once_cell::sync::Lazy::new(|| (Mutex::new(()), std::sync::Condvar::new()));
 
+static CHUNK_TOKEN: once_cell::sync::Lazy<Mutex<Option<CancelToken>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+static CHUNK_RESULTS: once_cell::sync::Lazy<Mutex<Vec<(u64, String)>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
+static CHUNK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CHUNK_INFLIGHT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
     ACTIVE_JOBS
         .lock()
@@ -273,6 +280,7 @@ pub struct TranscriptionCoordinator {
     rx: Receiver<CoordinatorCommand>,
     state_tx: Option<Sender<CoordinatorState>>,
     pending_origin: Option<OriginTarget>,
+    chunk_token: Option<CancelToken>,
 }
 
 impl TranscriptionCoordinator {
@@ -287,6 +295,7 @@ impl TranscriptionCoordinator {
             rx,
             state_tx,
             pending_origin: None,
+            chunk_token: None,
         }
     }
 
@@ -319,6 +328,7 @@ impl TranscriptionCoordinator {
                             {
                                 eprintln!("Failed to start recording: {}", e);
                             } else {
+                                self.start_chunked();
                                 let origin = crate::focus::capture_origin();
                                 self.pending_origin = origin.clone();
                                 crate::emit_overlay_origin(origin.as_ref());
@@ -327,7 +337,6 @@ impl TranscriptionCoordinator {
                             }
                         }
                     } else {
-                        // Toggle mode
                         match self.state {
                             CoordinatorState::Idle => {
                                 if let Err(e) =
@@ -335,6 +344,7 @@ impl TranscriptionCoordinator {
                                 {
                                     eprintln!("Failed to start recording: {}", e);
                                 } else {
+                                    self.start_chunked();
                                     let origin = crate::focus::capture_origin();
                                     self.pending_origin = origin.clone();
                                     crate::emit_overlay_origin(origin.as_ref());
@@ -360,6 +370,7 @@ impl TranscriptionCoordinator {
                 CoordinatorCommand::Cancel => {
                     if self.state == CoordinatorState::Recording {
                         eprintln!("[cancel] discarding active recording");
+                        self.stop_chunked();
                         let _ = self.audio_recorder.stop_recording();
                         self.pending_origin = None;
                         crate::emit_overlay_origin(None);
@@ -371,24 +382,97 @@ impl TranscriptionCoordinator {
         }
     }
 
-    fn stop_and_process(&mut self) {
-        let samples = self.audio_recorder.stop_recording();
-        let device_sr = self.audio_recorder.sample_rate();
+    fn start_chunked(&mut self) {
+        let token: CancelToken = Arc::new(AtomicBool::new(false));
+        self.chunk_token = Some(token.clone());
+        *CHUNK_TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(token.clone());
+        *CHUNK_RESULTS.lock().unwrap_or_else(|e| e.into_inner()) = Vec::new();
+        CHUNK_SEQ.store(0, Ordering::Relaxed);
+        CHUNK_INFLIGHT.store(0, Ordering::Relaxed);
+        let recorder = self.audio_recorder.clone();
+        thread::spawn(move || {
+            let mut next_id: u64 = 0;
+            loop {
+                if token.load(Ordering::Relaxed) {
+                    break;
+                }
+                thread::sleep(std::time::Duration::from_millis(400));
+                if token.load(Ordering::Relaxed) {
+                    break;
+                }
+                let sr = recorder.sample_rate();
+                if sr == 0 {
+                    continue;
+                }
+                let chunk_samples = (30.0 * sr as f32) as usize;
+                let overlap_samples = (1.0 * sr as f32) as usize;
+                if recorder.buffered_len() < chunk_samples {
+                    continue;
+                }
+                let Some(chunk) = recorder.drain_chunk(chunk_samples, overlap_samples) else {
+                    continue;
+                };
+                let id = next_id;
+                next_id += 1;
+                CHUNK_SEQ.store(next_id, Ordering::Relaxed);
+                CHUNK_INFLIGHT.fetch_add(1, Ordering::Relaxed);
+                thread::spawn(move || {
+                    let t = transcribe_chunk(chunk, sr);
+                    CHUNK_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
+                    if let Some(tt) = t {
+                        if !tt.trim().is_empty() {
+                            CHUNK_RESULTS
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push((id, tt));
+                        }
+                    }
+                });
+            }
+        });
+    }
 
+    fn stop_chunked(&mut self) {
+        if let Some(t) = self.chunk_token.take() {
+            t.store(true, Ordering::Relaxed);
+        }
+        if let Some(t) = CHUNK_TOKEN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            t.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn stop_and_process(&mut self) {
+        self.stop_chunked();
+        thread::sleep(std::time::Duration::from_millis(120));
+        let device_sr = self.audio_recorder.sample_rate();
+        let remainder = self.audio_recorder.stop_recording();
+        let full_samples = self.audio_recorder.take_full_recording();
+        let full_for_save = if full_samples.is_empty() {
+            remainder.clone()
+        } else {
+            full_samples
+        };
         let cancel: CancelToken = Arc::new(std::sync::atomic::AtomicBool::new(false));
         ACTIVE_JOBS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(cancel.clone());
-
         self.set_state(CoordinatorState::Idle);
-
         let origin = self.pending_origin.take();
         let cancel_for_thread = cancel.clone();
         let my_seq = SEQ_NEXT.fetch_add(1, Ordering::Relaxed);
         if let Err(e) = thread::Builder::new()
             .name("wisper-pipeline".into())
-            .spawn(move || run_pipeline(samples, device_sr, cancel_for_thread, my_seq, origin))
+            .spawn(move || {
+                run_pipeline_chunked(
+                    remainder,
+                    full_for_save,
+                    device_sr,
+                    cancel_for_thread,
+                    my_seq,
+                    origin,
+                )
+            })
         {
             eprintln!("Failed to spawn pipeline thread: {}", e);
             ACTIVE_JOBS
@@ -399,6 +483,476 @@ impl TranscriptionCoordinator {
     }
 }
 
+fn wait_for_chunk_results(_expected: usize, timeout_ms: u64) -> Vec<(u64, String)> {
+    if _expected == 0 && CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0 {
+        let mut v = CHUNK_RESULTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect::<Vec<_>>();
+        v.sort_by_key(|(id, _)| *id);
+        return v;
+    }
+    let start = std::time::Instant::now();
+    loop {
+        let finished = CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0;
+        if finished && start.elapsed().as_millis() as u64 >= 400 {
+            break;
+        }
+        if start.elapsed().as_millis() as u64 >= timeout_ms {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(60));
+    }
+    let mut v = CHUNK_RESULTS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .drain(..)
+        .collect::<Vec<_>>();
+    v.sort_by_key(|(id, _)| *id);
+    v
+}
+
+fn transcribe_chunk(chunk: Vec<f32>, sr: u32) -> Option<String> {
+    let trimmed = prepare_audio(chunk, sr);
+    if trimmed.is_empty() {
+        return None;
+    }
+    transcribe_samples(&trimmed, 16000)
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+}
+
+fn prepare_audio(samples: Vec<f32>, sr: u32) -> Vec<f32> {
+    let resampled = if sr != 16000 {
+        crate::engine::resample(&samples, sr, 16000)
+    } else {
+        samples
+    };
+    let denoised = if NOISE_SUPPRESSION_ENABLED.load(Ordering::Relaxed) {
+        let lvl = f32::from_bits(NOISE_SUPPRESSION_LEVEL.load(Ordering::Relaxed));
+        suppress_noise(&resampled, 16000, lvl)
+    } else {
+        resampled
+    };
+    if VAD_ENABLED.load(Ordering::Relaxed) {
+        let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
+        let t = trim_silence(&denoised, 1600, thresh);
+        if t.is_empty() && !denoised.is_empty() {
+            let max_amp = denoised.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+            if max_amp > 0.015 {
+                return denoised;
+            }
+            return Vec::new();
+        }
+        t
+    } else {
+        denoised
+    }
+}
+
+fn transcribe_samples(trimmed: &[f32], sr: u32) -> Result<String, String> {
+    let mode = ENGINE_MODE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if mode == "cloud" {
+        let provider = CLOUD_PROVIDER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if provider == "sarvam" {
+            let api_key = CLOUD_API_KEY
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if api_key.trim().is_empty() {
+                return Err("Sarvam API key not configured".into());
+            }
+            let mut model = CLOUD_MODEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if model.trim().is_empty() {
+                model = "saaras:v4".into();
+            }
+            let mut sarvam_mode = CLOUD_SARVAM_MODE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if sarvam_mode.trim().is_empty() {
+                sarvam_mode = "transcribe".into();
+            }
+            return SarvamCloudProvider::new(api_key, model, sarvam_mode).transcribe(trimmed, sr);
+        } else {
+            let mut base_url = CLOUD_BASE_URL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if base_url.trim().is_empty() {
+                base_url = match provider.as_str() {
+                    "openai" => "https://api.openai.com/v1".into(),
+                    "groq" => "https://api.groq.com/openai/v1".into(),
+                    _ => base_url,
+                };
+            }
+            if base_url.trim().is_empty() {
+                return Err("Cloud provider not configured (missing base URL)".into());
+            }
+            let api_key = CLOUD_API_KEY
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let model = CLOUD_MODEL
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            return CloudEngineProvider::new(base_url, api_key, model).transcribe(trimmed, sr);
+        }
+    }
+    let model_path = CURRENT_MODEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    match model_path {
+        Some(path) if path.exists() => create_local_engine(path).transcribe(trimmed, sr),
+        Some(path) => Err(format!("Model file not found: {}", path.display())),
+        None => Err("No model selected. Open the Engine tab to activate one.".into()),
+    }
+}
+
+fn run_pipeline_chunked(
+    remainder: Vec<f32>,
+    full_for_save: Vec<f32>,
+    device_sr: u32,
+    cancel: CancelToken,
+    my_seq: u64,
+    origin: Option<OriginTarget>,
+) {
+    let _guard = PipelineGuard {
+        seq: my_seq,
+        cancel: cancel.clone(),
+    };
+    let cancelled = || cancel.load(Ordering::Relaxed);
+    if cancelled() {
+        return;
+    }
+    if crate::audio::was_capped_and_reset() {
+        eprintln!("[audio] recording capped, truncated");
+    }
+    let total_len = remainder.len();
+    let chunk_count = CHUNK_SEQ.load(Ordering::Relaxed) as usize;
+    let mut chunk_texts = wait_for_chunk_results(chunk_count, 30000);
+
+    if !remainder.is_empty() {
+        let sr = if device_sr == 0 { 16000 } else { device_sr };
+        if let Some(t) = transcribe_chunk(remainder.clone(), sr) {
+            if !t.trim().is_empty() {
+                chunk_texts.push((chunk_count as u64, t));
+            }
+        }
+    }
+    chunk_texts.sort_by_key(|(id, _)| *id);
+    let raw_text = chunk_texts
+        .iter()
+        .map(|(_, t)| t.trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if raw_text.trim().is_empty() {
+        if total_len == 0 && chunk_texts.is_empty() {
+            eprintln!("No speech detected");
+            crate::show_overlay_error(Some(
+                "No speech detected - try speaking closer to the mic.".into(),
+            ));
+            play_error_sound();
+            return;
+        }
+        if chunk_count == 0 {
+            eprintln!("No speech detected (VAD trimmed all audio)");
+            crate::show_overlay_error(Some(
+                "No speech detected - try speaking closer to the mic.".into(),
+            ));
+            play_error_sound();
+            return;
+        }
+    }
+
+    let samples_for_stats = full_for_save.len();
+    let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
+        crate::history::save_recording_to_disk(&full_for_save, device_sr)
+    } else {
+        None
+    };
+
+    finalize_transcription(
+        raw_text,
+        samples_for_stats,
+        device_sr,
+        cancel,
+        my_seq,
+        origin,
+        recording_path,
+    );
+}
+
+fn finalize_transcription(
+    text: String,
+    samples_len: usize,
+    device_sr: u32,
+    cancel: CancelToken,
+    my_seq: u64,
+    origin: Option<OriginTarget>,
+    recording_path: Option<String>,
+) {
+    let cancelled = || cancel.load(Ordering::Relaxed);
+    let result: Result<String, String> = Ok(text);
+    match result {
+        Ok(text) => {
+            if cancelled() {
+                return;
+            }
+            println!("Transcription: {}", text);
+            let mut final_text = text.clone();
+            let mut agent_name = None;
+            let settings_snapshot = crate::settings::AppSettings::load();
+            let words_enabled = settings_snapshot.words_enabled;
+            let min_words = settings_snapshot.process_min_words;
+            let do_ai = if settings_snapshot.process_enabled {
+                if min_words == 0 {
+                    true
+                } else {
+                    let wc = text.split_whitespace().count() as u32;
+                    if wc < min_words {
+                        eprintln!(
+                            "[process] skipping AI ({} words < min {}), using raw text",
+                            wc, min_words
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                }
+            } else {
+                false
+            };
+            if do_ai {
+                let process_base_url = settings_snapshot.process_base_url.clone();
+                let process_api_key = settings_snapshot.process_api_key.clone();
+                let process_model = settings_snapshot.process_model.clone();
+                let process_max_tokens = settings_snapshot.process_max_tokens;
+                let process_endpoint = settings_snapshot.process_endpoint.clone();
+                let mut agent = crate::process::SmartAgent::resolve(
+                    &settings_snapshot.process_agent_profile,
+                    &settings_snapshot.process_agent_prompt,
+                    &text,
+                );
+                if words_enabled {
+                    let hint = crate::words::words_prompt_hint(&text);
+                    if !hint.is_empty() {
+                        agent.system_prompt = format!("{}{}", hint, agent.system_prompt);
+                    }
+                }
+                let client = crate::process::ProcessClient::new(
+                    process_base_url,
+                    process_api_key,
+                    process_model,
+                    process_max_tokens,
+                    if process_endpoint.is_empty() {
+                        "/chat/completions".into()
+                    } else {
+                        process_endpoint
+                    },
+                );
+                let timeout_secs = settings_snapshot.process_timeout_secs.clamp(3, 120) as u64;
+                let ai_timeout = std::time::Duration::from_secs(timeout_secs);
+                let agent_name_snapshot = agent.name.clone();
+                if cancelled() {
+                    eprintln!("[cancel] pipeline cancelled before AI phase");
+                    return;
+                }
+                let cancel_for_ai = cancel.clone();
+                let text_for_ai = text.clone();
+                let agent_for_ai = agent.clone();
+                let result = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt.block_on(client.process_with_cancel(
+                        &text_for_ai,
+                        &agent_for_ai,
+                        ai_timeout,
+                        cancel_for_ai,
+                    )),
+                    Err(e) => {
+                        eprintln!("[process] failed to create runtime: {} - using raw text", e);
+                        Err(format!("runtime error: {}", e))
+                    }
+                };
+                match result {
+                    Ok(formatted) => {
+                        if cancelled() {
+                            return;
+                        }
+                        final_text = formatted;
+                        agent_name = Some(agent_name_snapshot);
+                    }
+                    Err(e) if e == "Cancelled" => {
+                        eprintln!("[cancel] AI request cancelled");
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("AI processing skipped ({}), using raw text", e);
+                    }
+                }
+            }
+            if cancelled() {
+                return;
+            }
+            if words_enabled {
+                final_text = crate::words::apply_words(&final_text);
+            }
+            let paste_method = PASTE_METHOD
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            {
+                let (lock, cvar) = &*SEQ_CV;
+                let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                let wait_start = std::time::Instant::now();
+                while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
+                    if cancelled() {
+                        drop(guard);
+                        return;
+                    }
+                    if wait_start.elapsed() > std::time::Duration::from_secs(30) {
+                        break;
+                    }
+                    let (g, _) = cvar
+                        .wait_timeout(guard, std::time::Duration::from_millis(25))
+                        .unwrap_or_else(|e| e.into_inner());
+                    guard = g;
+                }
+            }
+            let recording_now = *crate::tray::STATE_LOCK
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                == CoordinatorState::Recording;
+            if !recording_now {
+                crate::hide_overlay();
+                for _ in 0..20 {
+                    if !crate::is_overlay_visible() {
+                        break;
+                    }
+                    thread::sleep(std::time::Duration::from_millis(10));
+                }
+            }
+            let to_paste = if PASTE_ADD_TRAILING_SPACE.load(Ordering::Relaxed)
+                && !final_text.is_empty()
+                && !final_text.ends_with(' ')
+                && !final_text.ends_with('\n')
+            {
+                format!("{} ", final_text)
+            } else {
+                final_text.clone()
+            };
+            let mut skip_paste = false;
+            if let Some(ref target) = origin {
+                let is_placeholder = target.backend == "placeholder"
+                    || (target.backend == "x11-fallback"
+                        && crate::paste::detect_session_type() == "wayland");
+                if is_placeholder {
+                    eprintln!("[focus] placeholder {}", target.backend);
+                } else if target.backend == "x11-fallback" {
+                    if !crate::focus::focus_origin(target) {
+                        eprintln!("[focus] x11-fallback failed {:?}", target.addr);
+                    } else {
+                        thread::sleep(std::time::Duration::from_millis(30));
+                    }
+                } else if !crate::focus::focus_origin(target) {
+                    if crate::focus::is_origin_alive(target) {
+                        eprintln!("[focus] activate failed but alive {:?}", target.addr);
+                        thread::sleep(std::time::Duration::from_millis(30));
+                    } else {
+                        eprintln!("[focus] origin gone: {:?}", target.addr);
+                        crate::show_overlay_error(Some(
+                            "Original window closed — transcription saved to history".into(),
+                        ));
+                        play_error_sound();
+                        skip_paste = true;
+                    }
+                } else {
+                    thread::sleep(std::time::Duration::from_millis(30));
+                }
+            }
+            if !skip_paste {
+                if let Err(e) = paste_text(&to_paste, &paste_method) {
+                    eprintln!("Paste failed: {}", e);
+                }
+            }
+            crate::emit_overlay_origin(None);
+            let duration_ms = if device_sr > 0 {
+                (samples_len as i64 * 1000) / device_sr as i64
+            } else {
+                0
+            };
+            let raw_words = text.split_whitespace().count();
+            let final_words = final_text.split_whitespace().count();
+            if raw_words == 0 && final_words == 0 {
+                eprintln!("[history] skipping zero-word entry");
+                if let Some(ref p) = recording_path {
+                    let _ = std::fs::remove_file(p);
+                }
+            } else {
+                let history = crate::history::HistoryManager::new();
+                if let Err(e) = history.insert(
+                    &text,
+                    Some(&final_text),
+                    agent_name.as_deref(),
+                    duration_ms,
+                    recording_path.as_deref(),
+                ) {
+                    eprintln!("Failed to log history: {}", e);
+                } else {
+                    let words = raw_words as f64;
+                    let typing_sec = words / 1.0;
+                    let speak_sec = duration_ms as f64 / 1000.0;
+                    let saved = (typing_sec - speak_sec).max(0.0) as i64;
+                    crate::settings::add_dictation_stats(raw_words as i64, saved);
+                    if WORDS_ENABLED.load(Ordering::Relaxed)
+                        && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
+                        && text != final_text
+                    {
+                        crate::words::maybe_auto_add_corrections(&text, &final_text);
+                    }
+                    let s = crate::settings::AppSettings::load();
+                    if s.max_history_entries > 0 {
+                        let mode =
+                            if s.keep_recordings && s.history_retention_mode == "recordings_only" {
+                                "recordings_only"
+                            } else {
+                                "both"
+                            };
+                        if let Err(e) = history.trim_history(s.max_history_entries as i64, mode) {
+                            eprintln!("Failed to trim history: {}", e);
+                        }
+                    }
+                    crate::emit_history_changed();
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Transcription error: {}", e);
+            crate::show_overlay_error(Some(format!("Transcription failed: {}", e)));
+            play_error_sound();
+            return;
+        }
+    }
+    play_done_sound();
+}
+
+#[allow(dead_code)]
 fn run_pipeline(
     samples: Vec<f32>,
     device_sr: u32,
@@ -417,7 +971,7 @@ fn run_pipeline(
     }
 
     if crate::audio::was_capped_and_reset() {
-        crate::show_overlay_error(Some("Recording too long - truncated to 5 minutes.".into()));
+        eprintln!("[audio] recording capped at 5min, truncated");
     }
     let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
         crate::history::save_recording_to_disk(&samples, device_sr)
@@ -425,8 +979,6 @@ fn run_pipeline(
         None
     };
 
-    // Resample -> denoise -> VAD in a scoped block so intermediate buffers
-    // are freed before we wait for the paste turn (saves ~6 MB while queued).
     let (trimmed, samples_len) = {
         let samples_len = samples.len();
         let resampled = if device_sr != 16000 {
@@ -447,8 +999,17 @@ fn run_pipeline(
         let trimmed = if VAD_ENABLED.load(Ordering::Relaxed) {
             let thresh = f32::from_bits(VAD_THRESHOLD.load(Ordering::Relaxed));
             let t = trim_silence(&denoised, 1600, thresh);
-            drop(denoised);
-            t
+            if t.is_empty() && !denoised.is_empty() {
+                let max_amp = denoised.iter().fold(0.0f32, |a, &b| a.max(b.abs()));
+                if max_amp > 0.015 {
+                    eprintln!("[vad] trimmed empty but max {max_amp:.4}, using denoised");
+                    denoised
+                } else {
+                    t
+                }
+            } else {
+                t
+            }
         } else {
             denoised
         };
@@ -564,7 +1125,6 @@ fn run_pipeline(
                 let mut agent_name = None;
                 let settings_snapshot = crate::settings::AppSettings::load();
                 let words_enabled = settings_snapshot.words_enabled;
-                // Skip AI entirely for very short utterances - just words+paste.
                 let min_words = settings_snapshot.process_min_words;
                 let do_ai = if settings_snapshot.process_enabled {
                     if min_words == 0 {
@@ -619,8 +1179,6 @@ fn run_pipeline(
                         eprintln!("[cancel] pipeline cancelled before AI phase");
                         return;
                     }
-                    // Cancellable AI request: dropping the reqwest future closes the
-                    // TCP connection so the remote model stops and the user is not billed.
                     let cancel_for_ai = cancel.clone();
                     let text_for_ai = text.clone();
                     let agent_for_ai = agent.clone();
@@ -659,8 +1217,6 @@ fn run_pipeline(
                         }
                     }
                 }
-                // Deterministic words correction as a final guarantee,
-                // whether or not the AI processing ran.
                 if cancelled() {
                     eprintln!("[cancel] pipeline cancelled before words/paste - discarding");
                     return;
@@ -703,17 +1259,12 @@ fn run_pipeline(
                         final_text.len()
                     );
                 }
-                // Drop overlay focus so synthetic keystrokes land in the
-                // target app, not the (invisible) overlay window.
                 let recording_now = *crate::tray::STATE_LOCK
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
                     == CoordinatorState::Recording;
                 if !recording_now {
                     crate::hide_overlay();
-                    // Condition-based wait: poll until overlay reports hidden
-                    // (hide is async via run_on_main_thread). Up to 200ms max,
-                    // faster than fixed 80ms when compositor is quick.
                     for _ in 0..20 {
                         if !crate::is_overlay_visible() {
                             break;
@@ -731,9 +1282,6 @@ fn run_pipeline(
                 } else {
                     final_text.clone()
                 };
-                // Paste-back-to-origin: if we captured a reliable origin window, try to
-                // refocus it. Placeholder / x11-fallback backends are not reliable
-                // on this GNOME Wayland build (Eval is blocked), so don't block paste.
                 let mut skip_paste = false;
                 if let Some(ref target) = origin {
                     let is_placeholder = target.backend == "placeholder"
@@ -745,7 +1293,6 @@ fn run_pipeline(
                             target.backend
                         );
                     } else if target.backend == "x11-fallback" {
-                        // X11: try to re-activate, but never block paste if tooling missing — degrade to current focus
                         if !crate::focus::focus_origin(target) {
                             eprintln!(
                                 "[focus] x11-fallback activate failed for {:?} — pasting at current focus",
@@ -755,12 +1302,17 @@ fn run_pipeline(
                             thread::sleep(std::time::Duration::from_millis(30));
                         }
                     } else if !crate::focus::focus_origin(target) {
-                        eprintln!("[focus] origin gone or activate failed: {:?}", target.addr);
-                        crate::show_overlay_error(Some(
-                            "Original window closed — transcription saved to history".into(),
-                        ));
-                        play_error_sound();
-                        skip_paste = true;
+                        if crate::focus::is_origin_alive(target) {
+                            eprintln!("[focus] activate failed but window alive {:?} - pasting at current focus", target.addr);
+                            thread::sleep(std::time::Duration::from_millis(30));
+                        } else {
+                            eprintln!("[focus] origin gone: {:?}", target.addr);
+                            crate::show_overlay_error(Some(
+                                "Original window closed — transcription saved to history".into(),
+                            ));
+                            play_error_sound();
+                            skip_paste = true;
+                        }
                     } else {
                         thread::sleep(std::time::Duration::from_millis(30));
                     }
@@ -776,7 +1328,6 @@ fn run_pipeline(
                 } else {
                     0
                 };
-                // Skip zero-word entries - they just pollute history (user request).
                 let raw_words = text.split_whitespace().count();
                 let final_words = final_text.split_whitespace().count();
                 if raw_words == 0 && final_words == 0 {
@@ -828,6 +1379,7 @@ fn run_pipeline(
                 eprintln!("Transcription error: {}", e);
                 crate::show_overlay_error(Some(format!("Transcription failed: {}", e)));
                 play_error_sound();
+                return;
             }
         }
     } else {
@@ -836,6 +1388,7 @@ fn run_pipeline(
             "No speech detected - try speaking closer to the mic.".into(),
         ));
         play_error_sound();
+        return;
     }
 
     play_done_sound();
