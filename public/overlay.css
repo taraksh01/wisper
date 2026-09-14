@@ -9,6 +9,20 @@ html, body {
   justify-content: center;
   height: 100%;
 }
+#origin-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: contain;
+  display: none;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 3px;
+  box-sizing: border-box;
+}
+#origin-icon.visible {
+  display: block;
+}
 #card {
   position: relative;
   width: 156px;
@@ -25,6 +39,11 @@ html, body {
   gap: 12px;
   --beam-sharp: conic-gradient(from var(--beam-angle), #fff7ed 0deg, #fdba74 22deg, #ea580c 62deg, #fdba74 118deg, #ffedd5 158deg, #fdba74 208deg, #ea580c 288deg, #fff7ed 360deg);
   --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, transparent 18deg, rgba(251, 146, 60, 0.42) 68deg, rgba(234, 88, 12, 0.18) 108deg, transparent 152deg, transparent 360deg);
+}
+#card.has-origin {
+  width: 192px;
+  padding-left: 8px;
+  gap: 10px;
 }
 [data-dev="true"] #card {
   --beam-sharp: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);

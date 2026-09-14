@@ -8,6 +8,7 @@ use std::thread;
 use crate::engine::{
     create_local_engine, CloudEngineProvider, EngineProvider, SarvamCloudProvider,
 };
+use crate::focus::OriginTarget;
 use crate::paste::paste_text;
 
 const START_WAV: &[u8] = include_bytes!("../../public/sounds/start.wav");
@@ -271,6 +272,7 @@ pub struct TranscriptionCoordinator {
     audio_recorder: AudioRecorder,
     rx: Receiver<CoordinatorCommand>,
     state_tx: Option<Sender<CoordinatorState>>,
+    pending_origin: Option<OriginTarget>,
 }
 
 impl TranscriptionCoordinator {
@@ -284,6 +286,7 @@ impl TranscriptionCoordinator {
             audio_recorder,
             rx,
             state_tx,
+            pending_origin: None,
         }
     }
 
@@ -316,6 +319,9 @@ impl TranscriptionCoordinator {
                             {
                                 eprintln!("Failed to start recording: {}", e);
                             } else {
+                                let origin = crate::focus::capture_origin();
+                                self.pending_origin = origin.clone();
+                                crate::emit_overlay_origin(origin.as_ref());
                                 self.play_sound(800.0, 100);
                                 self.set_state(CoordinatorState::Recording);
                             }
@@ -329,6 +335,9 @@ impl TranscriptionCoordinator {
                                 {
                                     eprintln!("Failed to start recording: {}", e);
                                 } else {
+                                    let origin = crate::focus::capture_origin();
+                                    self.pending_origin = origin.clone();
+                                    crate::emit_overlay_origin(origin.as_ref());
                                     self.play_sound(800.0, 100);
                                     self.set_state(CoordinatorState::Recording);
                                 }
@@ -352,6 +361,8 @@ impl TranscriptionCoordinator {
                     if self.state == CoordinatorState::Recording {
                         eprintln!("[cancel] discarding active recording");
                         let _ = self.audio_recorder.stop_recording();
+                        self.pending_origin = None;
+                        crate::emit_overlay_origin(None);
                         self.set_state(CoordinatorState::Idle);
                         play_cancel_sound();
                     }
@@ -372,11 +383,12 @@ impl TranscriptionCoordinator {
 
         self.set_state(CoordinatorState::Idle);
 
+        let origin = self.pending_origin.take();
         let cancel_for_thread = cancel.clone();
         let my_seq = SEQ_NEXT.fetch_add(1, Ordering::Relaxed);
         if let Err(e) = thread::Builder::new()
             .name("wisper-pipeline".into())
-            .spawn(move || run_pipeline(samples, device_sr, cancel_for_thread, my_seq))
+            .spawn(move || run_pipeline(samples, device_sr, cancel_for_thread, my_seq, origin))
         {
             eprintln!("Failed to spawn pipeline thread: {}", e);
             ACTIVE_JOBS
@@ -387,7 +399,13 @@ impl TranscriptionCoordinator {
     }
 }
 
-fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: u64) {
+fn run_pipeline(
+    samples: Vec<f32>,
+    device_sr: u32,
+    cancel: CancelToken,
+    my_seq: u64,
+    origin: Option<OriginTarget>,
+) {
     let _guard = PipelineGuard {
         seq: my_seq,
         cancel: cancel.clone(),
@@ -713,9 +731,46 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 } else {
                     final_text.clone()
                 };
-                if let Err(e) = paste_text(&to_paste, &paste_method) {
-                    eprintln!("Paste failed: {}", e);
+                // Paste-back-to-origin: if we captured a reliable origin window, try to
+                // refocus it. Placeholder / x11-fallback backends are not reliable
+                // on this GNOME Wayland build (Eval is blocked), so don't block paste.
+                let mut skip_paste = false;
+                if let Some(ref target) = origin {
+                    let is_placeholder = target.backend == "placeholder"
+                        || (target.backend == "x11-fallback"
+                            && crate::paste::detect_session_type() == "wayland");
+                    if is_placeholder {
+                        eprintln!(
+                            "[focus] placeholder backend {} - pasting to current focus (Wayland X11-fallback unreliable)",
+                            target.backend
+                        );
+                    } else if target.backend == "x11-fallback" {
+                        // X11: try to re-activate, but never block paste if tooling missing — degrade to current focus
+                        if !crate::focus::focus_origin(target) {
+                            eprintln!(
+                                "[focus] x11-fallback activate failed for {:?} — pasting at current focus",
+                                target.addr
+                            );
+                        } else {
+                            thread::sleep(std::time::Duration::from_millis(30));
+                        }
+                    } else if !crate::focus::focus_origin(target) {
+                        eprintln!("[focus] origin gone or activate failed: {:?}", target.addr);
+                        crate::show_overlay_error(Some(
+                            "Original window closed — transcription saved to history".into(),
+                        ));
+                        play_error_sound();
+                        skip_paste = true;
+                    } else {
+                        thread::sleep(std::time::Duration::from_millis(30));
+                    }
                 }
+                if !skip_paste {
+                    if let Err(e) = paste_text(&to_paste, &paste_method) {
+                        eprintln!("Paste failed: {}", e);
+                    }
+                }
+                crate::emit_overlay_origin(None);
                 let duration_ms = if device_sr > 0 {
                     (samples_len as i64 * 1000) / device_sr as i64
                 } else {

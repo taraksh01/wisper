@@ -1,6 +1,7 @@
 pub mod app_info;
 pub mod audio;
 pub mod coordinator;
+pub mod focus;
 pub mod dictionary;
 pub mod engine;
 pub mod history;
@@ -111,9 +112,53 @@ static OVERLAY_POSITION: once_cell::sync::Lazy<Mutex<String>> =
 static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
+// Last captured origin — applied when overlay (re)creates so icon is not lost if emit races window creation.
+static ORIGIN_CACHE: once_cell::sync::Lazy<Mutex<Option<crate::focus::OriginTarget>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(None));
+
 // The human-readable reason shown in the error overlay's pill.
 static OVERLAY_ERROR_REASON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
+pub(crate) fn emit_overlay_origin(origin: Option<&crate::focus::OriginTarget>) {
+    let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    else {
+        return;
+    };
+    let json = match origin {
+        Some(o) => serde_json::json!({
+            "app_id": o.app_id,
+            "title": o.title,
+            "icon_data_url": o.icon_data_url,
+        })
+        .to_string(),
+        None => "null".to_string(),
+    };
+    *ORIGIN_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = origin.cloned();
+    let h = handle.clone();
+    let has_origin = origin.as_ref().is_some_and(|o| o.icon_data_url.is_some());
+    let target_w = if has_origin { OVERLAY_WIDTH_WITH_ORIGIN } else { OVERLAY_WIDTH };
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(win) = h.get_webview_window(OVERLAY_LABEL) {
+            let _ = win.eval(&format!("window.__origin && window.__origin({json})"));
+            let scale = win.scale_factor().unwrap_or(1.0);
+            let target_phys_w = (target_w * scale).round() as u32;
+            let cur_phys_w = win.outer_size().map(|s| s.width).unwrap_or(0);
+            if cur_phys_w != target_phys_w {
+                let phys_h = (OVERLAY_HEIGHT * scale).round() as u32;
+                let _ = win.set_size(tauri::PhysicalSize::new(target_phys_w, phys_h));
+                let pos = overlay_pos_for(&h, false, target_w, OVERLAY_HEIGHT);
+                if let Some((x, y)) = pos {
+                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+                }
+            }
+        }
+    });
+}
 
 #[tauri::command]
 fn get_input_level() -> f32 {
@@ -196,6 +241,16 @@ fn get_paste_environment(preference: String) -> paste::PasteEnvironment {
 }
 
 #[tauri::command]
+fn get_origin_environment() -> focus::OriginEnvironment {
+    focus::get_origin_environment()
+}
+
+#[tauri::command]
+fn ensure_gnome_extension() -> Result<focus::OriginEnvironment, String> {
+    focus::ensure_gnome_extension()
+}
+
+#[tauri::command]
 fn cancel_recording() {
     coordinator::cancel_all();
 }
@@ -274,6 +329,7 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
 const OVERLAY_LABEL: &str = "wisper-overlay";
 const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 60.0;
+const OVERLAY_WIDTH_WITH_ORIGIN: f64 = 208.0;
 const OVERLAY_TOP_OFFSET: f64 = 0.0;
 const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 
@@ -786,6 +842,111 @@ pub fn run() {
                 let _ = app.autolaunch().disable();
             }
 
+            // GNOME Wayland: auto-install bundled Wisper Focus extension for paste-back-to-origin.
+            // No sudo, no manual step — resources/gnome-shell is bundled via tauri.conf.json.
+            #[cfg(target_os = "linux")]
+            {
+                let handle = app_handle.clone();
+                std::thread::spawn(move || {
+                        if let Ok(session) = std::env::var("XDG_SESSION_TYPE") {
+                            if session.to_lowercase() != "wayland" {
+                                return;
+                            }
+                        } else if std::env::var("WAYLAND_DISPLAY").is_err() {
+                            return;
+                        }
+                        let Ok(ver_out) = std::process::Command::new("gnome-shell")
+                            .arg("--version")
+                            .output()
+                        else {
+                            return;
+                        };
+                        let ver = String::from_utf8_lossy(&ver_out.stdout).to_lowercase();
+                        if !ver.contains("gnome shell") {
+                            return;
+                        }
+                        let Some(home) = dirs::home_dir() else { return };
+                        let ext_dir = home.join(".local/share/gnome-shell/extensions/wisper-focus@wisper.app");
+                        let src_dir = std::path::PathBuf::from("/usr/share/gnome-shell/extensions/wisper-focus@wisper.app");
+                        // Prefer resource dir resolved via tauri if available, else try common bundled locations
+                        let mut bundled: Option<std::path::PathBuf> = None;
+                        if let Ok(res) = handle.path().resource_dir() {
+                            let cand = res.join("resources/gnome-shell/wisper-focus@wisper.app");
+                            if cand.join("extension.js").is_file() {
+                                bundled = Some(cand);
+                            }
+                            let cand2 = res.join("gnome-shell/wisper-focus@wisper.app");
+                            if bundled.is_none() && cand2.join("extension.js").is_file() {
+                                bundled = Some(cand2);
+                            }
+                        }
+                        if bundled.is_none() {
+                            for cand in [
+                                std::path::PathBuf::from("/usr/lib/wisper/resources/gnome-shell/wisper-focus@wisper.app"),
+                                std::path::PathBuf::from("/usr/share/wisper/resources/gnome-shell/wisper-focus@wisper.app"),
+                            ] {
+                                if cand.join("extension.js").is_file() {
+                                    bundled = Some(cand);
+                                    break;
+                                }
+                            }
+                        }
+                        let Some(bundled) = bundled else { return };
+                        // Only copy if missing or stale (compare extension.js)
+                        let need_copy = match std::fs::read_to_string(ext_dir.join("extension.js")) {
+                            Ok(cur) => std::fs::read_to_string(bundled.join("extension.js"))
+                                .map(|s| s != cur)
+                                .unwrap_or(true),
+                            Err(_) => true,
+                        };
+                        if !need_copy {
+                            return;
+                        }
+                        let _ = std::fs::create_dir_all(&ext_dir);
+                        for name in ["extension.js", "metadata.json"] {
+                            if let Ok(data) = std::fs::read(bundled.join(name)) {
+                                let _ = std::fs::write(ext_dir.join(name), data);
+                            }
+                        }
+                        // Enable via gsettings + gnome-extensions (best-effort, no sudo)
+                        let _ = std::process::Command::new("gsettings")
+                            .args([
+                                "set",
+                                "org.gnome.shell",
+                                "enabled-extensions",
+                                &{
+                                    let out = std::process::Command::new("gsettings")
+                                        .args(["get", "org.gnome.shell", "enabled-extensions"])
+                                        .output()
+                                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                                        .unwrap_or_default();
+                                    if out.contains("wisper-focus@wisper.app") {
+                                        out
+                                    } else {
+                                        // Append to list string e.g. "['a','b']"
+                                        let trimmed = out.trim();
+                                        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                                            let inner = trimmed[1..trimmed.len()-1].trim();
+                                            if inner.is_empty() {
+                                                "['wisper-focus@wisper.app']".to_string()
+                                            } else {
+                                                format!("[{}, 'wisper-focus@wisper.app']", inner)
+                                            }
+                                        } else {
+                                            "['wisper-focus@wisper.app']".to_string()
+                                        }
+                                    }
+                                },
+                            ])
+                            .output();
+                        let _ = std::process::Command::new("gnome-extensions")
+                            .args(["enable", "wisper-focus@wisper.app"])
+                            .output();
+                        // System-wide fallback already handled by deb postinst if present
+                        let _ = src_dir;
+                });
+            }
+
             // Window visibility is user-controlled via General →
             // Startup → Launch to system tray (no `visible` in tauri.conf).
             if saved_settings.launch_to_tray {
@@ -910,6 +1071,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             get_paste_environment,
+            get_origin_environment,
+            ensure_gnome_extension,
             cancel_recording,
             get_input_level,
             get_current_state,
