@@ -10,14 +10,14 @@ html, body {
   height: 100%;
 }
 #origin-icon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   object-fit: contain;
   display: none;
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.06);
-  padding: 3px;
+  padding: 2px;
   box-sizing: border-box;
 }
 #origin-icon.visible {
@@ -25,10 +25,10 @@ html, body {
 }
 #card {
   position: relative;
-  width: 156px;
-  height: 44px;
-  padding: 0 8px 0 14px;
-  border-radius: 22px;
+  width: 98px;
+  height: 34px;
+  padding: 0 3px 0 5px;
+  border-radius: 17px;
   border: 1.5px solid rgba(255, 255, 255, 0.1);
   background: rgba(10, 10, 10, 0.92);
   backdrop-filter: blur(12px);
@@ -36,14 +36,48 @@ html, body {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 3px;
   --beam-sharp: conic-gradient(from var(--beam-angle), #fff7ed 0deg, #fdba74 22deg, #ea580c 62deg, #fdba74 118deg, #ffedd5 158deg, #fdba74 208deg, #ea580c 288deg, #fff7ed 360deg);
   --beam-glow: conic-gradient(from var(--beam-angle), transparent 0deg, transparent 18deg, rgba(251, 146, 60, 0.42) 68deg, rgba(234, 88, 12, 0.18) 108deg, transparent 152deg, transparent 360deg);
 }
 #card.has-origin {
-  width: 192px;
-  padding-left: 8px;
-  gap: 10px;
+  width: 123px;
+  padding: 0 3px 0 3px;
+  gap: 3px;
+}
+#card.err {
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  min-height: 34px;
+  height: 34px;
+  width: min(282px, calc(100vw - 12px));
+  max-width: 282px;
+  justify-content: flex-start;
+}
+#card.err.has-origin {
+  width: min(282px, calc(100vw - 12px));
+  max-width: 282px;
+}
+#card.err #wave,
+#card.err #proc,
+#card.err #divider,
+#card.err #cancel {
+  display: none !important;
+}
+#err-reason {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  font: 600 10.5px system-ui, -apple-system, sans-serif;
+  color: #fecaca;
+  display: none;
+  pointer-events: none;
+}
+#card.err #err-reason {
+  display: block !important;
 }
 [data-dev="true"] #card {
   --beam-sharp: conic-gradient(from var(--beam-angle), #c4b5fd 0deg, #ede9fe 45deg, #7c3aed 120deg, #c4b5fd 220deg, #7c3aed 320deg, #c4b5fd 360deg);
@@ -62,7 +96,7 @@ html, body {
   content: "";
   position: absolute;
   inset: -2px;
-  border-radius: 23px;
+  border-radius: 19px;
   padding: 2px 3px;
   background: var(--beam-sharp);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -77,7 +111,7 @@ html, body {
   content: "";
   position: absolute;
   inset: -4px;
-  border-radius: 25px;
+  border-radius: 21px;
   padding: 2px 3px;
   background: var(--beam-glow);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -88,21 +122,25 @@ html, body {
   transform: translateZ(0);
   pointer-events: none;
 }
+#wave {
+  width: 56px;
+  height: 28px;
+}
 #wave rect {
   fill: url(#wisper-wave);
   transition: y 60ms linear, height 60ms linear;
 }
 #proc {
   display: none;
-  width: 78px;
-  gap: 5px;
+  width: 56px;
+  gap: 4px;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 #proc span {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: #ea580c;
   animation: procpulse 1s infinite ease-in-out;
@@ -120,13 +158,13 @@ html, body {
 }
 #divider {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
 }
 #cancel {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -140,8 +178,8 @@ html, body {
   padding: 0;
 }
 #cancel img {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   opacity: 0.65;
   pointer-events: none;
 }
@@ -161,9 +199,6 @@ html, body {
   dominant-baseline: central;
   display: none;
 }
-/* Error state: identical to recording (waveform + controls visible) with a
-   blinking red gradient border instead of the accent border. The `!` glyph and
-   reason pill are handled separately. */
 #card.err {
   border-color: transparent;
 }
@@ -172,7 +207,7 @@ html, body {
   content: "";
   position: absolute;
   inset: -2px;
-  border-radius: 23px;
+  border-radius: 19px;
   padding: 2px 3px;
   background: linear-gradient(135deg, #fca5a5, #ef4444, #b91c1c, #ef4444, #fca5a5);
   background-size: 300% 300%;
@@ -189,7 +224,7 @@ html, body {
   content: "";
   position: absolute;
   inset: -4px;
-  border-radius: 25px;
+  border-radius: 21px;
   padding: 2px 3px;
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.6), rgba(185, 28, 28, 0.1), rgba(239, 68, 68, 0.6));
   background-size: 300% 300%;
@@ -205,24 +240,4 @@ html, body {
 @keyframes errblink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
-}
-#err-reason {
-  display: none;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  white-space: nowrap;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font: 600 11px system-ui, -apple-system, sans-serif;
-  color: #fecaca;
-  background: rgba(127, 29, 29, 0.96);
-  border: 1px solid rgba(239, 68, 68, 0.55);
-  border-radius: 8px;
-  padding: 2px 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-  z-index: 2;
 }

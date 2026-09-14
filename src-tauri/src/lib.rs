@@ -22,11 +22,6 @@ use std::thread;
 
 const DEFAULT_HOTKEY: &str = "F9";
 
-/// Temporarily silence C-level stderr (fd 2) around a closure.
-///
-/// Some native libraries (libayatana-appindicator, handy-keys) print harmless
-/// deprecation/info warnings straight to the C stderr stream, which can't be
-/// captured by Rust's `eprintln!` redirection. This dup2's fd 2 to /dev/null
 #[cfg(target_os = "linux")]
 static SILENCE_LOCK: once_cell::sync::Lazy<std::sync::Mutex<()>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(()));
@@ -50,7 +45,6 @@ where
     }
     let _g = SILENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let saved = unsafe { libc::dup(libc::STDERR_FILENO) };
-    // RAII guard restores even if f() panics
     let _restore = RestoreFd(saved);
     let null = std::fs::OpenOptions::new()
         .write(true)
@@ -107,16 +101,9 @@ static OVERLAY_ENABLED: once_cell::sync::Lazy<Mutex<bool>> =
     once_cell::sync::Lazy::new(|| Mutex::new(true));
 static OVERLAY_POSITION: once_cell::sync::Lazy<Mutex<String>> =
     once_cell::sync::Lazy::new(|| Mutex::new("bottom".to_string()));
-// Set while the error glyph is flashing so the Idle handler doesn't destroy
-// the window before the flash finishes (the error thread clears it).
 static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-// Last captured origin — applied when overlay (re)creates so icon is not lost if emit races window creation.
-static ORIGIN_CACHE: once_cell::sync::Lazy<Mutex<Option<crate::focus::OriginTarget>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(None));
-
-// The human-readable reason shown in the error overlay's pill.
 static OVERLAY_ERROR_REASON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
@@ -138,24 +125,10 @@ pub(crate) fn emit_overlay_origin(origin: Option<&crate::focus::OriginTarget>) {
         .to_string(),
         None => "null".to_string(),
     };
-    *ORIGIN_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = origin.cloned();
     let h = handle.clone();
-    let has_origin = origin.as_ref().is_some_and(|o| o.icon_data_url.is_some());
-    let target_w = if has_origin { OVERLAY_WIDTH_WITH_ORIGIN } else { OVERLAY_WIDTH };
     let _ = handle.run_on_main_thread(move || {
         if let Some(win) = h.get_webview_window(OVERLAY_LABEL) {
             let _ = win.eval(&format!("window.__origin && window.__origin({json})"));
-            let scale = win.scale_factor().unwrap_or(1.0);
-            let target_phys_w = (target_w * scale).round() as u32;
-            let cur_phys_w = win.outer_size().map(|s| s.width).unwrap_or(0);
-            if cur_phys_w != target_phys_w {
-                let phys_h = (OVERLAY_HEIGHT * scale).round() as u32;
-                let _ = win.set_size(tauri::PhysicalSize::new(target_phys_w, phys_h));
-                let pos = overlay_pos_for(&h, false, target_w, OVERLAY_HEIGHT);
-                if let Some((x, y)) = pos {
-                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
-                }
-            }
         }
     });
 }
@@ -172,10 +145,6 @@ fn get_input_level() -> f32 {
 
 #[tauri::command]
 fn start_mic_preview(device: Option<String>) -> Result<(), String> {
-    // Frontend may pass the currently-selected device explicitly so the meter
-    // reflects the dropdown choice immediately without waiting for the async
-    // settings save to propagate to INPUT_DEVICE. Fall back to the global when
-    // no explicit device is provided (backwards compat / system default).
     let device = match device {
         Some(d) if !d.is_empty() => Some(d),
         _ => {
@@ -199,7 +168,6 @@ fn list_audio_devices() -> Vec<(String, String)> {
     crate::audio::list_input_devices()
 }
 
-/// Types a fixed pangram through the configured paste path (paste self-test).
 #[tauri::command]
 fn test_paste() -> Result<(), String> {
     let method = crate::coordinator::PASTE_METHOD
@@ -323,23 +291,15 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
     update_overlay(app, state);
 }
 
-/// Detached overlay window: a transparent, decoration-less, non-focusable
-/// Tauri webview showing the recording indicator (public/overlay.html).
-/// Created hidden, shown during recording/processing, destroyed when idle.
 const OVERLAY_LABEL: &str = "wisper-overlay";
-const OVERLAY_WIDTH: f64 = 172.0;
-const OVERLAY_HEIGHT: f64 = 60.0;
-const OVERLAY_WIDTH_WITH_ORIGIN: f64 = 208.0;
+const OVERLAY_WIDTH: f64 = 294.0;
+const OVERLAY_HEIGHT: f64 = 46.0;
 const OVERLAY_TOP_OFFSET: f64 = 0.0;
 const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 
 #[cfg(target_os = "linux")]
 use enigo::Mouse;
 
-/// Cursor position fallback. On Wayland, Tauri's cursor_position() can return
-/// (0,0), so ask enigo (which talks to the compositor) for the real pointer
-/// location. On other platforms Tauri's cursor_position() is reliable, so we
-/// just return None and rely on it directly.
 fn cursor_pos() -> Option<(i32, i32)> {
     #[cfg(target_os = "linux")]
     {
@@ -353,13 +313,6 @@ fn cursor_pos() -> Option<(i32, i32)> {
     }
 }
 
-/// Resolves the monitor the cursor is currently on, using Tauri's
-/// cursor_position() (cross-platform) with an enigo fallback on Linux/Wayland,
-/// then the primary monitor as a last resort.
-///
-/// Wayland bug: `cursor_position()` often returns `Ok(0,0)` instead of `Err`,
-/// so `or_else` never fires and we always pick the primary monitor. We must
-/// detect that case and prefer Enigo when it yields a different non-zero point.
 fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
     let tauri_pos = app
         .cursor_position()
@@ -367,17 +320,13 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
         .map(|p| (p.x as i32, p.y as i32));
     let enigo_pos = cursor_pos();
 
-    // Prefer a non-zero Enigo result on Linux; if both are present and differ,
-    // the Enigo value is the Wayland-correct one. Otherwise use whichever is Some.
     let cursor = match (tauri_pos, enigo_pos) {
         (Some(tp), Some(ep)) => {
-            // If Tauri says (0,0) but Enigo disagrees, trust Enigo.
             if tp == (0, 0) && ep != (0, 0) {
                 Some(ep)
             } else if ep == (0, 0) && tp != (0, 0) {
                 Some(tp)
             } else {
-                // Both non-zero and disagree - Enigo is more reliable on X11/Wayland.
                 #[cfg(target_os = "linux")]
                 { Some(ep) }
                 #[cfg(not(target_os = "linux"))]
@@ -416,7 +365,6 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
     app.primary_monitor().ok().flatten()
 }
 
-/// Create the detached overlay window (hidden until recording).
 fn create_overlay(app: &tauri::AppHandle) {
     create_overlay_with(app, crate::app_info::overlay_url());
 }
@@ -438,7 +386,6 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(true)
-            // No DWM shadow: renders as a ghost sheet on transparent windows.
             .shadow(false)
             .focusable(false)
             .focused(false)
@@ -464,14 +411,9 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
     }
 }
 
-/// Last computed overlay position (logical px). Cached during the recording/
-/// processing phase so the error overlay can reuse it and never drift to the
-/// window-manager's default (centered) placement when the window is recreated.
 static LAST_OVERLAY_POS: once_cell::sync::Lazy<std::sync::Mutex<Option<(f64, f64)>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
-/// Work area (screen minus taskbar) for the cursor monitor, physical pixels.
-/// None if the Win32 query fails; caller falls back to the full rect.
 #[cfg(target_os = "windows")]
 fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32, i32)> {
     use windows::Win32::Foundation::POINT;
@@ -497,13 +439,6 @@ fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32
     Some((r.left, r.top, r.right, r.bottom))
 }
 
-/// Computes the overlay's (x, y) logical position for a window of the given
-/// size. When `prefer_cache` is true it reuses the last recording position (so
-/// an error/recreated window stays put); otherwise it tracks the live cursor
-/// monitor and caches the result so the error state can reuse it. `win_w`/
-/// `win_h` are the window's ACTUAL size (read from the live window) so the
-/// bottom-center math stays correct even if the HTML/content size differs from
-/// the `OVERLAY_*` constants.
 fn overlay_pos_for(
     app: &tauri::AppHandle,
     prefer_cache: bool,
@@ -521,7 +456,6 @@ fn overlay_pos_for(
     }
     let monitor = monitor_with_cursor(app)?;
     let scale = monitor.scale_factor();
-    // Windows: anchor to the work area so the pill clears the taskbar.
     #[cfg(target_os = "windows")]
     let (mx, my, mw, mh) = match windows_work_area_for_cursor(app) {
         Some((l, t, r, b)) => (
@@ -559,43 +493,6 @@ fn overlay_pos_for(
     Some(p)
 }
 
-/// Positions the overlay. `set_position` is called AFTER `show` because on
-/// X11/Wayland a position set on a not-yet-mapped window is ignored by the WM
-/// and overridden to the default (centered) at map time - the root cause of the
-/// position drift. Uses the window's real size. Must be called on the main thread.
-fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_cache: bool) {
-    // Use the window's own scale factor for correct physical→logical conversion;
-    // fall back to cursor monitor's scale only if the window query fails (e.g. not yet mapped).
-    let scale = win.scale_factor().unwrap_or_else(|_| {
-        monitor_with_cursor(app)
-            .or_else(|| app.primary_monitor().ok().flatten())
-            .as_ref()
-            .map(|m| m.scale_factor())
-            .unwrap_or(1.0)
-    });
-    let (win_w, win_h) = match win.inner_size() {
-        Ok(phys) => {
-            let logical = phys.to_logical::<f64>(scale);
-            let w = logical.width;
-            let h = logical.height;
-            if w <= 0.0 || h <= 0.0 {
-                (OVERLAY_WIDTH, OVERLAY_HEIGHT)
-            } else {
-                (w, h)
-            }
-        }
-        Err(_) => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
-    };
-    if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h) {
-        let _ = win.set_position(tauri::LogicalPosition::new(x, y));
-    }
-}
-
-/// Show/hide the overlay, mirroring Handy's show_overlay_state positioning.
-/// Window ops must run on the main thread in Tauri v2, so the whole body is
-/// dispatched there. Running off-thread (e.g. from the state-listener thread)
-/// silently no-ops set_position/show/destroy and the window falls back to
-/// Tauri's default centered placement - the recurring position-drift bug.
 fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     let app_clone = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -603,7 +500,6 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
         let Some(win) = app.get_webview_window(OVERLAY_LABEL) else {
             if *OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
                 create_overlay(app);
-                // Guard against infinite recursion if build() failed (e.g. compositor rejects transparent window)
                 if app.get_webview_window(OVERLAY_LABEL).is_some() {
                     return update_overlay(app, state);
                 }
@@ -616,15 +512,12 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
         }
         match state {
             CoordinatorState::Idle => {
-                // Don't destroy while the error glyph is flashing - the error
-                // thread owns that window and destroys it after ~1.5s.
                 if OVERLAY_ERROR_ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
                     return;
                 }
                 if crate::coordinator::active_job_count() > 0 {
                     let _ = win.eval("window.__mode && window.__mode('processing')");
                 } else {
-                    // Windows: WebView2 creation costs 1-3s, so hide instead of rebuild.
                     #[cfg(target_os = "windows")]
                     {
                         let _ = win.eval("window.__mode && window.__mode('idle')");
@@ -637,13 +530,17 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 }
             }
             CoordinatorState::Recording | CoordinatorState::Processing => {
+                OVERLAY_ERROR_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+                *OVERLAY_ERROR_REASON
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = None;
                 let _ = win.eval("window.__mode && window.__mode('recording')");
                 let _ = win.show();
-                position_overlay(app, &win, false);
+                if let Some((x, y)) = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT) {
+                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+                }
             }
             CoordinatorState::Error => {
-                // Error reuses the live window and keeps the exact recording
-                // position (cached) so it never drifts if the window is recreated.
                 let reason = OVERLAY_ERROR_REASON
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -653,14 +550,16 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                     "window.__errReason = {reason_json}; window.__mode && window.__mode('error', {reason_json})"
                 ));
                 let _ = win.show();
-                position_overlay(app, &win, true);
+                if let Some((x, y)) =
+                    overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT)
+                {
+                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+                }
             }
         }
     });
 }
 
-/// Hide the overlay window (used before pasting so keyboard focus
-/// returns to the target app instead of the overlay).
 pub fn hide_overlay() {
     let Some(handle) = APP_HANDLE
         .lock()
@@ -694,9 +593,6 @@ pub fn is_overlay_visible() -> bool {
         .unwrap_or(false)
 }
 
-/// Briefly flash the overlay error state (~1.5s) to signal a failed
-/// transcription, showing `reason` (if any) in a pill. The window is destroyed
-/// afterwards so it can never get stuck in the error state.
 pub fn show_overlay_error(reason: Option<String>) {
     let Some(handle) = APP_HANDLE
         .lock()
@@ -749,10 +645,6 @@ pub fn run() {
     if std::env::var_os("GDK_BACKEND").is_none() {
         std::env::set_var("GDK_BACKEND", "x11");
     }
-    // Dev desktop file is written in setup (needs app resource path), but we also
-    // set GTK app_id via tauri's enableGTKAppId (identifier from merged config).
-    // For `pnpm tauri dev` we merge tauri.dev.json via --config flag so identifier
-    // becomes com.taraksh01.wisper-dev, which tao uses as Wayland app_id / X11 WM_CLASS.
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -780,7 +672,6 @@ pub fn run() {
 
             let (cmd_tx, cmd_rx) = mpsc::channel();
             let (state_tx, state_rx) = mpsc::channel();
-            // Overlay ✕ / Escape land here (see coordinator::send_cancel)
             coordinator::set_cancel_sender(cmd_tx.clone());
 
             let (hk_tx, hk_rx) = mpsc::channel();
@@ -808,20 +699,17 @@ pub fn run() {
             }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh();
-            // Windows: pre-create the hidden overlay so the first hotkey is instant too.
             #[cfg(target_os = "windows")]
             {
                 let prewarm_handle = app_handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(3));
-                    // Separate clone: the receiver borrows prewarm_handle.
                     let inner = prewarm_handle.clone();
                     let _ = prewarm_handle.run_on_main_thread(move || {
                         create_overlay(&inner);
                     });
                 });
             }
-            // Enforce history retention limit on startup
             if saved_settings.max_history_entries > 0 {
                 let mode = if saved_settings.keep_recordings
                     && saved_settings.history_retention_mode == "recordings_only"
@@ -833,7 +721,6 @@ pub fn run() {
                 let _ = crate::history::HistoryManager::new()
                     .trim_history(saved_settings.max_history_entries as i64, mode);
             }
-            // Clean up previously saved zero-word entries (polluted history)
             let _ = crate::history::HistoryManager::new().delete_zero_word_entries();
 
             if saved_settings.autostart {
@@ -842,8 +729,6 @@ pub fn run() {
                 let _ = app.autolaunch().disable();
             }
 
-            // GNOME Wayland: auto-install bundled Wisper Focus extension for paste-back-to-origin.
-            // No sudo, no manual step — resources/gnome-shell is bundled via tauri.conf.json.
             #[cfg(target_os = "linux")]
             {
                 let handle = app_handle.clone();
@@ -868,7 +753,6 @@ pub fn run() {
                         let Some(home) = dirs::home_dir() else { return };
                         let ext_dir = home.join(".local/share/gnome-shell/extensions/wisper-focus@wisper.app");
                         let src_dir = std::path::PathBuf::from("/usr/share/gnome-shell/extensions/wisper-focus@wisper.app");
-                        // Prefer resource dir resolved via tauri if available, else try common bundled locations
                         let mut bundled: Option<std::path::PathBuf> = None;
                         if let Ok(res) = handle.path().resource_dir() {
                             let cand = res.join("resources/gnome-shell/wisper-focus@wisper.app");
@@ -892,7 +776,6 @@ pub fn run() {
                             }
                         }
                         let Some(bundled) = bundled else { return };
-                        // Only copy if missing or stale (compare extension.js)
                         let need_copy = match std::fs::read_to_string(ext_dir.join("extension.js")) {
                             Ok(cur) => std::fs::read_to_string(bundled.join("extension.js"))
                                 .map(|s| s != cur)
@@ -908,7 +791,6 @@ pub fn run() {
                                 let _ = std::fs::write(ext_dir.join(name), data);
                             }
                         }
-                        // Enable via gsettings + gnome-extensions (best-effort, no sudo)
                         let _ = std::process::Command::new("gsettings")
                             .args([
                                 "set",
@@ -923,7 +805,6 @@ pub fn run() {
                                     if out.contains("wisper-focus@wisper.app") {
                                         out
                                     } else {
-                                        // Append to list string e.g. "['a','b']"
                                         let trimmed = out.trim();
                                         if trimmed.starts_with('[') && trimmed.ends_with(']') {
                                             let inner = trimmed[1..trimmed.len()-1].trim();
@@ -942,13 +823,10 @@ pub fn run() {
                         let _ = std::process::Command::new("gnome-extensions")
                             .args(["enable", "wisper-focus@wisper.app"])
                             .output();
-                        // System-wide fallback already handled by deb postinst if present
                         let _ = src_dir;
                 });
             }
 
-            // Window visibility is user-controlled via General →
-            // Startup → Launch to system tray (no `visible` in tauri.conf).
             if saved_settings.launch_to_tray {
                 if let Some(win) = app.get_webview_window("main") {
                     let _ = win.hide();
@@ -958,11 +836,6 @@ pub fn run() {
                 let _ = win.set_focus();
             }
 
-            // Fixed window, but auto-scale for larger displays (e.g. 2K/4K)
-            // so the UI doesn't look tiny on HiDPI/large monitors. Window is
-            // `resizable: false` (user can't drag), but we set a resolution-
-            // aware size at startup. Base 900x700 is designed for 1920x1080
-            // logical; scale is min(width/1920, height/1080) capped 1.0..1.5.
             if let Some(win) = app.get_webview_window("main") {
                 let scale = win.scale_factor().unwrap_or(1.0);
                 let mon = win
@@ -996,7 +869,6 @@ pub fn run() {
             }
             let coordinator = TranscriptionCoordinator::new(recorder, cmd_rx, Some(state_tx));
 
-            // Spawn Coordinator
             if let Err(e) = thread::Builder::new()
                 .stack_size(8 * 1024 * 1024)
                 .spawn(move || {
@@ -1010,8 +882,6 @@ pub fn run() {
                 )));
             }
 
-            // Register the global hotkey via whisper-keys (raw input hook:
-            // works uniformly across X11/Wayland and every focused app).
             whisper_keys::init(&app.handle());
             create_overlay(&app.handle());
             let saved = &saved_settings.hotkey;
@@ -1025,7 +895,6 @@ pub fn run() {
                 }
             }
 
-            // Spawn State Listener -> Tray + State Lock + Frontend Events
             let app_handle_clone = app_handle.clone();
             thread::spawn(move || {
                 while let Ok(state) = state_rx.recv() {
@@ -1061,7 +930,6 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // Only intercept the main window; overlay is managed via destroy()
                 if window.label() == "main" {
                     let _ = window.hide();
                     api.prevent_close();

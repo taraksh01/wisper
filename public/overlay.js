@@ -3,7 +3,7 @@
   var CY = 80;
   var MAXH = 120;
   var FLOOR = 18;
-  var W = 14, GAP = 20, X0 = 22;
+  var W = 26, GAP = 14, X0 = 23;
 
   var contentW = N * W + (N - 1) * GAP;
   X0 = (312 - contentW) / 2;
