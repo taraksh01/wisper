@@ -674,7 +674,7 @@ fn capture_fallback_x11() -> Option<OriginTarget> {
     let mut title = String::new();
     for line in props.lines() {
         if line.starts_with("WM_CLASS") {
-            if let Some(q) = line.split('"').nth(1) {
+            if let Some(q) = line.split('"').nth(3).or_else(|| line.split('"').nth(1)) {
                 app_id = q.to_string();
             }
         } else if line.starts_with("_NET_WM_NAME") || line.starts_with("WM_NAME") {
@@ -782,9 +782,13 @@ pub fn focus_origin(target: &OriginTarget) -> bool {
                     return true;
                 }
             }
+            let esc = target
+                .app_id
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', "\\n");
             let script = format!(
-                "global.display.focus_window && global.display.focus_window.get_wm_class()==\"{}\" && global.display.focus_window.activate(global.get_current_time())",
-                target.app_id.replace('"', "\\\"")
+                "(function(){{ let ws=global.workspace_manager.get_active_workspace(); let actors=global.get_window_actors(); for(let a of actors){{ let w=a.meta_window; if(w && w.get_wm_class()==\"{esc}\" ){{ w.activate(global.get_current_time()); return true; }} }} let apps=Shell.AppSystem.get_default().lookup_app(\"{esc}\"); if(apps){{ apps.activate(); return true; }} return false; }})()"
             );
             run_cmd_status(
                 "gdbus",
