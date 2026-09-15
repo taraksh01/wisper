@@ -210,6 +210,7 @@ pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
 }
 
 static CLIPBOARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CLIPBOARD_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 /// A single Enigo instance reused across pastes instead of allocating a fresh
 /// display connection on every call (enigo creation is relatively heavy and
@@ -253,6 +254,7 @@ fn with_enigo(f: impl FnOnce(&mut Enigo) -> Result<(), String>) -> Result<(), St
 }
 
 fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
+    let _clip_guard = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut clipboard = match Clipboard::new() {
         Ok(c) => c,
         Err(_e) => return type_text_directly(text),
@@ -456,37 +458,81 @@ fn type_text_directly(text: &str) -> Result<(), String> {
             text.len()
         );
     }
+    const CHUNK_SIZE: usize = 7000;
     match backend.as_str() {
         "wtype" => {
-            let mut cmd = Command::new("wtype");
-            // Use `--` so leading `-` in transcribed text is not parsed as a flag
-            // and to avoid ARG_MAX splitting issues; for very large text consider
-            // piping via `wtype -` stdin in future.
-            cmd.args(["-d", "0", "--", text]).stderr(Stdio::null());
-            let status = run_with_timeout(cmd, Duration::from_secs(5))
-                .map_err(|e| format!("Failed to run wtype: {}", e))?;
-            if status.success() {
-                if cfg!(debug_assertions) {
-                    eprintln!("[paste] wtype type succeeded");
+            if text.len() <= CHUNK_SIZE {
+                let mut cmd = Command::new("wtype");
+                cmd.args(["-d", "0", "--", text]).stderr(Stdio::null());
+                let status = run_with_timeout(cmd, Duration::from_secs(5))
+                    .map_err(|e| format!("Failed to run wtype: {}", e))?;
+                if status.success() {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] wtype type succeeded");
+                    }
+                    return Ok(());
+                } else if cfg!(debug_assertions) {
+                    eprintln!("[paste] wtype type non-zero status");
                 }
-                return Ok(());
-            } else if cfg!(debug_assertions) {
-                eprintln!("[paste] wtype type non-zero status");
+            } else {
+                let mut ok = true;
+                for chunk in text.as_bytes().chunks(CHUNK_SIZE) {
+                    let chunk_str = String::from_utf8_lossy(chunk);
+                    let mut cmd = Command::new("wtype");
+                    cmd.args(["-d", "0", "--", &chunk_str])
+                        .stderr(Stdio::null());
+                    let status = run_with_timeout(cmd, Duration::from_secs(5))
+                        .map_err(|e| format!("Failed to run wtype: {}", e))?;
+                    if !status.success() {
+                        ok = false;
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                if ok {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] wtype chunked type succeeded");
+                    }
+                    return Ok(());
+                }
             }
         }
         "ydotool" => {
-            let mut cmd = Command::new("ydotool");
-            cmd.args(["type", "-d", "0", "-H", "0", text])
-                .stderr(Stdio::null());
-            let status = run_with_timeout(cmd, Duration::from_secs(5))
-                .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
-            if status.success() {
-                if cfg!(debug_assertions) {
-                    eprintln!("[paste] ydotool type succeeded");
+            if text.len() <= CHUNK_SIZE {
+                let mut cmd = Command::new("ydotool");
+                cmd.args(["type", "-d", "0", "-H", "0", text])
+                    .stderr(Stdio::null());
+                let status = run_with_timeout(cmd, Duration::from_secs(5))
+                    .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
+                if status.success() {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] ydotool type succeeded");
+                    }
+                    return Ok(());
+                } else if cfg!(debug_assertions) {
+                    eprintln!("[paste] ydotool type non-zero status");
                 }
-                return Ok(());
-            } else if cfg!(debug_assertions) {
-                eprintln!("[paste] ydotool type non-zero status");
+            } else {
+                let mut ok = true;
+                for chunk in text.as_bytes().chunks(CHUNK_SIZE) {
+                    let chunk_str = String::from_utf8_lossy(chunk);
+                    let mut cmd = Command::new("ydotool");
+                    cmd.args(["type", "-d", "0", "-H", "0", &chunk_str])
+                        .stderr(Stdio::null());
+                    let status = run_with_timeout(cmd, Duration::from_secs(5))
+                        .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
+                    if !status.success() {
+                        ok = false;
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                if ok {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] ydotool chunked type succeeded");
+                    }
+                    return Ok(());
+                }
             }
         }
         _ => {}

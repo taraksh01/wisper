@@ -33,7 +33,7 @@ pub fn get_models_dir() -> PathBuf {
     path
 }
 
-fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
+pub fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
     if name.starts_with("parakeet-") {
         let has_encoder = dir.join("encoder-model.int8.onnx").exists()
             || dir.join("encoder-model.onnx").exists()
@@ -156,7 +156,7 @@ pub fn download_url(model_name: &str) -> Option<String> {
     Some(url.to_string())
 }
 
-fn onnx_dir_name(model_name: &str) -> Option<String> {
+pub fn onnx_dir_name(model_name: &str) -> Option<String> {
     match model_name {
         "parakeet-onnx-tdt-0.6b-v3" => Some("parakeet-tdt-0.6b-v3-int8".into()),
         "parakeet-onnx-tdt-0.6b-v2" => Some("parakeet-tdt-0.6b-v2-int8".into()),
