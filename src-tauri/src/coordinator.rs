@@ -539,8 +539,46 @@ impl TranscriptionCoordinator {
     }
 }
 
+fn dedup_chunk_overlap(texts: &[(u64, String)], overlap_words: usize) -> String {
+    if texts.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<&str> = texts
+        .iter()
+        .map(|(_, t)| t.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return String::new();
+    }
+    if overlap_words == 0 || parts.len() == 1 {
+        return parts.join(" ");
+    }
+    let mut out_words: Vec<&str> = Vec::new();
+    for (idx, text) in parts.iter().enumerate() {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if idx == 0 {
+            out_words.extend(words);
+        } else {
+            let k = overlap_words.min(words.len()).min(out_words.len());
+            let prev_tail = if k > 0 {
+                &out_words[out_words.len() - k..]
+            } else {
+                &[][..]
+            };
+            let cur_head = if k > 0 { &words[..k] } else { &[][..] };
+            if k > 0 && prev_tail == cur_head {
+                out_words.extend(words[k..].iter().copied());
+            } else {
+                out_words.extend(words);
+            }
+        }
+    }
+    out_words.join(" ")
+}
+
 fn wait_for_chunk_results(_expected: usize, timeout_ms: u64) -> Vec<(u64, String)> {
-    if _expected == 0 && CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0 {
+    if CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0 {
         let mut v = CHUNK_RESULTS
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -551,14 +589,16 @@ fn wait_for_chunk_results(_expected: usize, timeout_ms: u64) -> Vec<(u64, String
     }
     let start = std::time::Instant::now();
     loop {
-        let finished = CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0;
-        if finished && start.elapsed().as_millis() as u64 >= 400 {
+        if CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0 {
             break;
         }
         if start.elapsed().as_millis() as u64 >= timeout_ms {
             break;
         }
-        thread::sleep(std::time::Duration::from_millis(60));
+        thread::sleep(std::time::Duration::from_millis(40));
+    }
+    if CHUNK_INFLIGHT.load(Ordering::Relaxed) != 0 {
+        thread::sleep(std::time::Duration::from_millis(300));
     }
     let mut v = CHUNK_RESULTS
         .lock()
@@ -709,12 +749,7 @@ fn run_pipeline_chunked(
         }
     }
     chunk_texts.sort_by_key(|(id, _)| *id);
-    let raw_text = chunk_texts
-        .iter()
-        .map(|(_, t)| t.trim())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let raw_text = dedup_chunk_overlap(&chunk_texts, 4);
 
     if raw_text.trim().is_empty() {
         if total_len == 0 && chunk_texts.is_empty() {
