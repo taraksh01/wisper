@@ -275,6 +275,7 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
     {
         let (lock, cvar) = &*SEQ_CV;
         let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let wait_start = std::time::Instant::now();
         while SEQ_TURN.load(Ordering::Relaxed) != my_seq {
             if cancel.load(Ordering::Relaxed) {
                 let cur = SEQ_TURN.load(Ordering::Relaxed);
@@ -282,7 +283,14 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
                     break;
                 }
             }
-            guard = cvar.wait(guard).unwrap_or_else(|e| e.into_inner());
+            if wait_start.elapsed() > std::time::Duration::from_secs(30) {
+                eprintln!("[seq] finish_pipeline seq {my_seq} wait timed out — advancing");
+                break;
+            }
+            let (g, _) = cvar
+                .wait_timeout(guard, std::time::Duration::from_millis(25))
+                .unwrap_or_else(|e| e.into_inner());
+            guard = g;
         }
         SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
         cvar.notify_all();
