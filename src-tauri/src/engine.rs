@@ -121,34 +121,71 @@ impl EngineProvider for ParakeetOnnxProvider {
                 };
                 if let Some(m) = retry {
                     model = Some(m);
-                } else if try_acquire_engine_load(&self.model_dir) {
-                    let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                        .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e));
-                    release_engine_load(&self.model_dir);
-                    model = Some(loaded?);
                 } else {
-                    wait_engine_load(&self.model_dir);
-                    let retry2 = {
-                        let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
-                        match guard.as_mut() {
-                            Some(c)
-                                if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL =>
-                            {
-                                c.last_used = Instant::now();
-                                guard.take().map(|c| c.model)
+                    // Become loader if possible, otherwise wait until one finishes.
+                    if !try_acquire_engine_load(&self.model_dir) {
+                        wait_engine_load(&self.model_dir);
+                        let retry2 = {
+                            let mut guard =
+                                parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+                            match guard.as_mut() {
+                                Some(c)
+                                    if c.dir == self.model_dir
+                                        && c.last_used.elapsed() < MODEL_TTL =>
+                                {
+                                    c.last_used = Instant::now();
+                                    guard.take().map(|c| c.model)
+                                }
+                                _ => None,
                             }
-                            _ => None,
+                        };
+                        if let Some(m) = retry2 {
+                            model = Some(m);
+                        } else {
+                            // Still no model — acquire and load ourselves.
+                            while !try_acquire_engine_load(&self.model_dir) {
+                                wait_engine_load(&self.model_dir);
+                                let r = {
+                                    let mut guard =
+                                        parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+                                    match guard.as_mut() {
+                                        Some(c)
+                                            if c.dir == self.model_dir
+                                                && c.last_used.elapsed() < MODEL_TTL =>
+                                        {
+                                            c.last_used = Instant::now();
+                                            guard.take().map(|c| c.model)
+                                        }
+                                        _ => None,
+                                    }
+                                };
+                                if let Some(m) = r {
+                                    model = Some(m);
+                                    break;
+                                }
+                            }
+                            if model.is_none() {
+                                let _g = EngineLoadGuard(self.model_dir.clone());
+                                let loaded =
+                                    ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                                        .map_err(|e| {
+                                            format!("Failed to load Parakeet ONNX model: {}", e)
+                                        })?;
+                                model = Some(loaded);
+                            }
                         }
-                    };
-                    if let Some(m) = retry2 {
-                        model = Some(m);
+                    } else {
+                        let _g = EngineLoadGuard(self.model_dir.clone());
+                        let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                            .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
+                        model = Some(loaded);
                     }
                 }
             } else {
+                let _g = EngineLoadGuard(self.model_dir.clone());
                 let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e));
-                release_engine_load(&self.model_dir);
-                model = Some(loaded?);
+                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
+                model = Some(loaded);
             }
         }
 
