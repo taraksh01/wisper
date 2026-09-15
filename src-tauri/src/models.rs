@@ -47,9 +47,6 @@ fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
                 || dir.join("tokens.txt").exists()
                 || dir.join("vocab.json").exists());
     }
-    if dir.join("model.onnx").exists() || dir.join("encoder_model.onnx").exists() {
-        return true;
-    }
     if name.starts_with("indicconformer-600m-multi") {
         return dir.join("encoder-model.onnx").exists()
             && dir.join("encoder-model.onnx.data").exists()
@@ -87,6 +84,13 @@ fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
         return dir.join("large-v3-encoder.int8.onnx").exists()
             && dir.join("large-v3-decoder.int8.onnx").exists()
             && dir.join("large-v3-tokens.txt").exists();
+    }
+    if name.starts_with("indicconformer-120m-") || name == "indicconformer-8lang" {
+        return (dir.join("model.onnx").exists() || dir.join("model.int8.onnx").exists())
+            && (dir.join("tokens.txt").exists() || dir.join("vocab.json").exists());
+    }
+    if dir.join("model.onnx").exists() || dir.join("encoder_model.onnx").exists() {
+        return true;
     }
     false
 }
@@ -363,6 +367,16 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
             f.sync_all().ok();
         }
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "model": &model_name,
+                "progress": 100,
+                "phase": "finalizing",
+                "downloaded": downloaded,
+                "total": total,
+            }),
+        );
         _clear_guard.active = false;
         ACTIVE_CANCEL
             .lock()
