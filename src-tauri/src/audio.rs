@@ -248,12 +248,15 @@ impl AudioRecorder {
     }
 
     pub fn start_recording(&self, device: Option<String>) -> Result<(), String> {
-        // Stop preview if active - don't hold two streams; keep last level
-        // briefly to avoid flicker until recording callback produces new RMS.
-        *self
-            .preview_stream
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
+        // Stop preview without dropping Stream inside the mutex.
+        {
+            let old = self
+                .preview_stream
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            drop(old);
+        }
         *self
             .preview_device
             .lock()
@@ -264,11 +267,6 @@ impl AudioRecorder {
             .default_input_config()
             .map_err(|e| format!("Failed to get input config: {}", e))?;
 
-        // Store the actual device sample rate
-        {
-            let mut sr = self.sample_rate.lock().unwrap_or_else(|e| e.into_inner());
-            *sr = config.sample_rate();
-        }
         if cfg!(debug_assertions) {
             eprintln!(
                 "[audio] input config: {}Hz {}ch {:?}",
@@ -343,16 +341,24 @@ impl AudioRecorder {
         stream
             .play()
             .map_err(|e| format!("Failed to play stream: {}", e))?;
-
-        let mut current_stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
-        *current_stream = Some(stream);
+        // Publish sample_rate + stream only on success — don't poison on failure.
+        {
+            let mut sr = self.sample_rate.lock().unwrap_or_else(|e| e.into_inner());
+            *sr = config.sample_rate();
+        }
+        let old = self
+            .stream
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .replace(stream);
+        drop(old);
 
         Ok(())
     }
 
     pub fn stop_recording(&self) -> Vec<f32> {
-        let mut current_stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
-        *current_stream = None;
+        let old = self.stream.lock().unwrap_or_else(|e| e.into_inner()).take();
+        drop(old);
         self.level.store(0, Ordering::Relaxed);
         let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *buffer)
@@ -469,10 +475,12 @@ impl AudioRecorder {
     }
 
     pub fn stop_preview(&self) {
-        *self
+        let old = self
             .preview_stream
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        drop(old);
         *self
             .preview_device
             .lock()
@@ -485,6 +493,7 @@ impl AudioRecorder {
     }
 
     pub fn drain_chunk(&self, n: usize, overlap: usize) -> Option<Vec<f32>> {
+        let overlap = overlap.min(n.saturating_sub(1));
         let mut b = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if b.len() < n {
             return None;
