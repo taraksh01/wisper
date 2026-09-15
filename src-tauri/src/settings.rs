@@ -484,7 +484,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     let prev_mode = prev.history_retention_mode.clone();
     let prev_hotkey = prev.hotkey.clone();
     let prev_words_enabled = prev.words_enabled;
-    let mut s = AppSettings::load();
+    let mut s = prev.clone();
     mutate(&mut s);
     // Clamp retention limit to sane range (0 = unlimited)
     if s.max_history_entries < 0 {
