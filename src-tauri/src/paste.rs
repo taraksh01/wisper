@@ -476,11 +476,14 @@ fn type_text_directly(text: &str) -> Result<(), String> {
                 }
             } else {
                 let mut ok = true;
-                for chunk in text.as_bytes().chunks(CHUNK_SIZE) {
-                    let chunk_str = String::from_utf8_lossy(chunk);
+                for start in (0..text.len()).step_by(CHUNK_SIZE) {
+                    let mut end = (start + CHUNK_SIZE).min(text.len());
+                    while end < text.len() && !text.is_char_boundary(end) {
+                        end += 1;
+                    }
+                    let chunk_str = &text[start..end];
                     let mut cmd = Command::new("wtype");
-                    cmd.args(["-d", "0", "--", &chunk_str])
-                        .stderr(Stdio::null());
+                    cmd.args(["-d", "0", "--", chunk_str]).stderr(Stdio::null());
                     let status = run_with_timeout(cmd, Duration::from_secs(5))
                         .map_err(|e| format!("Failed to run wtype: {}", e))?;
                     if !status.success() {
@@ -514,10 +517,14 @@ fn type_text_directly(text: &str) -> Result<(), String> {
                 }
             } else {
                 let mut ok = true;
-                for chunk in text.as_bytes().chunks(CHUNK_SIZE) {
-                    let chunk_str = String::from_utf8_lossy(chunk);
+                for start in (0..text.len()).step_by(CHUNK_SIZE) {
+                    let mut end = (start + CHUNK_SIZE).min(text.len());
+                    while end < text.len() && !text.is_char_boundary(end) {
+                        end += 1;
+                    }
+                    let chunk_str = &text[start..end];
                     let mut cmd = Command::new("ydotool");
-                    cmd.args(["type", "-d", "0", "-H", "0", &chunk_str])
+                    cmd.args(["type", "-d", "0", "-H", "0", chunk_str])
                         .stderr(Stdio::null());
                     let status = run_with_timeout(cmd, Duration::from_secs(5))
                         .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
