@@ -45,6 +45,35 @@ fn eviction_unlock(dir: &Path) {
         .remove(dir);
 }
 
+static ENGINE_LOAD_LOCKS: OnceLock<(Mutex<HashSet<PathBuf>>, std::sync::Condvar)> = OnceLock::new();
+fn engine_load_locks() -> &'static (Mutex<HashSet<PathBuf>>, std::sync::Condvar) {
+    ENGINE_LOAD_LOCKS.get_or_init(|| (Mutex::new(HashSet::new()), std::sync::Condvar::new()))
+}
+fn try_acquire_engine_load(dir: &Path) -> bool {
+    let (lock, _cv) = engine_load_locks();
+    lock.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(dir.to_path_buf())
+}
+fn wait_engine_load(dir: &Path) {
+    let (lock, cv) = engine_load_locks();
+    let mut g = lock.lock().unwrap_or_else(|e| e.into_inner());
+    while g.contains(dir) {
+        g = cv.wait(g).unwrap_or_else(|e| e.into_inner());
+    }
+}
+fn release_engine_load(dir: &Path) {
+    let (lock, cv) = engine_load_locks();
+    lock.lock().unwrap_or_else(|e| e.into_inner()).remove(dir);
+    cv.notify_all();
+}
+struct EngineLoadGuard(PathBuf);
+impl Drop for EngineLoadGuard {
+    fn drop(&mut self) {
+        release_engine_load(&self.0);
+    }
+}
+
 fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
     PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
 }
@@ -78,10 +107,49 @@ impl EngineProvider for ParakeetOnnxProvider {
         };
 
         if model.is_none() {
-            model = Some(
-                ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?,
-            );
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+                let retry = {
+                    let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    match guard.as_mut() {
+                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                            c.last_used = Instant::now();
+                            guard.take().map(|c| c.model)
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(m) = retry {
+                    model = Some(m);
+                } else if try_acquire_engine_load(&self.model_dir) {
+                    let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                        .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e));
+                    release_engine_load(&self.model_dir);
+                    model = Some(loaded?);
+                } else {
+                    wait_engine_load(&self.model_dir);
+                    let retry2 = {
+                        let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        match guard.as_mut() {
+                            Some(c)
+                                if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL =>
+                            {
+                                c.last_used = Instant::now();
+                                guard.take().map(|c| c.model)
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(m) = retry2 {
+                        model = Some(m);
+                    }
+                }
+            } else {
+                let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e));
+                release_engine_load(&self.model_dir);
+                model = Some(loaded?);
+            }
         }
 
         let result = model
@@ -554,7 +622,74 @@ impl EngineProvider for SherpaIndicProvider {
             return Ok(text);
         }
 
-        // Build fresh recognizer (drops old cached one first to free RAM)
+        if !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+            let retry = {
+                let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(cached) = retry {
+                let dir = cached.dir.clone();
+                let recognizer = cached.recognizer;
+                schedule_indic_eviction(dir.clone());
+                let stream = recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "Indic decode: no result".to_string())?;
+                let text = result.text.trim().to_string();
+                {
+                    let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(CachedIndic {
+                        dir,
+                        recognizer,
+                        last_used: Instant::now(),
+                    });
+                }
+                return Ok(text);
+            } else if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+                let retry2 = {
+                    let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    match guard.as_mut() {
+                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                            c.last_used = Instant::now();
+                            guard.take()
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(cached) = retry2 {
+                    let dir = cached.dir.clone();
+                    let recognizer = cached.recognizer;
+                    schedule_indic_eviction(dir.clone());
+                    let stream = recognizer.create_stream();
+                    stream.accept_waveform(16000, &samples);
+                    recognizer.decode(&stream);
+                    let result = stream
+                        .get_result()
+                        .ok_or_else(|| "Indic decode: no result".to_string())?;
+                    let text = result.text.trim().to_string();
+                    {
+                        let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        *guard = Some(CachedIndic {
+                            dir,
+                            recognizer,
+                            last_used: Instant::now(),
+                        });
+                    }
+                    return Ok(text);
+                }
+            }
+        }
+        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
         {
             let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
             *guard = None;
@@ -744,6 +879,47 @@ impl EngineProvider for WhisperLargeV3Provider {
                 schedule_whisper_v3_eviction(dir);
                 cached.recognizer
             } else {
+                if !try_acquire_engine_load(&self.model_dir) {
+                    wait_engine_load(&self.model_dir);
+                    let retry = {
+                        let mut guard =
+                            whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        match guard.as_mut() {
+                            Some(c)
+                                if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL =>
+                            {
+                                c.last_used = Instant::now();
+                                guard.take()
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(cached) = retry {
+                        let dir = cached.dir.clone();
+                        schedule_whisper_v3_eviction(dir);
+                        let recognizer = cached.recognizer;
+                        let stream = recognizer.create_stream();
+                        stream.accept_waveform(16000, &samples);
+                        recognizer.decode(&stream);
+                        let result = stream
+                            .get_result()
+                            .ok_or_else(|| "Whisper v3 decode: no result".to_string())?;
+                        let text = result.text.trim().to_string();
+                        {
+                            let mut guard =
+                                whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
+                            *guard = Some(CachedWhisperV3 {
+                                dir: self.model_dir.clone(),
+                                recognizer,
+                                last_used: Instant::now(),
+                            });
+                        }
+                        return Ok(text);
+                    } else if !try_acquire_engine_load(&self.model_dir) {
+                        wait_engine_load(&self.model_dir);
+                    }
+                }
+                let _herd_guard = EngineLoadGuard(self.model_dir.clone());
                 // Drop stale/other model before loading new (frees RAM)
                 {
                     let mut guard = whisper_v3_cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -916,6 +1092,48 @@ impl EngineProvider for WhisperTinyProvider {
             }
             return Ok(text);
         }
+        if !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+            let retry = {
+                let mut guard = whisper_tiny_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(cached) = retry {
+                let dir = cached.dir.clone();
+                let recognizer = cached.recognizer;
+                schedule_whisper_tiny_eviction(dir.clone());
+                let stream = recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "Whisper tiny decode: no result".to_string())?;
+                let text = result.text.trim().to_string();
+                {
+                    let mut guard = whisper_tiny_cache()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(CachedWhisperTiny {
+                        dir,
+                        recognizer,
+                        last_used: Instant::now(),
+                    });
+                }
+                return Ok(text);
+            }
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+            }
+        }
+        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
         {
             let mut guard = whisper_tiny_cache()
                 .lock()
@@ -1081,6 +1299,48 @@ impl EngineProvider for WhisperBaseProvider {
             }
             return Ok(text);
         }
+        if !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+            let retry = {
+                let mut guard = whisper_base_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(cached) = retry {
+                let dir = cached.dir.clone();
+                let recognizer = cached.recognizer;
+                schedule_whisper_base_eviction(dir.clone());
+                let stream = recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "Whisper base decode: no result".to_string())?;
+                let text = result.text.trim().to_string();
+                {
+                    let mut guard = whisper_base_cache()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(CachedWhisperBase {
+                        dir,
+                        recognizer,
+                        last_used: Instant::now(),
+                    });
+                }
+                return Ok(text);
+            }
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+            }
+        }
+        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
         {
             let mut guard = whisper_base_cache()
                 .lock()
@@ -1242,6 +1502,77 @@ impl EngineProvider for SenseVoiceProvider {
             }
             return Ok(text);
         }
+        // Herd: if another thread is loading this dir, wait then retry cache
+        if !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+            let retry = {
+                let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(cached) = retry {
+                let dir = cached.dir.clone();
+                let recognizer = cached.recognizer;
+                schedule_sensevoice_eviction(dir.clone());
+                let stream = recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "SenseVoice decode: no result".to_string())?;
+                let text = result.text.trim().to_string();
+                {
+                    let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(CachedSenseVoice {
+                        dir,
+                        recognizer,
+                        last_used: Instant::now(),
+                    });
+                }
+                return Ok(text);
+            }
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+                let retry2 = {
+                    let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    match guard.as_mut() {
+                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                            c.last_used = Instant::now();
+                            guard.take()
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(cached) = retry2 {
+                    let dir = cached.dir.clone();
+                    let recognizer = cached.recognizer;
+                    schedule_sensevoice_eviction(dir.clone());
+                    let stream = recognizer.create_stream();
+                    stream.accept_waveform(16000, &samples);
+                    recognizer.decode(&stream);
+                    let result = stream
+                        .get_result()
+                        .ok_or_else(|| "SenseVoice decode: no result".to_string())?;
+                    let text = result.text.trim().to_string();
+                    {
+                        let mut guard =
+                            sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        *guard = Some(CachedSenseVoice {
+                            dir,
+                            recognizer,
+                            last_used: Instant::now(),
+                        });
+                    }
+                    return Ok(text);
+                }
+            }
+        }
+        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
         {
             let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
             *guard = None;
@@ -1388,6 +1719,75 @@ impl EngineProvider for Qwen3ASRProvider {
             }
             return Ok(text);
         }
+        if !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+            let retry = {
+                let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(cached) = retry {
+                let dir = cached.dir.clone();
+                let recognizer = cached.recognizer;
+                schedule_qwen3_asr_eviction(dir.clone());
+                let stream = recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "Qwen3 ASR decode: no result".to_string())?;
+                let text = result.text.trim().to_string();
+                {
+                    let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(CachedQwen3ASR {
+                        dir,
+                        recognizer,
+                        last_used: Instant::now(),
+                    });
+                }
+                return Ok(text);
+            }
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+                let retry2 = {
+                    let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    match guard.as_mut() {
+                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                            c.last_used = Instant::now();
+                            guard.take()
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(cached) = retry2 {
+                    let dir = cached.dir.clone();
+                    let recognizer = cached.recognizer;
+                    schedule_qwen3_asr_eviction(dir.clone());
+                    let stream = recognizer.create_stream();
+                    stream.accept_waveform(16000, &samples);
+                    recognizer.decode(&stream);
+                    let result = stream
+                        .get_result()
+                        .ok_or_else(|| "Qwen3 ASR decode: no result".to_string())?;
+                    let text = result.text.trim().to_string();
+                    {
+                        let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        *guard = Some(CachedQwen3ASR {
+                            dir,
+                            recognizer,
+                            last_used: Instant::now(),
+                        });
+                    }
+                    return Ok(text);
+                }
+            }
+        }
+        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
         {
             let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
             *guard = None;
@@ -1597,7 +1997,49 @@ impl EngineProvider for IndicConformer600MProvider {
             }
         };
         if sess.is_none() {
-            sess = Some(self.load_session()?);
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+                let retry = {
+                    let mut guard = indic_600m_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    match guard.as_mut() {
+                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                            c.last_used = Instant::now();
+                            guard.take().map(|c| c.session)
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(r) = retry {
+                    sess = Some(r);
+                } else if try_acquire_engine_load(&self.model_dir) {
+                    let _herd_guard = EngineLoadGuard(self.model_dir.clone());
+                    sess = Some(self.load_session()?);
+                } else {
+                    wait_engine_load(&self.model_dir);
+                    let retry2 = {
+                        let mut guard =
+                            indic_600m_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        match guard.as_mut() {
+                            Some(c)
+                                if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL =>
+                            {
+                                c.last_used = Instant::now();
+                                guard.take().map(|c| c.session)
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(r) = retry2 {
+                        sess = Some(r);
+                    } else {
+                        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
+                        sess = Some(self.load_session()?);
+                    }
+                }
+            } else {
+                let _herd_guard = EngineLoadGuard(self.model_dir.clone());
+                sess = Some(self.load_session()?);
+            }
         }
         let mut sess = sess.ok_or_else(|| "Indic600M session unexpectedly empty".to_string())?;
         let text = decode_indic_600m_multi(&mut sess, &samples, &languages)?;
@@ -2038,6 +2480,48 @@ impl EngineProvider for SherpaMoonshineProvider {
             }
             return Ok(text);
         }
+        if !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+            let retry = {
+                let mut guard = sherpa_moonshine_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                match guard.as_mut() {
+                    Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                        c.last_used = Instant::now();
+                        guard.take()
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(cached) = retry {
+                let dir = cached.dir.clone();
+                let recognizer = cached.recognizer;
+                schedule_sherpa_moonshine_eviction(dir.clone());
+                let stream = recognizer.create_stream();
+                stream.accept_waveform(16000, &samples);
+                recognizer.decode(&stream);
+                let result = stream
+                    .get_result()
+                    .ok_or_else(|| "Moonshine decode: no result".to_string())?;
+                let text = result.text.trim().to_string();
+                {
+                    let mut guard = sherpa_moonshine_cache()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(CachedSherpaMoonshine {
+                        dir,
+                        recognizer,
+                        last_used: Instant::now(),
+                    });
+                }
+                return Ok(text);
+            }
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+            }
+        }
+        let _herd_guard = EngineLoadGuard(self.model_dir.clone());
         {
             let mut guard = sherpa_moonshine_cache()
                 .lock()
@@ -2214,10 +2698,51 @@ impl EngineProvider for MoonshineProvider {
         };
 
         if model.is_none() {
-            model = Some(
-                MoonshineModel::load(&self.model_dir, variant, &Quantization::FP32)
-                    .map_err(|e| format!("Failed to load Moonshine ONNX model: {}", e))?,
-            );
+            if !try_acquire_engine_load(&self.model_dir) {
+                wait_engine_load(&self.model_dir);
+                let retry = {
+                    let mut guard = moonshine_cache().lock().unwrap_or_else(|e| e.into_inner());
+                    match guard.as_mut() {
+                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
+                            c.last_used = Instant::now();
+                            guard.take().map(|c| c.model)
+                        }
+                        _ => None,
+                    }
+                };
+                if let Some(m) = retry {
+                    model = Some(m);
+                } else if try_acquire_engine_load(&self.model_dir) {
+                    let _herd_guard = EngineLoadGuard(self.model_dir.clone());
+                    let loaded =
+                        MoonshineModel::load(&self.model_dir, variant, &Quantization::FP32)
+                            .map_err(|e| format!("Failed to load Moonshine ONNX model: {}", e));
+                    model = Some(loaded?);
+                } else {
+                    wait_engine_load(&self.model_dir);
+                    let retry2 = {
+                        let mut guard = moonshine_cache().lock().unwrap_or_else(|e| e.into_inner());
+                        match guard.as_mut() {
+                            Some(c)
+                                if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL =>
+                            {
+                                c.last_used = Instant::now();
+                                guard.take().map(|c| c.model)
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(m) = retry2 {
+                        model = Some(m);
+                    }
+                }
+            } else {
+                let _herd_guard = EngineLoadGuard(self.model_dir.clone());
+                model = Some(
+                    MoonshineModel::load(&self.model_dir, variant, &Quantization::FP32)
+                        .map_err(|e| format!("Failed to load Moonshine ONNX model: {}", e))?,
+                );
+            }
         }
 
         let result = model
