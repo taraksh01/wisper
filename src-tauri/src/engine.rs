@@ -1,6 +1,7 @@
 use reqwest::blocking::Client;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -27,12 +28,22 @@ struct CachedParakeet {
 static PARAKEET_CACHE: OnceLock<Mutex<Option<CachedParakeet>>> = OnceLock::new();
 const MODEL_TTL: Duration = Duration::from_secs(60 * 60 * 6); // 6 hours - keep resident for frequent dictation
 
-// Guard to cap eviction threads to 1 active per cache type; use small stack to avoid 8MB leak
-static PARAKEET_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static INDIC_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static WHISPER_V3_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static MOONSHINE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static INDIC_600M_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+fn eviction_tracker() -> &'static Mutex<HashSet<PathBuf>> {
+    static TRACKER: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    TRACKER.get_or_init(|| Mutex::new(HashSet::new()))
+}
+fn eviction_lock(dir: &Path) -> bool {
+    eviction_tracker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(dir.to_path_buf())
+}
+fn eviction_unlock(dir: &Path) {
+    eviction_tracker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(dir);
+}
 
 fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
     PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
@@ -98,37 +109,35 @@ impl EngineProvider for ParakeetOnnxProvider {
     }
 }
 
-/// Spawn a background check that evicts the cached Parakeet model if idle past MODEL_TTL.
 fn schedule_parakeet_eviction(dir: PathBuf) {
-    if PARAKEET_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            PARAKEET_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
             let should_reschedule = if let Ok(guard) = parakeet_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
+                guard
+                    .as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                    .unwrap_or(false)
             } else {
                 false
             };
             if let Ok(mut guard) = parakeet_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+                if guard
+                    .as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *guard = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_parakeet_eviction(dir);
+                schedule_parakeet_eviction(d);
             }
         });
 }
@@ -420,37 +429,34 @@ fn indic_cache() -> &'static Mutex<Option<CachedIndic>> {
     INDIC_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-/// Spawn a background check that evicts the cached model if idle past MODEL_TTL.
 fn schedule_indic_eviction(dir: PathBuf) {
-    if INDIC_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            INDIC_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = indic_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = indic_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = indic_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = indic_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_indic_eviction(dir);
+                schedule_indic_eviction(d);
             }
         });
 }
@@ -662,35 +668,33 @@ fn whisper_v3_cache() -> &'static Mutex<Option<CachedWhisperV3>> {
 }
 
 fn schedule_whisper_v3_eviction(dir: PathBuf) {
-    if WHISPER_V3_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            WHISPER_V3_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = whisper_v3_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = whisper_v3_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = whisper_v3_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = whisper_v3_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_whisper_v3_eviction(dir);
+                schedule_whisper_v3_eviction(d);
             }
         });
 }
@@ -837,38 +841,34 @@ fn whisper_tiny_cache() -> &'static Mutex<Option<CachedWhisperTiny>> {
     WHISPER_TINY_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static WHISPER_TINY_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_whisper_tiny_eviction(dir: PathBuf) {
-    if WHISPER_TINY_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            WHISPER_TINY_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = whisper_tiny_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = whisper_tiny_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = whisper_tiny_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = whisper_tiny_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_whisper_tiny_eviction(dir);
+                schedule_whisper_tiny_eviction(d);
             }
         });
 }
@@ -1006,38 +1006,34 @@ fn whisper_base_cache() -> &'static Mutex<Option<CachedWhisperBase>> {
     WHISPER_BASE_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static WHISPER_BASE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_whisper_base_eviction(dir: PathBuf) {
-    if WHISPER_BASE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            WHISPER_BASE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = whisper_base_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = whisper_base_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = whisper_base_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = whisper_base_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_whisper_base_eviction(dir);
+                schedule_whisper_base_eviction(d);
             }
         });
 }
@@ -1175,38 +1171,34 @@ fn sensevoice_cache() -> &'static Mutex<Option<CachedSenseVoice>> {
     SENSEVOICE_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static SENSEVOICE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_sensevoice_eviction(dir: PathBuf) {
-    if SENSEVOICE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            SENSEVOICE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = sensevoice_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = sensevoice_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = sensevoice_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = sensevoice_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_sensevoice_eviction(dir);
+                schedule_sensevoice_eviction(d);
             }
         });
 }
@@ -1325,38 +1317,34 @@ fn qwen3_asr_cache() -> &'static Mutex<Option<CachedQwen3ASR>> {
     QWEN3_ASR_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static QWEN3_ASR_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_qwen3_asr_eviction(dir: PathBuf) {
-    if QWEN3_ASR_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            QWEN3_ASR_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = qwen3_asr_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = qwen3_asr_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = qwen3_asr_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = qwen3_asr_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_qwen3_asr_eviction(dir);
+                schedule_qwen3_asr_eviction(d);
             }
         });
 }
@@ -1499,35 +1487,33 @@ fn indic_600m_cache() -> &'static Mutex<Option<Cached600M>> {
 }
 
 fn schedule_indic_600m_eviction(dir: PathBuf) {
-    if INDIC_600M_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            INDIC_600M_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = indic_600m_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = indic_600m_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = indic_600m_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = indic_600m_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_indic_600m_eviction(dir);
+                schedule_indic_600m_eviction(d);
             }
         });
 }
@@ -1976,38 +1962,34 @@ fn sherpa_moonshine_cache() -> &'static Mutex<Option<CachedSherpaMoonshine>> {
     SHERPA_MOONSHINE_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static SHERPA_MOONSHINE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_sherpa_moonshine_eviction(dir: PathBuf) {
-    if SHERPA_MOONSHINE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            SHERPA_MOONSHINE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = sherpa_moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = sherpa_moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = sherpa_moonshine_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = sherpa_moonshine_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_sherpa_moonshine_eviction(dir);
+                schedule_sherpa_moonshine_eviction(d);
             }
         });
 }
@@ -2170,35 +2152,33 @@ fn moonshine_cache() -> &'static Mutex<Option<CachedMoonshine>> {
 }
 
 fn schedule_moonshine_eviction(dir: PathBuf) {
-    if MOONSHINE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
         .stack_size(64 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            MOONSHINE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = moonshine_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = moonshine_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_moonshine_eviction(dir);
+                schedule_moonshine_eviction(d);
             }
         });
 }
