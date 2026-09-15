@@ -156,6 +156,59 @@ pub fn download_url(model_name: &str) -> Option<String> {
     Some(url.to_string())
 }
 
+pub fn pretty_model_name(id: &str) -> String {
+    match id {
+        "parakeet-onnx-tdt-0.6b-v3" | "parakeet-tdt-0.6b-v3-int8" => "Parakeet TDT 0.6B V3".into(),
+        "parakeet-onnx-tdt-0.6b-v2" | "parakeet-tdt-0.6b-v2-int8" => "Parakeet TDT 0.6B V2".into(),
+        "indicconformer-120m-hi" => "IndicConformer Hindi 120M".into(),
+        "indicconformer-120m-bn" => "IndicConformer Bengali 120M".into(),
+        "indicconformer-120m-ta" => "IndicConformer Tamil 120M".into(),
+        "indicconformer-120m-te" => "IndicConformer Telugu 120M".into(),
+        "indicconformer-120m-mr" => "IndicConformer Marathi 120M".into(),
+        "indicconformer-120m-gu" => "IndicConformer Gujarati 120M".into(),
+        "indicconformer-120m-kn" => "IndicConformer Kannada 120M".into(),
+        "indicconformer-120m-ml" => "IndicConformer Malayalam 120M".into(),
+        "indicconformer-120m-pa" => "IndicConformer Punjabi 120M".into(),
+        "indicconformer-8lang" => "IndicConformer 8-Lang Multi".into(),
+        "indicconformer-600m-multi" => "IndicConformer 600M Multi".into(),
+        "whisper-large-v3-int8" => "Whisper Large V3".into(),
+        "moonshine-base" => "Moonshine Base".into(),
+        "moonshine-tiny-en-int8" | "sherpa-onnx-moonshine-tiny-en-int8" => "Moonshine Tiny".into(),
+        "whisper-tiny-int8" | "sherpa-onnx-whisper-tiny" => "Whisper Tiny".into(),
+        "whisper-base-int8" | "sherpa-onnx-whisper-base" => "Whisper Base".into(),
+        "sensevoice-small-int8" | "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" => {
+            "SenseVoice Small".into()
+        }
+        "qwen3-asr-0.6b-int8"
+        | "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+        | "sherpa-onnx-qwen3-asr-0.6b-int8-2026-03-25" => "Qwen3-ASR 0.6B".into(),
+        _ => {
+            let s = id
+                .strip_prefix("sherpa-onnx-")
+                .unwrap_or(id)
+                .replace('-', " ")
+                .replace('_', " ");
+            let mut out = String::with_capacity(s.len());
+            let mut cap = true;
+            for ch in s.chars() {
+                if cap && ch.is_ascii_alphabetic() {
+                    out.push(ch.to_ascii_uppercase());
+                    cap = false;
+                } else {
+                    out.push(ch);
+                }
+                if ch == ' ' {
+                    cap = true;
+                }
+            }
+            out.replace("Int8", "INT8")
+                .replace("  ", " ")
+                .trim()
+                .to_string()
+        }
+    }
+}
+
 pub fn onnx_dir_name(model_name: &str) -> Option<String> {
     match model_name {
         "parakeet-onnx-tdt-0.6b-v3" => Some("parakeet-tdt-0.6b-v3-int8".into()),
