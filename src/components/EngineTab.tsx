@@ -49,7 +49,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
       const m = await invoke<string[]>("list_local_models");
       setLocalModels(m);
       // Check which downloaded Indic models are missing tokens/vocab
-      const indic = m.filter((k) => k.startsWith("indicconformer-"));
+      const indic = m.filter((k) => k.startsWith("indicconformer-") || k.startsWith("whisper-large-v3"));
       const missing = new Set<string>();
       await Promise.all(
         indic.map(async (k) => {
