@@ -43,11 +43,13 @@ fn tooltip_text() -> String {
 /// Rebuild the entire menu from current settings. The menu is a pure VIEW:
 /// every label is derived here, every action delegates to `settings::ops`.
 /// Layout: hotkey · load/unload action | switch | nav | quit
-fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
+fn rebuild_menu_with(
+    app: &tauri::AppHandle,
+    s: &settings::AppSettings,
+) -> Result<(), tauri::Error> {
     let Some(tray) = app.tray_by_id("main") else {
         return Ok(());
     };
-    let s = settings::AppSettings::load();
 
     // 1. Hotkey — info only (disabled), opens nowhere
     let hk_display = if s.hotkey.is_empty() {
@@ -134,11 +136,8 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         MenuItem::with_id(app, "switch", "Switch engine", false, None::<&str>)?
     };
 
-    // 4. Copy last + Open + Quit
-    let has_history = crate::history::HistoryManager::new()
-        .get_history(1, 0)
-        .map(|v| !v.is_empty())
-        .unwrap_or(false);
+    // 4. Copy last + Open + Quit — use EXISTS, not fetching rows.
+    let has_history = crate::history::HistoryManager::new().has_history();
     let copy_i = MenuItem::with_id(
         app,
         "copy_last",
@@ -169,6 +168,11 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     Ok(())
 }
 
+fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
+    let s = settings::AppSettings::load();
+    rebuild_menu_with(app, &s)
+}
+
 /// Refresh the whole tray (menu + tooltip) from current settings.
 pub fn refresh() {
     if let Some(handle) = APP_HANDLE
@@ -177,6 +181,16 @@ pub fn refresh() {
         .as_ref()
     {
         let _ = rebuild_menu(handle);
+    }
+}
+
+pub fn refresh_with(settings: &settings::AppSettings) {
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        let _ = rebuild_menu_with(handle, settings);
     }
 }
 

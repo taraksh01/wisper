@@ -698,7 +698,7 @@ pub fn run() {
                 }
             }
             settings::sync_runtime(&saved_settings);
-            crate::tray::refresh();
+            crate::tray::refresh_with(&saved_settings);
             #[cfg(target_os = "windows")]
             {
                 let prewarm_handle = app_handle.clone();

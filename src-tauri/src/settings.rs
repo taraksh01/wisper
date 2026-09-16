@@ -536,7 +536,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
         let _ = app.autolaunch().disable();
     }
 
-    crate::tray::refresh();
+    crate::tray::refresh_with(&s);
     let _ = app.emit("wisper:settings-changed", &s);
     trimmed
 }
