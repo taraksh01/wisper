@@ -83,10 +83,12 @@ impl EngineProvider for ParakeetOnnxProvider {
         use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
         use transcribe_rs::onnx::Quantization;
 
-        let samples = if _sample_rate != 16000 {
-            resample(audio, _sample_rate, 16000)
+        let owned;
+        let samples: &[f32] = if _sample_rate != 16000 {
+            owned = resample(audio, _sample_rate, 16000);
+            &owned
         } else {
-            audio.to_vec()
+            audio
         };
 
         // Take the model out of the cache for the duration of inference so the
@@ -192,7 +194,7 @@ impl EngineProvider for ParakeetOnnxProvider {
         let result = model
             .as_mut()
             .ok_or_else(|| "Parakeet model unexpectedly empty".to_string())?
-            .transcribe_with(&samples, &ParakeetParams::default())
+            .transcribe_with(samples, &ParakeetParams::default())
             .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
         let text = result.text.trim().to_string();
 
@@ -266,31 +268,36 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
         }
         return out;
     }
+    if input_rate == 44100 && output_rate == 16000 {
+        let ratio = 16000.0 / 44100.0;
+        let output_len = (input.len() as f64 * ratio) as usize;
+        let mut out = Vec::with_capacity(output_len);
+        // 44100→16000 is ~2.76× downsample — simple window-average without double lerp
+        for i in 0..output_len {
+            let start = (i as f64 / ratio) as usize;
+            let end = ((i + 1) as f64 / ratio) as usize;
+            let end = end.min(input.len()).max(start + 1);
+            let mut sum = 0.0f32;
+            for &v in &input[start..end] {
+                sum += v;
+            }
+            out.push(sum / (end - start) as f32);
+        }
+        return out;
+    }
     let ratio = output_rate as f64 / input_rate as f64;
     let output_len = (input.len() as f64 * ratio) as usize;
     let mut output = Vec::with_capacity(output_len);
     if input_rate > output_rate {
-        let win = (input_rate as f64 / output_rate as f64).ceil() as usize;
         for i in 0..output_len {
-            let src_pos = i as f64 / ratio;
-            let idx = src_pos as usize;
-            let frac = (src_pos - idx as f64) as f32;
-            let avg = |p: usize| {
-                let end = (p + win).min(input.len());
-                let slice = &input[p..end];
-                slice.iter().sum::<f32>() / slice.len() as f32
-            };
-            let a = if win > 1 {
-                avg(idx)
-            } else {
-                input[idx.min(input.len() - 1)]
-            };
-            let b = if win > 1 {
-                avg((idx + 1).min(input.len() - 1))
-            } else {
-                input[(idx + 1).min(input.len() - 1)]
-            };
-            output.push(a * (1.0 - frac) + b * frac);
+            let start = (i as f64 / ratio) as usize;
+            let end = ((i + 1) as f64 / ratio) as usize;
+            let end = end.min(input.len()).max(start + 1);
+            let mut sum = 0.0f32;
+            for &v in &input[start..end] {
+                sum += v;
+            }
+            output.push(sum / (end - start) as f32);
         }
     } else {
         for i in 0..output_len {
