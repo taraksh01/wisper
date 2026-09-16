@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 static AUDIO_DROP_CTR: AtomicU32 = AtomicU32::new(0);
+static AUDIO_FULL_DROP_CTR: AtomicU32 = AtomicU32::new(0);
 static AUDIO_CAP_WARNED: AtomicBool = AtomicBool::new(false);
 
 pub fn was_capped_and_reset() -> bool {
@@ -566,13 +567,26 @@ impl AudioRecorder {
                         }
                         return;
                     }
-                    let mut fb_guard = full_buffer.as_ref().and_then(|fb| fb.try_lock().ok());
-                    if let Some(ref fb) = fb_guard {
-                        if fb.len() > 50_000_000 {
-                            drop(fb_guard);
-                            fb_guard = None;
+                    let mut fb_guard = match full_buffer.as_ref().map(|fb| fb.try_lock()) {
+                        Some(Ok(g)) => {
+                            if g.len() > 50_000_000 {
+                                None
+                            } else {
+                                Some(g)
+                            }
                         }
-                    }
+                        Some(Err(_)) => {
+                            let c = AUDIO_FULL_DROP_CTR.fetch_add(1, Ordering::Relaxed);
+                            if c % 1000 == 0 {
+                                eprintln!(
+                                    "[audio] full_buffer contention: dropped {} chunks",
+                                    c + 1
+                                );
+                            }
+                            None
+                        }
+                        None => None,
+                    };
                     let mut sum_sq: f32 = 0.0;
                     let mut count: usize = 0;
                     for frame in data.chunks(channels) {
