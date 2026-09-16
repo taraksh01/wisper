@@ -186,6 +186,16 @@ impl HistoryManager {
         Ok(())
     }
 
+    /// Lightweight existence check for the tray menu (avoid fetching rows).
+    pub fn has_history(&self) -> bool {
+        let conn = Self::conn();
+        conn.query_row("SELECT EXISTS(SELECT 1 FROM history LIMIT 1)", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .map(|v| v != 0)
+        .unwrap_or(false)
+    }
+
     /// Trim oldest entries when total exceeds `max_entries`.
     /// `mode` is "both" (delete rows + recordings) or "recordings_only" (keep rows, delete files).
     /// Returns number of entries affected.
@@ -213,81 +223,83 @@ impl HistoryManager {
         };
 
         if mode == "recordings_only" {
-            for (_, path) in &oldest {
-                if let Some(ref p) = path {
-                    if !p.is_empty() {
-                        if let Ok(canonical) = validate_recording_path(p) {
+            let ids_with_path: Vec<i64> = oldest
+                .iter()
+                .filter_map(|(id, p)| {
+                    if p.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if ids_with_path.is_empty() {
+                return Ok(0);
+            }
+            // Keep file paths for post-commit deletion so ROLLBACK doesn't orphan.
+            let paths: Vec<String> = oldest
+                .iter()
+                .filter_map(|(_, p)| p.clone().filter(|s| !s.is_empty()))
+                .collect();
+            let conn = Self::conn();
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let placeholders = ids_with_path
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "UPDATE history SET recording_path = NULL WHERE id IN ({})",
+                placeholders
+            );
+            let res = conn.execute(&sql, rusqlite::params_from_iter(ids_with_path.iter()));
+            match res {
+                Ok(cleared) => {
+                    conn.execute_batch("COMMIT")?;
+                    // Delete files only after successful commit.
+                    for p in paths {
+                        if let Ok(canonical) = validate_recording_path(&p) {
                             let _ = std::fs::remove_file(canonical);
                         }
                     }
+                    Ok(cleared)
                 }
-            }
-            let conn = Self::conn();
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let mut cleared = 0;
-            let mut ok = true;
-            for (id, path) in oldest {
-                if let Some(ref p) = path {
-                    if !p.is_empty() {
-                        match conn.execute(
-                            "UPDATE history SET recording_path = NULL WHERE id = ?1",
-                            params![id],
-                        ) {
-                            Ok(_) => cleared += 1,
-                            Err(e) => {
-                                eprintln!(
-                                    "[history] failed to clear recording_path for id {}: {}",
-                                    id, e
-                                );
-                                ok = false;
-                                break;
-                            }
-                        }
-                    }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
                 }
-            }
-            if ok {
-                conn.execute_batch("COMMIT")?;
-                Ok(cleared)
-            } else {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(rusqlite::Error::ExecuteReturnedResults)
             }
         } else {
-            for (_, path) in &oldest {
-                if let Some(ref p) = path {
-                    if let Ok(canonical) = validate_recording_path(p) {
-                        let _ = std::fs::remove_file(canonical);
-                    }
-                }
-            }
             // Use collected ids to avoid re-SELECT race with concurrent inserts
             let ids: Vec<i64> = oldest.iter().map(|(id, _)| *id).collect();
             if ids.is_empty() {
                 return Ok(0);
             }
+            let paths: Vec<String> = oldest
+                .iter()
+                .filter_map(|(_, p)| p.clone().filter(|s| !s.is_empty()))
+                .collect();
             let conn = Self::conn();
             conn.execute_batch("BEGIN IMMEDIATE")?;
-            let mut cleared = 0usize;
-            let mut ok = true;
-            let mut last_err: Option<rusqlite::Error> = None;
-            for id in ids {
-                match conn.execute("DELETE FROM history WHERE id = ?1", params![id]) {
-                    Ok(n) => cleared += n as usize,
-                    Err(e) => {
-                        eprintln!("[history] failed to delete id {}: {}", id, e);
-                        last_err = Some(e);
-                        ok = false;
-                        break;
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("DELETE FROM history WHERE id IN ({})", placeholders);
+            let res = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
+            match res {
+                Ok(cleared) => {
+                    conn.execute_batch("COMMIT")?;
+                    for p in paths {
+                        if !p.is_empty() {
+                            if let Ok(canonical) = validate_recording_path(&p) {
+                                let _ = std::fs::remove_file(canonical);
+                            }
+                        }
                     }
+                    Ok(cleared)
                 }
-            }
-            if ok {
-                conn.execute_batch("COMMIT")?;
-                Ok(cleared)
-            } else {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(last_err.unwrap_or(rusqlite::Error::ExecuteReturnedResults))
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
             }
         }
     }
