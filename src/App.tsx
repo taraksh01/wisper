@@ -142,14 +142,13 @@ function AppShell() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const [h, s, c] = await Promise.all([
+      const [h, s] = await Promise.all([
         invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 }),
         invoke<[number, number, number]>("get_history_stats"),
-        invoke<number>("get_history_count"),
       ]);
       setHistory(h);
       setStats(s);
-      setHistoryTotal(c);
+      setHistoryTotal(s[0]);
     } catch (e) {
       console.error("fetchHistory failed:", e);
     }
@@ -181,30 +180,8 @@ function AppShell() {
     };
   }, [fetchHistory]);
 
-  const hasMounted = useRef(false);
-  useEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true;
-      return;
-    }
-    if (appState === "idle") {
-      let alive = true;
-      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 });
-      const s = invoke<[number, number, number]>("get_history_stats");
-      const c = invoke<number>("get_history_count");
-      const settingsReq = invoke<AppSettings>("load_settings");
-      Promise.all([h, s, c, settingsReq]).then(([entries, st, count, stt]) => {
-        if (!alive) return;
-        setHistory(entries);
-        setStats(st);
-        setHistoryTotal(count);
-        setSettings(stt);
-      }).catch(() => {});
-      return () => {
-        alive = false;
-      };
-    }
-  }, [appState]);
+  // History is refreshed via wisper:history-changed listener above; no
+  // extra fetch on idle to avoid double DB work after every dictation.
 
   const fetchAgentProfiles = useCallback(async () => {
     try {

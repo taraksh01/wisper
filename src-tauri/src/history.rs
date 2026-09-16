@@ -166,11 +166,10 @@ impl HistoryManager {
 
     pub fn get_stats(&self) -> SqlResult<(i64, i64, f64)> {
         let conn = Self::conn();
-        let total: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))?;
-        let total_words: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(word_count), 0) FROM history",
+        let (total, total_words): (i64, i64) = conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM history",
             [],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         let avg_words: f64 = if total > 0 {
             total_words as f64 / total as f64
