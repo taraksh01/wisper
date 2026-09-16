@@ -220,7 +220,7 @@ fn schedule_parakeet_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = if let Ok(guard) = parakeet_cache().lock() {
@@ -540,7 +540,7 @@ fn schedule_indic_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = indic_cache()
@@ -845,7 +845,7 @@ fn schedule_whisper_v3_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = whisper_v3_cache()
@@ -1060,7 +1060,7 @@ fn schedule_whisper_tiny_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = whisper_tiny_cache()
@@ -1267,7 +1267,7 @@ fn schedule_whisper_base_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = whisper_base_cache()
@@ -1474,7 +1474,7 @@ fn schedule_sensevoice_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = sensevoice_cache()
@@ -1691,7 +1691,7 @@ fn schedule_qwen3_asr_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = qwen3_asr_cache()
@@ -1929,7 +1929,7 @@ fn schedule_indic_600m_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = indic_600m_cache()
@@ -2447,7 +2447,7 @@ fn schedule_sherpa_moonshine_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = sherpa_moonshine_cache()
@@ -2678,7 +2678,7 @@ fn schedule_moonshine_eviction(dir: PathBuf) {
     }
     let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
             let should_reschedule = moonshine_cache()
