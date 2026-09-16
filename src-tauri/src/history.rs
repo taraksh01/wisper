@@ -614,18 +614,21 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
 
 #[tauri::command]
 pub fn clear_history() -> Result<(), String> {
-    let manager = HistoryManager::new();
     let paths: Vec<Option<String>> = {
         let conn = HistoryManager::conn();
         let mut stmt = conn
             .prepare("SELECT recording_path FROM history")
             .map_err(|e| format!("Failed to prepare: {}", e))?;
-        let rows = stmt
+        let x = stmt
             .query_map([], |r| r.get(0))
-            .map_err(|e| format!("Failed to query: {}", e))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(|e| format!("Failed to collect: {}", e))?
+            .map_err(|e| format!("Failed to query: {}", e))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| format!("Failed to collect: {}", e))?;
+        x
     };
+    HistoryManager::new()
+        .clear_all()
+        .map_err(|e| format!("Failed to clear history: {}", e))?;
     for path in &paths {
         if let Some(ref p) = path {
             if let Ok(valid) = validate_recording_path(p) {
@@ -633,9 +636,6 @@ pub fn clear_history() -> Result<(), String> {
             }
         }
     }
-    manager
-        .clear_all()
-        .map_err(|e| format!("Failed to clear history: {}", e))?;
     Ok(())
 }
 
