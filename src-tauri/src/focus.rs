@@ -985,8 +985,12 @@ pub fn get_origin_environment() -> OriginEnvironment {
 }
 
 pub fn is_origin_alive(target: &OriginTarget) -> bool {
-    if target.backend == "wisper" {
-        if let Ok(id) = target.addr.parse::<u64>() {
+    match target.backend.as_str() {
+        "placeholder" => false,
+        "wisper" => {
+            let Ok(id) = target.addr.parse::<u64>() else {
+                return true;
+            };
             if id == 0 {
                 return false;
             }
@@ -1032,10 +1036,68 @@ pub fn is_origin_alive(target: &OriginTarget) -> bool {
                     return false;
                 }
             }
-            return true;
+            true
         }
+        "hyprland" => {
+            let Some(out) =
+                run_cmd_output("hyprctl", &["clients", "-j"], Duration::from_millis(500))
+            else {
+                return true;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&out) else {
+                return true;
+            };
+            let Some(arr) = v.as_array() else {
+                return true;
+            };
+            for win in arr {
+                if win.get("address").and_then(|x| x.as_str()).unwrap_or("") == target.addr {
+                    return true;
+                }
+            }
+            false
+        }
+        "sway" => {
+            let Some(out) =
+                run_cmd_output("swaymsg", &["-t", "get_tree"], Duration::from_millis(500))
+            else {
+                return true;
+            };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&out) else {
+                return true;
+            };
+            // Reuse find_focused_sway traversal but check any id match
+            fn contains_id(node: &serde_json::Value, want: &str) -> bool {
+                if node
+                    .get("id")
+                    .and_then(|v| v.as_i64())
+                    .map(|v| v.to_string())
+                    == Some(want.to_string())
+                {
+                    return true;
+                }
+                for key in &["nodes", "floating_nodes"] {
+                    if let Some(arr) = node.get(*key).and_then(|v| v.as_array()) {
+                        for child in arr {
+                            if contains_id(child, want) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            if contains_id(&v, &target.addr) {
+                return true;
+            }
+            false
+        }
+        "x11-fallback" => {
+            // xprop -id succeeds only if window still exists
+            run_cmd_status("xprop", &["-id", &target.addr], Duration::from_millis(300))
+        }
+        _ => true,
     }
-    true
 }
 
 pub fn ensure_gnome_extension() -> Result<OriginEnvironment, String> {
