@@ -202,12 +202,27 @@ static SEQ_TURN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 static SEQ_CV: once_cell::sync::Lazy<(Mutex<()>, std::sync::Condvar)> =
     once_cell::sync::Lazy::new(|| (Mutex::new(()), std::sync::Condvar::new()));
 
-static CHUNK_TOKEN: once_cell::sync::Lazy<Mutex<Option<CancelToken>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(None));
-static CHUNK_RESULTS: once_cell::sync::Lazy<Mutex<Vec<(u64, String)>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
-static CHUNK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-static CHUNK_INFLIGHT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Chunked recording state — single lock for seq+inflight+results.
+/// `gen` isolates consecutive recordings so a new `start_chunked`
+/// does not clobber a still-draining pipeline's results.
+/// `inflight_by_gen` tracks pending transcriptions per generation.
+struct ChunkState {
+    token: Option<CancelToken>,
+    /// (gen, id, text) — gen tags which recording produced the chunk.
+    results: Vec<(u64, u64, String)>,
+    seq: u64,
+    gen: u64,
+    inflight_by_gen: std::collections::HashMap<u64, u64>,
+}
+static CHUNK: once_cell::sync::Lazy<Mutex<ChunkState>> = once_cell::sync::Lazy::new(|| {
+    Mutex::new(ChunkState {
+        token: None,
+        results: Vec::new(),
+        seq: 0,
+        gen: 0,
+        inflight_by_gen: std::collections::HashMap::new(),
+    })
+});
 static CHUNK_CV: once_cell::sync::Lazy<(Mutex<()>, std::sync::Condvar)> =
     once_cell::sync::Lazy::new(|| (Mutex::new(()), std::sync::Condvar::new()));
 
@@ -290,6 +305,7 @@ pub struct TranscriptionCoordinator {
     state_tx: Option<Sender<CoordinatorState>>,
     pending_origin: Option<OriginTarget>,
     chunk_token: Option<CancelToken>,
+    chunk_gen: Option<u64>,
 }
 
 impl TranscriptionCoordinator {
@@ -305,6 +321,7 @@ impl TranscriptionCoordinator {
             state_tx,
             pending_origin: None,
             chunk_token: None,
+            chunk_gen: None,
         }
     }
 
@@ -394,10 +411,20 @@ impl TranscriptionCoordinator {
     fn start_chunked(&mut self) {
         let token: CancelToken = Arc::new(AtomicBool::new(false));
         self.chunk_token = Some(token.clone());
-        *CHUNK_TOKEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(token.clone());
-        *CHUNK_RESULTS.lock().unwrap_or_else(|e| e.into_inner()) = Vec::new();
-        CHUNK_SEQ.store(0, Ordering::Relaxed);
-        CHUNK_INFLIGHT.store(0, Ordering::Relaxed);
+        let my_gen = {
+            let mut ch = CHUNK.lock().unwrap_or_else(|e| e.into_inner());
+            ch.gen = ch.gen.wrapping_add(1);
+            ch.token = Some(token.clone());
+            let total_inflight: u64 = ch.inflight_by_gen.values().sum();
+            if total_inflight == 0 {
+                ch.results.clear();
+            }
+            ch.seq = 0;
+            let g = ch.gen;
+            ch.inflight_by_gen.entry(g).or_insert(0);
+            ch.gen
+        };
+        self.chunk_gen = Some(my_gen);
         let recorder = self.audio_recorder.clone();
         thread::spawn(move || {
             let mut next_id: u64 = 0;
@@ -423,17 +450,26 @@ impl TranscriptionCoordinator {
                 };
                 let id = next_id;
                 next_id += 1;
-                CHUNK_SEQ.store(next_id, Ordering::Relaxed);
-                CHUNK_INFLIGHT.fetch_add(1, Ordering::Relaxed);
+                {
+                    let mut ch = CHUNK.lock().unwrap_or_else(|e| e.into_inner());
+                    if ch.gen != my_gen {
+                        break;
+                    }
+                    ch.seq = next_id;
+                    *ch.inflight_by_gen.entry(my_gen).or_insert(0) += 1;
+                }
                 thread::spawn(move || {
                     let t = transcribe_chunk(chunk, sr);
-                    CHUNK_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
-                    if let Some(tt) = t {
-                        if !tt.trim().is_empty() {
-                            CHUNK_RESULTS
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .push((id, tt));
+                    {
+                        let mut ch = CHUNK.lock().unwrap_or_else(|e| e.into_inner());
+                        let cnt = ch.inflight_by_gen.entry(my_gen).or_insert(0);
+                        *cnt = cnt.saturating_sub(1);
+                        if ch.gen == my_gen {
+                            if let Some(tt) = t {
+                                if !tt.trim().is_empty() {
+                                    ch.results.push((my_gen, id, tt));
+                                }
+                            }
                         }
                     }
                     let (lock, cvar) = &*CHUNK_CV;
@@ -448,12 +484,14 @@ impl TranscriptionCoordinator {
         if let Some(t) = self.chunk_token.take() {
             t.store(true, Ordering::Relaxed);
         }
-        if let Some(t) = CHUNK_TOKEN.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(t) = CHUNK.lock().unwrap_or_else(|e| e.into_inner()).token.take() {
             t.store(true, Ordering::Relaxed);
         }
     }
 
     fn stop_and_process(&mut self) {
+        let my_gen = self.chunk_gen.take().unwrap_or(0);
+        let chunk_count = CHUNK.lock().unwrap_or_else(|e| e.into_inner()).seq as usize;
         self.stop_chunked();
         let device_sr = self.audio_recorder.sample_rate();
         let remainder = self.audio_recorder.stop_recording();
@@ -481,6 +519,8 @@ impl TranscriptionCoordinator {
                     device_sr,
                     cancel_for_thread,
                     my_seq,
+                    my_gen,
+                    chunk_count,
                     origin,
                 )
             })
@@ -532,20 +572,45 @@ fn dedup_chunk_overlap(texts: &[(u64, String)], overlap_words: usize) -> String 
     out_words.join(" ")
 }
 
-fn wait_for_chunk_results(_expected: usize, timeout_ms: u64) -> Vec<(u64, String)> {
-    if CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0 {
-        let mut v = CHUNK_RESULTS
+fn chunk_inflight(gen: u64) -> u64 {
+    CHUNK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .inflight_by_gen
+        .get(&gen)
+        .copied()
+        .unwrap_or(0)
+}
+fn take_chunk_results_for(gen: u64) -> Vec<(u64, String)> {
+    let mut ch = CHUNK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut out = Vec::new();
+    let mut keep = Vec::new();
+    for (g, id, t) in std::mem::take(&mut ch.results) {
+        if g == gen {
+            out.push((id, t));
+        } else {
+            keep.push((g, id, t));
+        }
+    }
+    ch.results = keep;
+    out
+}
+fn wait_for_chunk_results(my_gen: u64, expected: usize, timeout_ms: u64) -> Vec<(u64, String)> {
+    if chunk_inflight(my_gen) == 0 {
+        let mut v = take_chunk_results_for(my_gen);
+        v.sort_by_key(|(id, _)| *id);
+        let _ = expected;
+        CHUNK
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .drain(..)
-            .collect::<Vec<_>>();
-        v.sort_by_key(|(id, _)| *id);
+            .inflight_by_gen
+            .remove(&my_gen);
         return v;
     }
     let (lock, cvar) = &*CHUNK_CV;
     let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let start = std::time::Instant::now();
-    while CHUNK_INFLIGHT.load(Ordering::Relaxed) != 0 {
+    while chunk_inflight(my_gen) != 0 {
         let elapsed = start.elapsed();
         if elapsed.as_millis() as u64 >= timeout_ms {
             break;
@@ -558,18 +623,18 @@ fn wait_for_chunk_results(_expected: usize, timeout_ms: u64) -> Vec<(u64, String
         guard = g;
     }
     drop(guard);
-    if CHUNK_INFLIGHT.load(Ordering::Relaxed) != 0 {
-        // One small grace for a just-finished transcribe to push its result
+    if chunk_inflight(my_gen) != 0 {
         let (lock2, cvar2) = &*CHUNK_CV;
         let g2 = lock2.lock().unwrap_or_else(|e| e.into_inner());
         let _ = cvar2.wait_timeout(g2, std::time::Duration::from_millis(150));
     }
-    let mut v = CHUNK_RESULTS
+    let mut v = take_chunk_results_for(my_gen);
+    v.sort_by_key(|(id, _)| *id);
+    CHUNK
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .drain(..)
-        .collect::<Vec<_>>();
-    v.sort_by_key(|(id, _)| *id);
+        .inflight_by_gen
+        .remove(&my_gen);
     v
 }
 
@@ -687,6 +752,8 @@ fn run_pipeline_chunked(
     device_sr: u32,
     cancel: CancelToken,
     my_seq: u64,
+    my_gen: u64,
+    chunk_count: usize,
     origin: Option<OriginTarget>,
 ) {
     let _guard = PipelineGuard {
@@ -701,8 +768,7 @@ fn run_pipeline_chunked(
         eprintln!("[audio] recording capped, truncated");
     }
     let total_len = remainder.len();
-    let chunk_count = CHUNK_SEQ.load(Ordering::Relaxed) as usize;
-    let mut chunk_texts = wait_for_chunk_results(chunk_count, 30000);
+    let mut chunk_texts = wait_for_chunk_results(my_gen, chunk_count, 30000);
 
     if !remainder.is_empty() {
         let sr = if device_sr == 0 { 16000 } else { device_sr };
