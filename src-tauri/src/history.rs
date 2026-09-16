@@ -304,36 +304,50 @@ impl HistoryManager {
     }
 
     /// Delete all history entries with zero words (polluted empty transcriptions).
-    /// Returns number of deleted rows. Also removes associated recording files.
+    /// Returns number of deleted rows. Also removes associated recording files
+    /// only after the DB transaction commits (so a failed DELETE doesn't orphan).
     pub fn delete_zero_word_entries(&self) -> SqlResult<usize> {
-        let paths: Vec<Option<String>> = {
+        let rows: Vec<(i64, Option<String>)> = {
             let conn = Self::conn();
             let mut stmt = conn.prepare(
-                "SELECT recording_path FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
+                "SELECT id, recording_path FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
             )?;
-            let rows = stmt
-                .query_map([], |r| r.get(0))?
+            let x = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<SqlResult<Vec<_>>>()?;
-            rows
+            x
         };
-        for p in &paths {
-            if let Some(ref path) = p {
-                if !path.is_empty() {
-                    if let Ok(canonical) = validate_recording_path(path) {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+        let paths: Vec<String> = rows
+            .into_iter()
+            .filter_map(|(_, p)| p.filter(|s| !s.is_empty()))
+            .collect();
+        let conn = Self::conn();
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("DELETE FROM history WHERE id IN ({})", placeholders);
+        let res = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
+        match res {
+            Ok(n) => {
+                conn.execute_batch("COMMIT")?;
+                for p in paths {
+                    if let Ok(canonical) = validate_recording_path(&p) {
                         let _ = std::fs::remove_file(canonical);
                     }
                 }
+                if n > 0 {
+                    eprintln!("[history] cleaned up {} zero-word entries", n);
+                }
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(e)
             }
         }
-        let conn = Self::conn();
-        let n = conn.execute(
-            "DELETE FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
-            [],
-        )?;
-        if n > 0 {
-            eprintln!("[history] cleaned up {} zero-word entries", n);
-        }
-        Ok(n)
     }
 
     pub fn get_recording_dir() -> PathBuf {
