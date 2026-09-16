@@ -208,6 +208,8 @@ static CHUNK_RESULTS: once_cell::sync::Lazy<Mutex<Vec<(u64, String)>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(Vec::new()));
 static CHUNK_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static CHUNK_INFLIGHT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CHUNK_CV: once_cell::sync::Lazy<(Mutex<()>, std::sync::Condvar)> =
+    once_cell::sync::Lazy::new(|| (Mutex::new(()), std::sync::Condvar::new()));
 
 fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
     ACTIVE_JOBS
@@ -434,6 +436,9 @@ impl TranscriptionCoordinator {
                                 .push((id, tt));
                         }
                     }
+                    let (lock, cvar) = &*CHUNK_CV;
+                    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    cvar.notify_all();
                 });
             }
         });
@@ -450,7 +455,6 @@ impl TranscriptionCoordinator {
 
     fn stop_and_process(&mut self) {
         self.stop_chunked();
-        thread::sleep(std::time::Duration::from_millis(120));
         let device_sr = self.audio_recorder.sample_rate();
         let remainder = self.audio_recorder.stop_recording();
         let full_samples = self.audio_recorder.take_full_recording();
@@ -538,18 +542,27 @@ fn wait_for_chunk_results(_expected: usize, timeout_ms: u64) -> Vec<(u64, String
         v.sort_by_key(|(id, _)| *id);
         return v;
     }
+    let (lock, cvar) = &*CHUNK_CV;
+    let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let start = std::time::Instant::now();
-    loop {
-        if CHUNK_INFLIGHT.load(Ordering::Relaxed) == 0 {
+    while CHUNK_INFLIGHT.load(Ordering::Relaxed) != 0 {
+        let elapsed = start.elapsed();
+        if elapsed.as_millis() as u64 >= timeout_ms {
             break;
         }
-        if start.elapsed().as_millis() as u64 >= timeout_ms {
-            break;
-        }
-        thread::sleep(std::time::Duration::from_millis(40));
+        let remaining = std::time::Duration::from_millis(timeout_ms) - elapsed;
+        let wait_for = remaining.min(std::time::Duration::from_millis(200));
+        let (g, _) = cvar
+            .wait_timeout(guard, wait_for)
+            .unwrap_or_else(|e| e.into_inner());
+        guard = g;
     }
+    drop(guard);
     if CHUNK_INFLIGHT.load(Ordering::Relaxed) != 0 {
-        thread::sleep(std::time::Duration::from_millis(300));
+        // One small grace for a just-finished transcribe to push its result
+        let (lock2, cvar2) = &*CHUNK_CV;
+        let g2 = lock2.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = cvar2.wait_timeout(g2, std::time::Duration::from_millis(150));
     }
     let mut v = CHUNK_RESULTS
         .lock()
