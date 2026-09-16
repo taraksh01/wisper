@@ -735,31 +735,25 @@ fn run_pipeline_chunked(
     }
 
     let samples_for_stats = full_for_save.len();
-    let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
-        crate::history::save_recording_to_disk(&full_for_save, device_sr)
-    } else {
-        None
-    };
-
     finalize_transcription(
         raw_text,
         samples_for_stats,
+        full_for_save,
         device_sr,
         cancel,
         my_seq,
         origin,
-        recording_path,
     );
 }
 
 fn finalize_transcription(
     text: String,
     samples_len: usize,
+    full_for_save: Vec<f32>,
     device_sr: u32,
     cancel: CancelToken,
     my_seq: u64,
     origin: Option<OriginTarget>,
-    recording_path: Option<String>,
 ) {
     let cancelled = || cancel.load(Ordering::Relaxed);
     let result: Result<String, String> = Ok(text);
@@ -896,11 +890,11 @@ fn finalize_transcription(
                 == CoordinatorState::Recording;
             if !recording_now {
                 crate::hide_overlay();
-                for _ in 0..20 {
+                for _ in 0..5 {
                     if !crate::is_overlay_visible() {
                         break;
                     }
-                    thread::sleep(std::time::Duration::from_millis(10));
+                    thread::sleep(std::time::Duration::from_millis(5));
                 }
             }
             let to_paste = if PASTE_ADD_TRAILING_SPACE.load(Ordering::Relaxed)
@@ -947,6 +941,8 @@ fn finalize_transcription(
                 }
             }
             crate::emit_overlay_origin(None);
+            // Past this point paste is done — move disk I/O off the hot path so the
+            // user sees instant paste even while we fsync wav and touch SQLite.
             let duration_ms = if device_sr > 0 {
                 (samples_len as i64 * 1000) / device_sr as i64
             } else {
@@ -956,19 +952,29 @@ fn finalize_transcription(
             let final_words = final_text.split_whitespace().count();
             if raw_words == 0 && final_words == 0 {
                 eprintln!("[history] skipping zero-word entry");
-                if let Some(ref p) = recording_path {
-                    let _ = std::fs::remove_file(p);
-                }
-            } else {
+                return;
+            }
+            let text_bg = text.clone();
+            let final_text_bg = final_text.clone();
+            let agent_name_bg = agent_name.clone();
+            std::thread::spawn(move || {
+                let recording_path = if KEEP_RECORDINGS.load(Ordering::Relaxed) {
+                    crate::history::save_recording_to_disk(&full_for_save, device_sr)
+                } else {
+                    None
+                };
                 let history = crate::history::HistoryManager::new();
                 if let Err(e) = history.insert(
-                    &text,
-                    Some(&final_text),
-                    agent_name.as_deref(),
+                    &text_bg,
+                    Some(&final_text_bg),
+                    agent_name_bg.as_deref(),
                     duration_ms,
                     recording_path.as_deref(),
                 ) {
                     eprintln!("Failed to log history: {}", e);
+                    if let Some(p) = recording_path {
+                        let _ = std::fs::remove_file(p);
+                    }
                 } else {
                     let words = raw_words as f64;
                     let typing_sec = words / 1.0;
@@ -977,9 +983,9 @@ fn finalize_transcription(
                     crate::settings::add_dictation_stats(raw_words as i64, saved);
                     if WORDS_ENABLED.load(Ordering::Relaxed)
                         && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
-                        && text != final_text
+                        && text_bg != final_text_bg
                     {
-                        crate::words::maybe_auto_add_corrections(&text, &final_text);
+                        crate::words::maybe_auto_add_corrections(&text_bg, &final_text_bg);
                     }
                     let s = crate::settings::AppSettings::load();
                     if s.max_history_entries > 0 {
@@ -995,7 +1001,7 @@ fn finalize_transcription(
                     }
                     crate::emit_history_changed();
                 }
-            }
+            });
         }
         Err(e) => {
             eprintln!("Transcription error: {}", e);
