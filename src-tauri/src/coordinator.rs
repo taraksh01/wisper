@@ -824,21 +824,13 @@ fn finalize_transcription(
                 let cancel_for_ai = cancel.clone();
                 let text_for_ai = text.clone();
                 let agent_for_ai = agent.clone();
-                let result = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(rt) => rt.block_on(client.process_with_cancel(
+                let result =
+                    crate::process::process_runtime().block_on(client.process_with_cancel(
                         &text_for_ai,
                         &agent_for_ai,
                         ai_timeout,
                         cancel_for_ai,
-                    )),
-                    Err(e) => {
-                        eprintln!("[process] failed to create runtime: {} - using raw text", e);
-                        Err(format!("runtime error: {}", e))
-                    }
-                };
+                    ));
                 match result {
                     Ok(formatted) => {
                         if cancelled() {
@@ -1243,21 +1235,13 @@ fn run_pipeline(
                     let cancel_for_ai = cancel.clone();
                     let text_for_ai = text.clone();
                     let agent_for_ai = agent.clone();
-                    let result = match tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                    {
-                        Ok(rt) => rt.block_on(client.process_with_cancel(
+                    let result =
+                        crate::process::process_runtime().block_on(client.process_with_cancel(
                             &text_for_ai,
                             &agent_for_ai,
                             ai_timeout,
                             cancel_for_ai,
-                        )),
-                        Err(e) => {
-                            eprintln!("[process] failed to create runtime: {} - using raw text", e);
-                            Err(format!("runtime error: {}", e))
-                        }
-                    };
+                        ));
                     match result {
                         Ok(formatted) => {
                             if cancelled() {
