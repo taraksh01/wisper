@@ -1,7 +1,6 @@
 use reqwest::blocking::Client;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -313,7 +312,6 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
 }
 
 static CLOUD_CLIENT: OnceLock<Client> = OnceLock::new();
-static CLOUD_TMP_CTR: AtomicU64 = AtomicU64::new(0);
 
 fn cloud_client() -> &'static Client {
     CLOUD_CLIENT.get_or_init(|| {
@@ -349,30 +347,8 @@ impl CloudEngineProvider {
 
 impl EngineProvider for CloudEngineProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
-        let mut wav_path = std::env::temp_dir();
-        wav_path.push(format!(
-            "wisper_cloud_{}_{}_{}.wav",
-            std::process::id(),
-            nanos,
-            ctr
-        ));
-        struct Guard(std::path::PathBuf);
-        impl Drop for Guard {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-        let _guard = Guard(wav_path.clone());
-        crate::audio::save_wav(&wav_path, audio, sample_rate)
-            .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
-
-        let file_bytes = std::fs::read(&wav_path)
-            .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
+        let file_bytes = crate::audio::wav_bytes_from_samples(audio, sample_rate)
+            .map_err(|e| format!("Failed to encode wav: {}", e))?;
 
         let client = cloud_client();
         let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
@@ -449,30 +425,8 @@ impl EngineProvider for SarvamCloudProvider {
             let end = (offset + chunk_samples).min(samples_16k.len());
             let chunk = &samples_16k[offset..end];
 
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
-            let mut wav_path = std::env::temp_dir();
-            wav_path.push(format!(
-                "wisper_sarvam_{}_{}_{}.wav",
-                std::process::id(),
-                nanos,
-                ctr
-            ));
-            struct Guard(std::path::PathBuf);
-            impl Drop for Guard {
-                fn drop(&mut self) {
-                    let _ = std::fs::remove_file(&self.0);
-                }
-            }
-            let _guard = Guard(wav_path.clone());
-            crate::audio::save_wav(&wav_path, chunk, 16000)
-                .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
-
-            let file_bytes = std::fs::read(&wav_path)
-                .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
+            let file_bytes = crate::audio::wav_bytes_from_samples(chunk, 16000)
+                .map_err(|e| format!("Failed to encode wav: {}", e))?;
 
             let client = cloud_client();
             let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
