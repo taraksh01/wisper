@@ -361,11 +361,19 @@ fn run_with_timeout(
             Some(s) => return Ok(s),
             None if start.elapsed() > timeout => {
                 let _ = child.kill();
-                // Reap the child so it doesn't linger as a zombie
-                let _ = child.wait();
-                return Err("Command timed out".into());
+                // Bound the wait after SIGKILL — don't block paste thread forever on zombie.
+                let kill_deadline = std::time::Instant::now() + Duration::from_millis(300);
+                loop {
+                    match child.try_wait().map_err(|e| e.to_string())? {
+                        Some(s) => return Err(format!("Command timed out (killed, exit {:?})", s)),
+                        None if std::time::Instant::now() >= kill_deadline => {
+                            return Err("Command timed out".into())
+                        }
+                        None => thread::sleep(Duration::from_millis(10)),
+                    }
+                }
             }
-            None => thread::sleep(Duration::from_millis(10)),
+            None => thread::sleep(Duration::from_millis(5)),
         }
     }
 }
@@ -381,7 +389,7 @@ fn wtype_paste(method: &str) -> Result<(), String> {
 
     let mut cmd = Command::new("wtype");
     cmd.args(args).stderr(Stdio::null());
-    let status = run_with_timeout(cmd, Duration::from_secs(5))
+    let status = run_with_timeout(cmd, Duration::from_secs(2))
         .map_err(|e| format!("Failed to run wtype: {}", e))?;
 
     if status.success() {
@@ -400,7 +408,7 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
 
     let mut cmd = Command::new("ydotool");
     cmd.arg("key").args(args).stderr(Stdio::null());
-    let status = run_with_timeout(cmd, Duration::from_secs(5))
+    let status = run_with_timeout(cmd, Duration::from_secs(2))
         .map_err(|e| format!("Failed to run ydotool: {}", e))?;
 
     if status.success() {
@@ -464,7 +472,7 @@ fn type_text_directly(text: &str) -> Result<(), String> {
             if text.len() <= CHUNK_SIZE {
                 let mut cmd = Command::new("wtype");
                 cmd.args(["-d", "0", "--", text]).stderr(Stdio::null());
-                let status = run_with_timeout(cmd, Duration::from_secs(5))
+                let status = run_with_timeout(cmd, Duration::from_secs(2))
                     .map_err(|e| format!("Failed to run wtype: {}", e))?;
                 if status.success() {
                     if cfg!(debug_assertions) {
@@ -484,7 +492,7 @@ fn type_text_directly(text: &str) -> Result<(), String> {
                     let chunk_str = &text[start..end];
                     let mut cmd = Command::new("wtype");
                     cmd.args(["-d", "0", "--", chunk_str]).stderr(Stdio::null());
-                    let status = run_with_timeout(cmd, Duration::from_secs(5))
+                    let status = run_with_timeout(cmd, Duration::from_secs(2))
                         .map_err(|e| format!("Failed to run wtype: {}", e))?;
                     if !status.success() {
                         ok = false;
@@ -505,7 +513,7 @@ fn type_text_directly(text: &str) -> Result<(), String> {
                 let mut cmd = Command::new("ydotool");
                 cmd.args(["type", "-d", "0", "-H", "0", text])
                     .stderr(Stdio::null());
-                let status = run_with_timeout(cmd, Duration::from_secs(5))
+                let status = run_with_timeout(cmd, Duration::from_secs(2))
                     .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
                 if status.success() {
                     if cfg!(debug_assertions) {
@@ -526,7 +534,7 @@ fn type_text_directly(text: &str) -> Result<(), String> {
                     let mut cmd = Command::new("ydotool");
                     cmd.args(["type", "-d", "0", "-H", "0", chunk_str])
                         .stderr(Stdio::null());
-                    let status = run_with_timeout(cmd, Duration::from_secs(5))
+                    let status = run_with_timeout(cmd, Duration::from_secs(2))
                         .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
                     if !status.success() {
                         ok = false;
