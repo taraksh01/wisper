@@ -454,8 +454,13 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
     } else {
         "bin"
     };
-    let temp_archive =
-        std::env::temp_dir().join(format!("wisper_{}_{}.{}", &model_name, nanos, ext));
+    let mut temp_archive = std::env::temp_dir().join(format!(
+        "wisper_{}_{}_{}.{}",
+        &model_name,
+        nanos,
+        std::process::id(),
+        ext
+    ));
 
     let client = models_client();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -466,17 +471,60 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&temp_archive)
-                .map_err(|e| e.to_string())?
+            // create_new (O_EXCL): never truncate an existing file — a planted
+            // symlink/name at our path must fail, not get overwritten.
+            loop {
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(&temp_archive)
+                {
+                    Ok(f) => break f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let n = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos();
+                        temp_archive = std::env::temp_dir().join(format!(
+                            "wisper_{}_{}_{}.{}",
+                            &model_name,
+                            n,
+                            std::process::id(),
+                            ext
+                        ));
+                        continue;
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
         }
         #[cfg(not(unix))]
         {
-            fs::File::create(&temp_archive).map_err(|e| e.to_string())?
+            loop {
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&temp_archive)
+                {
+                    Ok(f) => break f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let n = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos();
+                        temp_archive = std::env::temp_dir().join(format!(
+                            "wisper_{}_{}_{}.{}",
+                            &model_name,
+                            n,
+                            std::process::id(),
+                            ext
+                        ));
+                        continue;
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
         }
     };
 
