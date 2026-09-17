@@ -739,16 +739,10 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
         raw_words.iter().map(|s| s.to_lowercase()).collect();
     let fmt_set: std::collections::HashSet<String> =
         fmt_words.iter().map(|s| s.to_lowercase()).collect();
-    // Load history once - not per-word (was N+1); respect user's retention limit
-    let user_limit = crate::settings::AppSettings::load().max_history_entries;
-    let limit = if user_limit > 0 {
-        (user_limit as i64).clamp(50, 2000)
-    } else {
-        500
-    };
-    let history = crate::history::HistoryManager::new()
-        .get_history(limit, 0)
-        .unwrap_or_default();
+    // Collect candidates first — only touch history DB when at least one
+    // word actually needs an occurrence count (was: up to 2000 full rows
+    // fetched on every dictation even with zero candidates).
+    let mut candidates: Vec<(String, String)> = Vec::new();
     for fw in &fmt_words {
         let low = fw.to_lowercase();
         if low.chars().count() < 3
@@ -767,6 +761,27 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
                     break;
                 }
             }
+            candidates.push(((*fw).to_string(), variant));
+        }
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    // Load history once - not per-word (was N+1); respect user's retention limit
+    let user_limit = crate::settings::AppSettings::load().max_history_entries;
+    let limit = if user_limit > 0 {
+        (user_limit as i64).clamp(50, 2000)
+    } else {
+        500
+    };
+    let history = crate::history::HistoryManager::new()
+        .get_history(limit, 0)
+        .unwrap_or_default();
+    for (fw, variant) in &candidates {
+        let low = fw.to_lowercase();
+        if known.contains(&low) {
+            continue;
+        }
             // Count occurrences of this correction in history (including current)
             let mut count = 1; // current occurrence
             for entry in &history {
@@ -794,10 +809,9 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
             }
             if count >= 2 {
                 let mgr = WordsManager::new();
-                let _ = mgr.add(fw, &variant, false, true, true);
+                let _ = mgr.add(fw, variant, false, true, true);
                 known.insert(low.clone());
             }
-        }
     }
 }
 
