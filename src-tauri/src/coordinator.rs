@@ -781,7 +781,7 @@ fn run_pipeline_chunked(
 
     if !remainder.is_empty() {
         let sr = if device_sr == 0 { 16000 } else { device_sr };
-        if let Some(t) = transcribe_chunk(remainder.clone(), sr) {
+        if let Some(t) = transcribe_chunk(remainder, sr) {
             if !t.trim().is_empty() {
                 chunk_texts.push((chunk_count as u64, t));
             }

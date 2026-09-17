@@ -593,7 +593,7 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
     let resampled = if sample_rate != 16000 {
         crate::engine::resample(&samples, sample_rate, 16000)
     } else {
-        samples.clone()
+        samples
     };
     let denoised = if settings.noise_suppression_enabled {
         crate::audio::suppress_noise(&resampled, 16000, settings.noise_suppression_level)
