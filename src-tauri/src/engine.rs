@@ -1,6 +1,6 @@
 use reqwest::blocking::Client;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -27,12 +27,57 @@ struct CachedParakeet {
 static PARAKEET_CACHE: OnceLock<Mutex<Option<CachedParakeet>>> = OnceLock::new();
 const MODEL_TTL: Duration = Duration::from_secs(60 * 60 * 6); // 6 hours - keep resident for frequent dictation
 
-// Guard to cap eviction threads to 1 active per cache type; use small stack to avoid 8MB leak
-static PARAKEET_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static INDIC_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static WHISPER_V3_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static MOONSHINE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-static INDIC_600M_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+fn eviction_tracker() -> &'static Mutex<HashSet<PathBuf>> {
+    static TRACKER: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    TRACKER.get_or_init(|| Mutex::new(HashSet::new()))
+}
+fn eviction_lock(dir: &Path) -> bool {
+    eviction_tracker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(dir.to_path_buf())
+}
+fn eviction_unlock(dir: &Path) {
+    eviction_tracker()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(dir);
+}
+
+static ENGINE_LOAD_LOCKS: OnceLock<(Mutex<HashSet<PathBuf>>, std::sync::Condvar)> = OnceLock::new();
+fn engine_load_locks() -> &'static (Mutex<HashSet<PathBuf>>, std::sync::Condvar) {
+    ENGINE_LOAD_LOCKS.get_or_init(|| (Mutex::new(HashSet::new()), std::sync::Condvar::new()))
+}
+fn try_acquire_engine_load(dir: &Path) -> bool {
+    let (lock, _cv) = engine_load_locks();
+    lock.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(dir.to_path_buf())
+}
+fn wait_engine_load(dir: &Path) {
+    let (lock, cv) = engine_load_locks();
+    let mut g = lock.lock().unwrap_or_else(|e| e.into_inner());
+    while g.contains(dir) {
+        g = cv.wait(g).unwrap_or_else(|e| e.into_inner());
+    }
+}
+fn release_engine_load(dir: &Path) {
+    let (lock, cv) = engine_load_locks();
+    lock.lock().unwrap_or_else(|e| e.into_inner()).remove(dir);
+    cv.notify_all();
+}
+struct EngineLoadGuard(PathBuf);
+impl Drop for EngineLoadGuard {
+    fn drop(&mut self) {
+        release_engine_load(&self.0);
+    }
+}
+
+fn inference_threads() -> i32 {
+    std::thread::available_parallelism()
+        .map(|n| n.get().min(8).max(2) as i32)
+        .unwrap_or(2)
+}
 
 fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
     PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
@@ -43,14 +88,24 @@ impl EngineProvider for ParakeetOnnxProvider {
         use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
         use transcribe_rs::onnx::Quantization;
 
-        let samples = if _sample_rate != 16000 {
-            resample(audio, _sample_rate, 16000)
+        let owned;
+        let samples: &[f32] = if _sample_rate != 16000 {
+            owned = resample(audio, _sample_rate, 16000);
+            &owned
         } else {
-            audio.to_vec()
+            audio
         };
 
-        // Take the model out of the cache for the duration of inference so the
-        // lock is never held across the (seconds-long) transcribe call.
+        // One owner at a time for load AND inference: the model instance is
+        // &mut-only (taken out of the cache during transcribe), so a second
+        // thread can never infer concurrently anyway — but without holding the
+        // guard across inference it would load a duplicate GB-sized copy.
+        // The guard lives until end of transcribe; waiters block above and
+        // then reuse the returned model. Never wait while holding it.
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let mut model = {
             let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
@@ -65,7 +120,6 @@ impl EngineProvider for ParakeetOnnxProvider {
                 }
             }
         };
-
         if model.is_none() {
             model = Some(
                 ParakeetModel::load(&self.model_dir, &Quantization::Int8)
@@ -76,7 +130,7 @@ impl EngineProvider for ParakeetOnnxProvider {
         let result = model
             .as_mut()
             .ok_or_else(|| "Parakeet model unexpectedly empty".to_string())?
-            .transcribe_with(&samples, &ParakeetParams::default())
+            .transcribe_with(samples, &ParakeetParams::default())
             .map_err(|e| format!("Parakeet transcription failed: {}", e))?;
         let text = result.text.trim().to_string();
 
@@ -98,37 +152,35 @@ impl EngineProvider for ParakeetOnnxProvider {
     }
 }
 
-/// Spawn a background check that evicts the cached Parakeet model if idle past MODEL_TTL.
 fn schedule_parakeet_eviction(dir: PathBuf) {
-    if PARAKEET_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            PARAKEET_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
             let should_reschedule = if let Ok(guard) = parakeet_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
+                guard
+                    .as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                    .unwrap_or(false)
             } else {
                 false
             };
             if let Ok(mut guard) = parakeet_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+                if guard
+                    .as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *guard = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_parakeet_eviction(dir);
+                schedule_parakeet_eviction(d);
             }
         });
 }
@@ -152,37 +204,44 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
         }
         return out;
     }
-    let ratio = output_rate as f64 / input_rate as f64;
-    let output_len = (input.len() as f64 * ratio) as usize;
+    if input_rate == 44100 && output_rate == 16000 {
+        let step = 44100.0f32 / 16000.0;
+        let output_len = (input.len() as f32 / step) as usize;
+        let mut out = Vec::with_capacity(output_len);
+        let mut pos = 0.0f32;
+        for _ in 0..output_len {
+            let start = pos as usize;
+            pos += step;
+            let end = (pos as usize).min(input.len()).max(start + 1);
+            let mut sum = 0.0f32;
+            for &v in &input[start..end] {
+                sum += v;
+            }
+            out.push(sum / (end - start) as f32);
+        }
+        return out;
+    }
+    let step = input_rate as f32 / output_rate as f32;
+    let output_len = (input.len() as f32 / step) as usize;
     let mut output = Vec::with_capacity(output_len);
     if input_rate > output_rate {
-        let win = (input_rate as f64 / output_rate as f64).ceil() as usize;
-        for i in 0..output_len {
-            let src_pos = i as f64 / ratio;
-            let idx = src_pos as usize;
-            let frac = (src_pos - idx as f64) as f32;
-            let avg = |p: usize| {
-                let end = (p + win).min(input.len());
-                let slice = &input[p..end];
-                slice.iter().sum::<f32>() / slice.len() as f32
-            };
-            let a = if win > 1 {
-                avg(idx)
-            } else {
-                input[idx.min(input.len() - 1)]
-            };
-            let b = if win > 1 {
-                avg((idx + 1).min(input.len() - 1))
-            } else {
-                input[(idx + 1).min(input.len() - 1)]
-            };
-            output.push(a * (1.0 - frac) + b * frac);
+        let mut pos = 0.0f32;
+        for _ in 0..output_len {
+            let start = pos as usize;
+            pos += step;
+            let end = (pos as usize).min(input.len()).max(start + 1);
+            let mut sum = 0.0f32;
+            for &v in &input[start..end] {
+                sum += v;
+            }
+            output.push(sum / (end - start) as f32);
         }
     } else {
-        for i in 0..output_len {
-            let src_pos = i as f64 / ratio;
-            let idx = src_pos as usize;
-            let frac = (src_pos - idx as f64) as f32;
+        let mut pos = 0.0f32;
+        for _ in 0..output_len {
+            let idx = pos as usize;
+            let frac = pos - idx as f32;
+            pos += step;
             let a = input[idx.min(input.len() - 1)];
             let b = input[(idx + 1).min(input.len() - 1)];
             output.push(a * (1.0 - frac) + b * frac);
@@ -192,7 +251,6 @@ pub fn resample(input: &[f32], input_rate: u32, output_rate: u32) -> Vec<f32> {
 }
 
 static CLOUD_CLIENT: OnceLock<Client> = OnceLock::new();
-static CLOUD_TMP_CTR: AtomicU64 = AtomicU64::new(0);
 
 fn cloud_client() -> &'static Client {
     CLOUD_CLIENT.get_or_init(|| {
@@ -228,30 +286,8 @@ impl CloudEngineProvider {
 
 impl EngineProvider for CloudEngineProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
-        let mut wav_path = std::env::temp_dir();
-        wav_path.push(format!(
-            "wisper_cloud_{}_{}_{}.wav",
-            std::process::id(),
-            nanos,
-            ctr
-        ));
-        struct Guard(std::path::PathBuf);
-        impl Drop for Guard {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_file(&self.0);
-            }
-        }
-        let _guard = Guard(wav_path.clone());
-        crate::audio::save_wav(&wav_path, audio, sample_rate)
-            .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
-
-        let file_bytes = std::fs::read(&wav_path)
-            .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
+        let file_bytes = crate::audio::wav_bytes_from_samples(audio, sample_rate)
+            .map_err(|e| format!("Failed to encode wav: {}", e))?;
 
         let client = cloud_client();
         let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
@@ -328,30 +364,8 @@ impl EngineProvider for SarvamCloudProvider {
             let end = (offset + chunk_samples).min(samples_16k.len());
             let chunk = &samples_16k[offset..end];
 
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            let ctr = CLOUD_TMP_CTR.fetch_add(1, Ordering::Relaxed);
-            let mut wav_path = std::env::temp_dir();
-            wav_path.push(format!(
-                "wisper_sarvam_{}_{}_{}.wav",
-                std::process::id(),
-                nanos,
-                ctr
-            ));
-            struct Guard(std::path::PathBuf);
-            impl Drop for Guard {
-                fn drop(&mut self) {
-                    let _ = std::fs::remove_file(&self.0);
-                }
-            }
-            let _guard = Guard(wav_path.clone());
-            crate::audio::save_wav(&wav_path, chunk, 16000)
-                .map_err(|e| format!("Failed to save temporary wav: {}", e))?;
-
-            let file_bytes = std::fs::read(&wav_path)
-                .map_err(|e| format!("Failed to read temporary wav file: {}", e))?;
+            let file_bytes = crate::audio::wav_bytes_from_samples(chunk, 16000)
+                .map_err(|e| format!("Failed to encode wav: {}", e))?;
 
             let client = cloud_client();
             let part = reqwest::blocking::multipart::Part::bytes(file_bytes)
@@ -420,37 +434,34 @@ fn indic_cache() -> &'static Mutex<Option<CachedIndic>> {
     INDIC_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-/// Spawn a background check that evicts the cached model if idle past MODEL_TTL.
 fn schedule_indic_eviction(dir: PathBuf) {
-    if INDIC_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            INDIC_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = indic_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = indic_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = indic_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = indic_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_indic_eviction(dir);
+                schedule_indic_eviction(d);
             }
         });
 }
@@ -514,7 +525,10 @@ impl EngineProvider for SherpaIndicProvider {
             audio.to_vec()
         };
 
-        // Reuse cached recognizer if same dir and within TTL - take out before decode to avoid holding Mutex
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let cached_take = {
             let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
@@ -522,7 +536,10 @@ impl EngineProvider for SherpaIndicProvider {
                     c.last_used = Instant::now();
                     guard.take()
                 }
-                _ => None,
+                _ => {
+                    *guard = None;
+                    None
+                }
             }
         };
         if let Some(cached) = cached_take {
@@ -548,8 +565,7 @@ impl EngineProvider for SherpaIndicProvider {
             return Ok(text);
         }
 
-        // Build fresh recognizer (drops old cached one first to free RAM)
-        {
+        if cached_take.is_none() {
             let mut guard = indic_cache().lock().unwrap_or_else(|e| e.into_inner());
             *guard = None;
         }
@@ -565,7 +581,7 @@ impl EngineProvider for SherpaIndicProvider {
             model: Some(model_path.to_string_lossy().to_string()),
         };
         config.model_config.tokens = Some(tokens_path.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
 
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -630,7 +646,7 @@ impl WhisperLargeV3Provider {
         };
         config.model_config.model_type = Some("whisper".to_string());
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -662,35 +678,33 @@ fn whisper_v3_cache() -> &'static Mutex<Option<CachedWhisperV3>> {
 }
 
 fn schedule_whisper_v3_eviction(dir: PathBuf) {
-    if WHISPER_V3_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            WHISPER_V3_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = whisper_v3_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = whisper_v3_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = whisper_v3_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = whisper_v3_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_whisper_v3_eviction(dir);
+                schedule_whisper_v3_eviction(d);
             }
         });
 }
@@ -705,6 +719,10 @@ impl EngineProvider for WhisperLargeV3Provider {
             audio.to_vec()
         };
 
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let enabled_check = crate::coordinator::ENABLED_LANGUAGES
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -777,7 +795,7 @@ impl EngineProvider for WhisperLargeV3Provider {
                 };
                 config.model_config.model_type = Some("whisper".to_string());
                 config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-                config.model_config.num_threads = 2;
+                config.model_config.num_threads = inference_threads();
                 config.model_config.debug = false;
                 config.model_config.provider = Some("cpu".to_string());
 
@@ -837,38 +855,34 @@ fn whisper_tiny_cache() -> &'static Mutex<Option<CachedWhisperTiny>> {
     WHISPER_TINY_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static WHISPER_TINY_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_whisper_tiny_eviction(dir: PathBuf) {
-    if WHISPER_TINY_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            WHISPER_TINY_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = whisper_tiny_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = whisper_tiny_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = whisper_tiny_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = whisper_tiny_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_whisper_tiny_eviction(dir);
+                schedule_whisper_tiny_eviction(d);
             }
         });
 }
@@ -881,6 +895,10 @@ impl EngineProvider for WhisperTinyProvider {
         } else {
             audio.to_vec()
         };
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let cached_take = {
             let mut guard = whisper_tiny_cache()
                 .lock()
@@ -953,7 +971,7 @@ impl EngineProvider for WhisperTinyProvider {
         };
         config.model_config.model_type = Some("whisper".to_string());
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1006,38 +1024,34 @@ fn whisper_base_cache() -> &'static Mutex<Option<CachedWhisperBase>> {
     WHISPER_BASE_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static WHISPER_BASE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_whisper_base_eviction(dir: PathBuf) {
-    if WHISPER_BASE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            WHISPER_BASE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = whisper_base_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = whisper_base_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = whisper_base_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = whisper_base_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_whisper_base_eviction(dir);
+                schedule_whisper_base_eviction(d);
             }
         });
 }
@@ -1050,6 +1064,10 @@ impl EngineProvider for WhisperBaseProvider {
         } else {
             audio.to_vec()
         };
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let cached_take = {
             let mut guard = whisper_base_cache()
                 .lock()
@@ -1122,7 +1140,7 @@ impl EngineProvider for WhisperBaseProvider {
         };
         config.model_config.model_type = Some("whisper".to_string());
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1175,38 +1193,34 @@ fn sensevoice_cache() -> &'static Mutex<Option<CachedSenseVoice>> {
     SENSEVOICE_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static SENSEVOICE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_sensevoice_eviction(dir: PathBuf) {
-    if SENSEVOICE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            SENSEVOICE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = sensevoice_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = sensevoice_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = sensevoice_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = sensevoice_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_sensevoice_eviction(dir);
+                schedule_sensevoice_eviction(d);
             }
         });
 }
@@ -1219,6 +1233,10 @@ impl EngineProvider for SenseVoiceProvider {
         } else {
             audio.to_vec()
         };
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let cached_take = {
             let mut guard = sensevoice_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
@@ -1274,7 +1292,7 @@ impl EngineProvider for SenseVoiceProvider {
             use_itn: true,
         };
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1325,38 +1343,34 @@ fn qwen3_asr_cache() -> &'static Mutex<Option<CachedQwen3ASR>> {
     QWEN3_ASR_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static QWEN3_ASR_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_qwen3_asr_eviction(dir: PathBuf) {
-    if QWEN3_ASR_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            QWEN3_ASR_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = qwen3_asr_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = qwen3_asr_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = qwen3_asr_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = qwen3_asr_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_qwen3_asr_eviction(dir);
+                schedule_qwen3_asr_eviction(d);
             }
         });
 }
@@ -1369,6 +1383,10 @@ impl EngineProvider for Qwen3ASRProvider {
         } else {
             audio.to_vec()
         };
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let cached_take = {
             let mut guard = qwen3_asr_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
@@ -1439,7 +1457,7 @@ impl EngineProvider for Qwen3ASRProvider {
             hotwords: None,
         };
         config.model_config.tokens = Some(String::new());
-        config.model_config.num_threads = 4;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1499,35 +1517,33 @@ fn indic_600m_cache() -> &'static Mutex<Option<Cached600M>> {
 }
 
 fn schedule_indic_600m_eviction(dir: PathBuf) {
-    if INDIC_600M_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            INDIC_600M_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = indic_600m_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = indic_600m_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = indic_600m_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = indic_600m_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_indic_600m_eviction(dir);
+                schedule_indic_600m_eviction(d);
             }
         });
 }
@@ -1596,7 +1612,10 @@ impl EngineProvider for IndicConformer600MProvider {
             enabled
         };
 
-        // Reuse cached session if same dir and within TTL, else load (2.4GB build)
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let mut sess = {
             let mut guard = indic_600m_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
@@ -1632,7 +1651,7 @@ fn build_ort_session(path: &Path) -> Result<ort::session::Session, String> {
     let mut builder = ort::session::Session::builder()
         .map_err(|e| format!("Failed to build ORT session: {}", e))?;
     builder = builder
-        .with_intra_threads(2)
+        .with_intra_threads(inference_threads() as usize)
         .map_err(|e| format!("Failed to set threads: {}", e))?;
     builder
         .commit_from_file(path)
@@ -1913,8 +1932,7 @@ fn decode_indic_600m_multi(
     Ok(text.trim().to_string())
 }
 
-#[allow(dead_code)]
-fn decode_indic_600m(
+fn _decode_indic_600m(
     sess: &mut Indic600MSession,
     samples: &[f32],
     language: &str,
@@ -1977,38 +1995,34 @@ fn sherpa_moonshine_cache() -> &'static Mutex<Option<CachedSherpaMoonshine>> {
     SHERPA_MOONSHINE_CACHE.get_or_init(|| Mutex::new(None))
 }
 
-static SHERPA_MOONSHINE_EVICTION_SCHEDULED: AtomicBool = AtomicBool::new(false);
-
 fn schedule_sherpa_moonshine_eviction(dir: PathBuf) {
-    if SHERPA_MOONSHINE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            SHERPA_MOONSHINE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = sherpa_moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = sherpa_moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = sherpa_moonshine_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = sherpa_moonshine_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_sherpa_moonshine_eviction(dir);
+                schedule_sherpa_moonshine_eviction(d);
             }
         });
 }
@@ -2021,7 +2035,10 @@ impl EngineProvider for SherpaMoonshineProvider {
         } else {
             audio.to_vec()
         };
-        // Try cached
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let cached_take = {
             let mut guard = sherpa_moonshine_cache()
                 .lock()
@@ -2104,7 +2121,7 @@ impl EngineProvider for SherpaMoonshineProvider {
             merged_decoder: None,
         };
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -2171,35 +2188,33 @@ fn moonshine_cache() -> &'static Mutex<Option<CachedMoonshine>> {
 }
 
 fn schedule_moonshine_eviction(dir: PathBuf) {
-    if MOONSHINE_EVICTION_SCHEDULED
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
+    if !eviction_lock(&dir) {
         return;
     }
+    let d = dir.clone();
     let _ = std::thread::Builder::new()
-        .stack_size(64 * 1024)
+        .stack_size(256 * 1024)
         .spawn(move || {
             std::thread::sleep(MODEL_TTL);
-            MOONSHINE_EVICTION_SCHEDULED.store(false, Ordering::SeqCst);
-            let should_reschedule = if let Ok(guard) = moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    c.dir == dir && c.last_used.elapsed() < MODEL_TTL
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if let Ok(mut guard) = moonshine_cache().lock() {
-                if let Some(c) = guard.as_ref() {
-                    if c.dir == dir && c.last_used.elapsed() >= MODEL_TTL {
-                        *guard = None;
-                    }
+            let should_reschedule = moonshine_cache()
+                .lock()
+                .ok()
+                .and_then(|g| {
+                    g.as_ref()
+                        .map(|c| c.dir == d && c.last_used.elapsed() < MODEL_TTL)
+                })
+                .unwrap_or(false);
+            if let Ok(mut g) = moonshine_cache().lock() {
+                if g.as_ref()
+                    .map(|c| c.dir == d && c.last_used.elapsed() >= MODEL_TTL)
+                    .unwrap_or(false)
+                {
+                    *g = None;
                 }
             }
+            eviction_unlock(&d);
             if should_reschedule {
-                schedule_moonshine_eviction(dir);
+                schedule_moonshine_eviction(d);
             }
         });
 }
@@ -2219,7 +2234,10 @@ impl EngineProvider for MoonshineProvider {
             audio.to_vec()
         };
 
-        // Take model out of cache so lock is never held across inference
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let mut model = {
             let mut guard = moonshine_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {

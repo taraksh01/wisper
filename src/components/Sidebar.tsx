@@ -42,7 +42,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
     const tick = async () => {
       try {
         const l = await invoke<number>("get_input_level");
-        if (active) setLevel(l);
+        if (active) setLevel((prev) => (prev === l ? prev : l));
       } catch {}
     };
     const id = setInterval(tick, 60);

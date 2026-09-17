@@ -43,7 +43,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "resources/gnome-shell"
+    ]
   },
   "plugins": {
     "updater": {

@@ -394,12 +394,23 @@ pub fn sync_runtime(settings: &AppSettings) {
     }
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
-    let model_exists = model_path.exists();
+    let model_complete = if settings.local_model_file.is_empty() {
+        false
+    } else {
+        let dir_name = crate::models::onnx_dir_name(&settings.local_model_file)
+            .unwrap_or_else(|| settings.local_model_file.clone());
+        let dir = model_dir.join(&dir_name);
+        dir.exists() && crate::models::is_model_complete(&dir, &dir_name)
+    };
     {
         let mut current = crate::coordinator::CURRENT_MODEL
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *current = if model_exists { Some(model_path) } else { None };
+        *current = if model_complete {
+            Some(model_path)
+        } else {
+            None
+        };
     }
 
     // Display name (derived from mode + model)
@@ -414,8 +425,13 @@ pub fn sync_runtime(settings: &AppSettings) {
                 "sarvam" => "Sarvam",
                 _ => "Custom",
             };
-            *name = format!("{} · {}", provider_label, settings.engine_model);
-        } else if model_exists {
+            let m = settings.engine_model.trim();
+            *name = if m.is_empty() {
+                format!("{} · not configured", provider_label)
+            } else {
+                format!("{} · {}", provider_label, m)
+            };
+        } else if model_complete {
             *name =
                 crate::coordinator::model_display_name(&model_dir.join(&settings.local_model_file));
         } else {
@@ -468,7 +484,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     let prev_mode = prev.history_retention_mode.clone();
     let prev_hotkey = prev.hotkey.clone();
     let prev_words_enabled = prev.words_enabled;
-    let mut s = AppSettings::load();
+    let mut s = prev.clone();
     mutate(&mut s);
     // Clamp retention limit to sane range (0 = unlimited)
     if s.max_history_entries < 0 {
@@ -520,7 +536,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
         let _ = app.autolaunch().disable();
     }
 
-    crate::tray::refresh();
+    crate::tray::refresh_with(&s);
     let _ = app.emit("wisper:settings-changed", &s);
     trimmed
 }

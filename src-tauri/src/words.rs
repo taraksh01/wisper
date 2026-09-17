@@ -307,12 +307,14 @@ impl WordsManager {
         Ok(())
     }
 
-    fn bump_hits(&self, id: i64) {
+    fn bump_hits_many(&self, ids: &[i64]) {
+        if ids.is_empty() {
+            return;
+        }
         let conn = WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = conn.execute(
-            "UPDATE words SET hits = hits + 1 WHERE id = ?1",
-            params![id],
-        );
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("UPDATE words SET hits = hits + 1 WHERE id IN ({})", placeholders);
+        let _ = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
     }
 
     fn known_terms(&self) -> std::collections::HashSet<String> {
@@ -397,6 +399,7 @@ pub fn apply_words(text: &str) -> String {
     let inactive = mgr.inactive_profile_ids();
 
     let mut out = text.to_string();
+    let mut hit_ids: Vec<i64> = Vec::new();
     for entry in &entries {
         if let Some(pid) = entry.profile_id.as_deref() {
             if inactive.contains(pid) {
@@ -407,12 +410,15 @@ pub fn apply_words(text: &str) -> String {
         if phrase.is_empty() {
             continue;
         }
-        // Get or build cached regexes for this entry (Arc avoids cloning Regex per word)
+        // Get or build cached regexes for this entry (Arc avoids cloning Regex per word).
+        // Compile outside the lock — Regex::new is expensive and holding the
+        // mutex across it serializes all concurrent transcriptions.
         let regexes: std::sync::Arc<Vec<(Regex, String)>> = {
-            let mut cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
+            let cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
             if let Some(v) = cache.get(&entry.id) {
                 std::sync::Arc::clone(v)
             } else {
+                drop(cache);
                 let mut vec = Vec::new();
                 for form in entry.match_forms() {
                     let escaped = regex::escape(&form);
@@ -433,8 +439,13 @@ pub fn apply_words(text: &str) -> String {
                     }
                 }
                 let arc = std::sync::Arc::new(vec);
-                cache.insert(entry.id, std::sync::Arc::clone(&arc));
-                arc
+                let mut cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(v) = cache.get(&entry.id) {
+                    std::sync::Arc::clone(v)
+                } else {
+                    cache.insert(entry.id, std::sync::Arc::clone(&arc));
+                    arc
+                }
             }
         };
         let mut matched = false;
@@ -453,9 +464,10 @@ pub fn apply_words(text: &str) -> String {
             }
         }
         if matched {
-            mgr.bump_hits(entry.id);
+            hit_ids.push(entry.id);
         }
     }
+    mgr.bump_hits_many(&hit_ids);
     out
 }
 
@@ -727,16 +739,10 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
         raw_words.iter().map(|s| s.to_lowercase()).collect();
     let fmt_set: std::collections::HashSet<String> =
         fmt_words.iter().map(|s| s.to_lowercase()).collect();
-    // Load history once - not per-word (was N+1); respect user's retention limit
-    let user_limit = crate::settings::AppSettings::load().max_history_entries;
-    let limit = if user_limit > 0 {
-        (user_limit as i64).clamp(50, 2000)
-    } else {
-        500
-    };
-    let history = crate::history::HistoryManager::new()
-        .get_history(limit, 0)
-        .unwrap_or_default();
+    // Collect candidates first — only touch history DB when at least one
+    // word actually needs an occurrence count (was: up to 2000 full rows
+    // fetched on every dictation even with zero candidates).
+    let mut candidates: Vec<(String, String)> = Vec::new();
     for fw in &fmt_words {
         let low = fw.to_lowercase();
         if low.chars().count() < 3
@@ -755,6 +761,27 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
                     break;
                 }
             }
+            candidates.push(((*fw).to_string(), variant));
+        }
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    // Load history once - not per-word (was N+1); respect user's retention limit
+    let user_limit = crate::settings::AppSettings::load().max_history_entries;
+    let limit = if user_limit > 0 {
+        (user_limit as i64).clamp(50, 2000)
+    } else {
+        500
+    };
+    let history = crate::history::HistoryManager::new()
+        .get_history(limit, 0)
+        .unwrap_or_default();
+    for (fw, variant) in &candidates {
+        let low = fw.to_lowercase();
+        if known.contains(&low) {
+            continue;
+        }
             // Count occurrences of this correction in history (including current)
             let mut count = 1; // current occurrence
             for entry in &history {
@@ -782,10 +809,9 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
             }
             if count >= 2 {
                 let mgr = WordsManager::new();
-                let _ = mgr.add(fw, &variant, false, true, true);
+                let _ = mgr.add(fw, variant, false, true, true);
                 known.insert(low.clone());
             }
-        }
     }
 }
 
@@ -830,7 +856,10 @@ const COMMON_WORDS: &[&str] = &[
 ];
 
 fn is_common_word(low: &str) -> bool {
-    COMMON_WORDS.contains(&low)
+    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(|| COMMON_WORDS.iter().copied().collect())
+        .contains(low)
 }
 
 #[cfg(test)]

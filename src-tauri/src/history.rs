@@ -166,11 +166,10 @@ impl HistoryManager {
 
     pub fn get_stats(&self) -> SqlResult<(i64, i64, f64)> {
         let conn = Self::conn();
-        let total: i64 = conn.query_row("SELECT COUNT(*) FROM history", [], |row| row.get(0))?;
-        let total_words: i64 = conn.query_row(
-            "SELECT COALESCE(SUM(word_count), 0) FROM history",
+        let (total, total_words): (i64, i64) = conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(word_count), 0) FROM history",
             [],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         let avg_words: f64 = if total > 0 {
             total_words as f64 / total as f64
@@ -184,6 +183,16 @@ impl HistoryManager {
         let conn = Self::conn();
         conn.execute("DELETE FROM history", [])?;
         Ok(())
+    }
+
+    /// Lightweight existence check for the tray menu (avoid fetching rows).
+    pub fn has_history(&self) -> bool {
+        let conn = Self::conn();
+        conn.query_row("SELECT EXISTS(SELECT 1 FROM history LIMIT 1)", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .map(|v| v != 0)
+        .unwrap_or(false)
     }
 
     /// Trim oldest entries when total exceeds `max_entries`.
@@ -213,116 +222,132 @@ impl HistoryManager {
         };
 
         if mode == "recordings_only" {
-            for (_, path) in &oldest {
-                if let Some(ref p) = path {
-                    if !p.is_empty() {
-                        if let Ok(canonical) = validate_recording_path(p) {
+            let ids_with_path: Vec<i64> = oldest
+                .iter()
+                .filter_map(|(id, p)| {
+                    if p.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if ids_with_path.is_empty() {
+                return Ok(0);
+            }
+            // Keep file paths for post-commit deletion so ROLLBACK doesn't orphan.
+            let paths: Vec<String> = oldest
+                .iter()
+                .filter_map(|(_, p)| p.clone().filter(|s| !s.is_empty()))
+                .collect();
+            let conn = Self::conn();
+            conn.execute_batch("BEGIN IMMEDIATE")?;
+            let placeholders = ids_with_path
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "UPDATE history SET recording_path = NULL WHERE id IN ({})",
+                placeholders
+            );
+            let res = conn.execute(&sql, rusqlite::params_from_iter(ids_with_path.iter()));
+            match res {
+                Ok(cleared) => {
+                    conn.execute_batch("COMMIT")?;
+                    // Delete files only after successful commit.
+                    for p in paths {
+                        if let Ok(canonical) = validate_recording_path(&p) {
                             let _ = std::fs::remove_file(canonical);
                         }
                     }
+                    Ok(cleared)
                 }
-            }
-            let conn = Self::conn();
-            conn.execute_batch("BEGIN IMMEDIATE")?;
-            let mut cleared = 0;
-            let mut ok = true;
-            for (id, path) in oldest {
-                if let Some(ref p) = path {
-                    if !p.is_empty() {
-                        match conn.execute(
-                            "UPDATE history SET recording_path = NULL WHERE id = ?1",
-                            params![id],
-                        ) {
-                            Ok(_) => cleared += 1,
-                            Err(e) => {
-                                eprintln!(
-                                    "[history] failed to clear recording_path for id {}: {}",
-                                    id, e
-                                );
-                                ok = false;
-                                break;
-                            }
-                        }
-                    }
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
                 }
-            }
-            if ok {
-                conn.execute_batch("COMMIT")?;
-                Ok(cleared)
-            } else {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(rusqlite::Error::ExecuteReturnedResults)
             }
         } else {
-            for (_, path) in &oldest {
-                if let Some(ref p) = path {
-                    if let Ok(canonical) = validate_recording_path(p) {
-                        let _ = std::fs::remove_file(canonical);
-                    }
-                }
-            }
             // Use collected ids to avoid re-SELECT race with concurrent inserts
             let ids: Vec<i64> = oldest.iter().map(|(id, _)| *id).collect();
             if ids.is_empty() {
                 return Ok(0);
             }
+            let paths: Vec<String> = oldest
+                .iter()
+                .filter_map(|(_, p)| p.clone().filter(|s| !s.is_empty()))
+                .collect();
             let conn = Self::conn();
             conn.execute_batch("BEGIN IMMEDIATE")?;
-            let mut cleared = 0usize;
-            let mut ok = true;
-            let mut last_err: Option<rusqlite::Error> = None;
-            for id in ids {
-                match conn.execute("DELETE FROM history WHERE id = ?1", params![id]) {
-                    Ok(n) => cleared += n as usize,
-                    Err(e) => {
-                        eprintln!("[history] failed to delete id {}: {}", id, e);
-                        last_err = Some(e);
-                        ok = false;
-                        break;
+            let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("DELETE FROM history WHERE id IN ({})", placeholders);
+            let res = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
+            match res {
+                Ok(cleared) => {
+                    conn.execute_batch("COMMIT")?;
+                    for p in paths {
+                        if !p.is_empty() {
+                            if let Ok(canonical) = validate_recording_path(&p) {
+                                let _ = std::fs::remove_file(canonical);
+                            }
+                        }
                     }
+                    Ok(cleared)
                 }
-            }
-            if ok {
-                conn.execute_batch("COMMIT")?;
-                Ok(cleared)
-            } else {
-                let _ = conn.execute_batch("ROLLBACK");
-                Err(last_err.unwrap_or(rusqlite::Error::ExecuteReturnedResults))
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
             }
         }
     }
 
     /// Delete all history entries with zero words (polluted empty transcriptions).
-    /// Returns number of deleted rows. Also removes associated recording files.
+    /// Returns number of deleted rows. Also removes associated recording files
+    /// only after the DB transaction commits (so a failed DELETE doesn't orphan).
     pub fn delete_zero_word_entries(&self) -> SqlResult<usize> {
-        let paths: Vec<Option<String>> = {
+        let rows: Vec<(i64, Option<String>)> = {
             let conn = Self::conn();
             let mut stmt = conn.prepare(
-                "SELECT recording_path FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
+                "SELECT id, recording_path FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
             )?;
-            let rows = stmt
-                .query_map([], |r| r.get(0))?
+            let x = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .collect::<SqlResult<Vec<_>>>()?;
-            rows
+            x
         };
-        for p in &paths {
-            if let Some(ref path) = p {
-                if !path.is_empty() {
-                    if let Ok(canonical) = validate_recording_path(path) {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
+        let paths: Vec<String> = rows
+            .into_iter()
+            .filter_map(|(_, p)| p.filter(|s| !s.is_empty()))
+            .collect();
+        let conn = Self::conn();
+        conn.execute_batch("BEGIN IMMEDIATE")?;
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("DELETE FROM history WHERE id IN ({})", placeholders);
+        let res = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
+        match res {
+            Ok(n) => {
+                conn.execute_batch("COMMIT")?;
+                for p in paths {
+                    if let Ok(canonical) = validate_recording_path(&p) {
                         let _ = std::fs::remove_file(canonical);
                     }
                 }
+                if n > 0 {
+                    eprintln!("[history] cleaned up {} zero-word entries", n);
+                }
+                Ok(n)
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(e)
             }
         }
-        let conn = Self::conn();
-        let n = conn.execute(
-            "DELETE FROM history WHERE word_count = 0 OR trim(raw_text) = ''",
-            [],
-        )?;
-        if n > 0 {
-            eprintln!("[history] cleaned up {} zero-word entries", n);
-        }
-        Ok(n)
     }
 
     pub fn get_recording_dir() -> PathBuf {
@@ -549,8 +574,8 @@ pub fn update_history_entry(
 #[tauri::command]
 pub fn retranscribe_recording(recording_path: String) -> Result<String, String> {
     let validated = validate_recording_path(&recording_path)?;
-    let (samples, sample_rate) =
-        crate::audio::load_wav(validated.to_str().unwrap_or(&recording_path))?;
+    let validated_str = validated.to_str().ok_or("Invalid recording path")?;
+    let (samples, sample_rate) = crate::audio::load_wav(validated_str)?;
 
     // Load the current model from settings
     let settings = crate::settings::AppSettings::load();
@@ -568,7 +593,7 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
     let resampled = if sample_rate != 16000 {
         crate::engine::resample(&samples, sample_rate, 16000)
     } else {
-        samples.clone()
+        samples
     };
     let denoised = if settings.noise_suppression_enabled {
         crate::audio::suppress_noise(&resampled, 16000, settings.noise_suppression_level)
@@ -589,18 +614,21 @@ pub fn retranscribe_recording(recording_path: String) -> Result<String, String> 
 
 #[tauri::command]
 pub fn clear_history() -> Result<(), String> {
-    let manager = HistoryManager::new();
     let paths: Vec<Option<String>> = {
         let conn = HistoryManager::conn();
         let mut stmt = conn
             .prepare("SELECT recording_path FROM history")
             .map_err(|e| format!("Failed to prepare: {}", e))?;
-        let rows = stmt
+        let x = stmt
             .query_map([], |r| r.get(0))
-            .map_err(|e| format!("Failed to query: {}", e))?;
-        rows.collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(|e| format!("Failed to collect: {}", e))?
+            .map_err(|e| format!("Failed to query: {}", e))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|e| format!("Failed to collect: {}", e))?;
+        x
     };
+    HistoryManager::new()
+        .clear_all()
+        .map_err(|e| format!("Failed to clear history: {}", e))?;
     for path in &paths {
         if let Some(ref p) = path {
             if let Ok(valid) = validate_recording_path(p) {
@@ -608,9 +636,6 @@ pub fn clear_history() -> Result<(), String> {
             }
         }
     }
-    manager
-        .clear_all()
-        .map_err(|e| format!("Failed to clear history: {}", e))?;
     Ok(())
 }
 
@@ -627,7 +652,8 @@ pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
     if !settings.noise_suppression_enabled {
         return std::fs::read(&validated).map_err(|e| format!("Failed to read recording: {}", e));
     }
-    let (samples, sr) = crate::audio::load_wav(validated.to_str().unwrap_or(&recording_path))?;
+    let validated_str = validated.to_str().ok_or("Invalid recording path")?;
+    let (samples, sr) = crate::audio::load_wav(validated_str)?;
     let denoised = crate::audio::suppress_noise(&samples, sr, settings.noise_suppression_level);
     crate::audio::wav_bytes_from_samples(&denoised, sr)
 }

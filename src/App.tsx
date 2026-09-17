@@ -1,16 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
-import { Onboarding } from "./components/Onboarding";
 import { GeneralTab } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
-import { ProcessTab } from "./components/ProcessTab";
-import { WordsTab } from "./components/WordsTab";
-import { HistoryTab } from "./components/HistoryTab";
-import { AboutTab } from "./components/AboutTab";
-import { DonateTab } from "./components/DonateTab";
+// Rarely-visited tabs split out so first paint stays small (EngineTab stays
+// eager + mounted-hidden for download progress; GeneralTab is the default tab).
+const Onboarding = lazy(() => import("./components/Onboarding").then((m) => ({ default: m.Onboarding })));
+const ProcessTab = lazy(() => import("./components/ProcessTab").then((m) => ({ default: m.ProcessTab })));
+const WordsTab = lazy(() => import("./components/WordsTab").then((m) => ({ default: m.WordsTab })));
+const HistoryTab = lazy(() => import("./components/HistoryTab").then((m) => ({ default: m.HistoryTab })));
+const AboutTab = lazy(() => import("./components/AboutTab").then((m) => ({ default: m.AboutTab })));
+const DonateTab = lazy(() => import("./components/DonateTab").then((m) => ({ default: m.DonateTab })));
 import { ToastProvider, useToast } from "./components/ToastContext";
 import { storageKey } from "./appConfig";
 import "./styles.css";
@@ -142,14 +144,13 @@ function AppShell() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const [h, s, c] = await Promise.all([
+      const [h, s] = await Promise.all([
         invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 }),
         invoke<[number, number, number]>("get_history_stats"),
-        invoke<number>("get_history_count"),
       ]);
       setHistory(h);
       setStats(s);
-      setHistoryTotal(c);
+      setHistoryTotal(s[0]);
     } catch (e) {
       console.error("fetchHistory failed:", e);
     }
@@ -181,30 +182,8 @@ function AppShell() {
     };
   }, [fetchHistory]);
 
-  const hasMounted = useRef(false);
-  useEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true;
-      return;
-    }
-    if (appState === "idle") {
-      let alive = true;
-      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 });
-      const s = invoke<[number, number, number]>("get_history_stats");
-      const c = invoke<number>("get_history_count");
-      const settingsReq = invoke<AppSettings>("load_settings");
-      Promise.all([h, s, c, settingsReq]).then(([entries, st, count, stt]) => {
-        if (!alive) return;
-        setHistory(entries);
-        setStats(st);
-        setHistoryTotal(count);
-        setSettings(stt);
-      }).catch(() => {});
-      return () => {
-        alive = false;
-      };
-    }
-  }, [appState]);
+  // History is refreshed via wisper:history-changed listener above; no
+  // extra fetch on idle to avoid double DB work after every dictation.
 
   const fetchAgentProfiles = useCallback(async () => {
     try {
@@ -398,7 +377,13 @@ function AppShell() {
     return (
       <>
         <div className={activeTab === "engine" ? "block" : "hidden"}>{engineNode}</div>
-        {other && <div className="block">{other}</div>}
+        {other && (
+          <div className="block">
+            <Suspense fallback={<div className="py-10 text-center text-xs font-mono text-muted">Loading…</div>}>
+              {other}
+            </Suspense>
+          </div>
+        )}
       </>
     );
   };
@@ -406,13 +391,15 @@ function AppShell() {
   return (
     <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex font-sans selection:bg-accent/20`}>
         {!onboarded && settings && (
-          <Onboarding
-            env={pasteEnv}
-            onDone={() => {
-              safeStorageSet(storageKey("onboarded"), "1");
-              setOnboarded(true);
-            }}
-          />
+          <Suspense fallback={null}>
+            <Onboarding
+              env={pasteEnv}
+              onDone={() => {
+                safeStorageSet(storageKey("onboarded"), "1");
+                setOnboarded(true);
+              }}
+            />
+          </Suspense>
         )}
         <Sidebar
           activeTab={activeTab}

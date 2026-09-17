@@ -210,6 +210,7 @@ pub fn paste_text(text: &str, method: &str) -> Result<(), String> {
 }
 
 static CLIPBOARD_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CLIPBOARD_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 /// A single Enigo instance reused across pastes instead of allocating a fresh
 /// display connection on every call (enigo creation is relatively heavy and
@@ -253,6 +254,7 @@ fn with_enigo(f: impl FnOnce(&mut Enigo) -> Result<(), String>) -> Result<(), St
 }
 
 fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
+    let _clip_guard = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut clipboard = match Clipboard::new() {
         Ok(c) => c,
         Err(_e) => return type_text_directly(text),
@@ -281,26 +283,68 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     } else {
         // Clipboard never confirmed our text; Ctrl+V would paste stale content.
         eprintln!("[paste] clipboard poll timed out after 100ms - falling back to direct typing");
+        // Don't leave our transcript behind in the clipboard.
+        match original_text {
+            Some(orig) => {
+                let _ = clipboard.set_text(orig);
+            }
+            None => {
+                let _ = clipboard.clear();
+            }
+        }
         return type_text_directly(text);
     }
 
     let paste_result = simulate_key_combo(method);
+    if paste_result.is_err() {
+        // Paste never fired — restore immediately instead of leaving the transcript.
+        match original_text {
+            Some(orig) => {
+                let _ = clipboard.set_text(orig);
+            }
+            None => {
+                let _ = clipboard.clear();
+            }
+        }
+        return paste_result;
+    }
 
     let restore_text: Option<String> = original_text.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(100));
+        // Wait for the target app to consume Ctrl+V (100ms raced it and the
+        // app pasted the restored original instead of our text).
+        thread::sleep(Duration::from_millis(500));
+        // Hold CLIPBOARD_LOCK across the gen + content check and the restore
+        // so a concurrent new paste can't slip between check and write (rapid
+        // re-dictation with identical text defeated both guards before).
+        let _guard = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
+            eprintln!("[paste] restore skipped: superseded by newer paste");
             return;
         }
-        let Some(orig) = restore_text else {
-            return;
-        };
-        if let Ok(mut c) = Clipboard::new() {
-            if let Ok(cur) = c.get_text() {
-                if cur == expected {
-                    let _ = c.set_text(orig);
+        match Clipboard::new() {
+            Ok(mut c) => match c.get_text() {
+                Ok(cur) if cur == expected => {
+                    if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
+                        eprintln!("[paste] restore skipped: superseded by newer paste");
+                        return;
+                    }
+                    match restore_text {
+                        Some(orig) => {
+                            let _ = c.set_text(orig);
+                            eprintln!("[paste] clipboard original restored");
+                        }
+                        // Original was empty/non-text: clear rather than leak transcript.
+                        None => {
+                            let _ = c.clear();
+                            eprintln!("[paste] clipboard cleared (no original)");
+                        }
+                    }
                 }
-            }
+                Ok(_) => eprintln!("[paste] restore skipped: clipboard changed externally"),
+                Err(e) => eprintln!("[paste] restore skipped: unreadable clipboard ({e})"),
+            },
+            Err(e) => eprintln!("[paste] restore skipped: no clipboard ({e})"),
         }
     });
 
@@ -359,11 +403,19 @@ fn run_with_timeout(
             Some(s) => return Ok(s),
             None if start.elapsed() > timeout => {
                 let _ = child.kill();
-                // Reap the child so it doesn't linger as a zombie
-                let _ = child.wait();
-                return Err("Command timed out".into());
+                // Bound the wait after SIGKILL — don't block paste thread forever on zombie.
+                let kill_deadline = std::time::Instant::now() + Duration::from_millis(300);
+                loop {
+                    match child.try_wait().map_err(|e| e.to_string())? {
+                        Some(s) => return Err(format!("Command timed out (killed, exit {:?})", s)),
+                        None if std::time::Instant::now() >= kill_deadline => {
+                            return Err("Command timed out".into())
+                        }
+                        None => thread::sleep(Duration::from_millis(10)),
+                    }
+                }
             }
-            None => thread::sleep(Duration::from_millis(10)),
+            None => thread::sleep(Duration::from_millis(5)),
         }
     }
 }
@@ -379,7 +431,7 @@ fn wtype_paste(method: &str) -> Result<(), String> {
 
     let mut cmd = Command::new("wtype");
     cmd.args(args).stderr(Stdio::null());
-    let status = run_with_timeout(cmd, Duration::from_secs(5))
+    let status = run_with_timeout(cmd, Duration::from_secs(2))
         .map_err(|e| format!("Failed to run wtype: {}", e))?;
 
     if status.success() {
@@ -398,7 +450,7 @@ fn ydotool_paste(method: &str) -> Result<(), String> {
 
     let mut cmd = Command::new("ydotool");
     cmd.arg("key").args(args).stderr(Stdio::null());
-    let status = run_with_timeout(cmd, Duration::from_secs(5))
+    let status = run_with_timeout(cmd, Duration::from_secs(2))
         .map_err(|e| format!("Failed to run ydotool: {}", e))?;
 
     if status.success() {
@@ -456,37 +508,88 @@ fn type_text_directly(text: &str) -> Result<(), String> {
             text.len()
         );
     }
+    const CHUNK_SIZE: usize = 7000;
     match backend.as_str() {
         "wtype" => {
-            let mut cmd = Command::new("wtype");
-            // Use `--` so leading `-` in transcribed text is not parsed as a flag
-            // and to avoid ARG_MAX splitting issues; for very large text consider
-            // piping via `wtype -` stdin in future.
-            cmd.args(["-d", "0", "--", text]).stderr(Stdio::null());
-            let status = run_with_timeout(cmd, Duration::from_secs(5))
-                .map_err(|e| format!("Failed to run wtype: {}", e))?;
-            if status.success() {
-                if cfg!(debug_assertions) {
-                    eprintln!("[paste] wtype type succeeded");
+            if text.len() <= CHUNK_SIZE {
+                let mut cmd = Command::new("wtype");
+                cmd.args(["-d", "0", "--", text]).stderr(Stdio::null());
+                let status = run_with_timeout(cmd, Duration::from_secs(2))
+                    .map_err(|e| format!("Failed to run wtype: {}", e))?;
+                if status.success() {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] wtype type succeeded");
+                    }
+                    return Ok(());
+                } else if cfg!(debug_assertions) {
+                    eprintln!("[paste] wtype type non-zero status");
                 }
-                return Ok(());
-            } else if cfg!(debug_assertions) {
-                eprintln!("[paste] wtype type non-zero status");
+            } else {
+                let mut ok = true;
+                for start in (0..text.len()).step_by(CHUNK_SIZE) {
+                    let mut end = (start + CHUNK_SIZE).min(text.len());
+                    while end < text.len() && !text.is_char_boundary(end) {
+                        end += 1;
+                    }
+                    let chunk_str = &text[start..end];
+                    let mut cmd = Command::new("wtype");
+                    cmd.args(["-d", "0", "--", chunk_str]).stderr(Stdio::null());
+                    let status = run_with_timeout(cmd, Duration::from_secs(2))
+                        .map_err(|e| format!("Failed to run wtype: {}", e))?;
+                    if !status.success() {
+                        ok = false;
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                if ok {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] wtype chunked type succeeded");
+                    }
+                    return Ok(());
+                }
             }
         }
         "ydotool" => {
-            let mut cmd = Command::new("ydotool");
-            cmd.args(["type", "-d", "0", "-H", "0", text])
-                .stderr(Stdio::null());
-            let status = run_with_timeout(cmd, Duration::from_secs(5))
-                .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
-            if status.success() {
-                if cfg!(debug_assertions) {
-                    eprintln!("[paste] ydotool type succeeded");
+            if text.len() <= CHUNK_SIZE {
+                let mut cmd = Command::new("ydotool");
+                cmd.args(["type", "-d", "0", "-H", "0", text])
+                    .stderr(Stdio::null());
+                let status = run_with_timeout(cmd, Duration::from_secs(2))
+                    .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
+                if status.success() {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] ydotool type succeeded");
+                    }
+                    return Ok(());
+                } else if cfg!(debug_assertions) {
+                    eprintln!("[paste] ydotool type non-zero status");
                 }
-                return Ok(());
-            } else if cfg!(debug_assertions) {
-                eprintln!("[paste] ydotool type non-zero status");
+            } else {
+                let mut ok = true;
+                for start in (0..text.len()).step_by(CHUNK_SIZE) {
+                    let mut end = (start + CHUNK_SIZE).min(text.len());
+                    while end < text.len() && !text.is_char_boundary(end) {
+                        end += 1;
+                    }
+                    let chunk_str = &text[start..end];
+                    let mut cmd = Command::new("ydotool");
+                    cmd.args(["type", "-d", "0", "-H", "0", chunk_str])
+                        .stderr(Stdio::null());
+                    let status = run_with_timeout(cmd, Duration::from_secs(2))
+                        .map_err(|e| format!("Failed to run ydotool type: {}", e))?;
+                    if !status.success() {
+                        ok = false;
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                if ok {
+                    if cfg!(debug_assertions) {
+                        eprintln!("[paste] ydotool chunked type succeeded");
+                    }
+                    return Ok(());
+                }
             }
         }
         _ => {}

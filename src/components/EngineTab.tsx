@@ -29,7 +29,8 @@ function sortKeys(keys: string[]) {
   });
 }
 
-type DownloadEntry = { progress: number; speed?: number; downloaded?: number; total?: number };
+type DownloadPhase = "downloading" | "verifying" | "extracting" | "installing" | "finalizing";
+type DownloadEntry = { progress: number; phase?: DownloadPhase; speed?: number; downloaded?: number; total?: number };
 export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   const toast = useToast();
   const [localModels, setLocalModels] = useState<string[]>([]);
@@ -48,7 +49,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
       const m = await invoke<string[]>("list_local_models");
       setLocalModels(m);
       // Check which downloaded Indic models are missing tokens/vocab
-      const indic = m.filter((k) => k.startsWith("indicconformer-"));
+      const indic = m.filter((k) => k.startsWith("indicconformer-") || k.startsWith("whisper-large-v3"));
       const missing = new Set<string>();
       await Promise.all(
         indic.map(async (k) => {
@@ -70,12 +71,13 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   useEffect(() => {
     fetchModels();
-    const unlistenProgressPromise = listen<{ model: string; progress: number; speed_bps?: number; downloaded?: number; total?: number }>("download-progress", (event) => {
-      const { model, progress, speed_bps, downloaded, total } = event.payload;
+    const unlistenProgressPromise = listen<{ model: string; progress: number; phase?: DownloadPhase; speed_bps?: number; downloaded?: number; total?: number }>("download-progress", (event) => {
+      const { model, progress, phase, speed_bps, downloaded, total } = event.payload;
       setDownloads((prev) => ({
         ...prev,
         [model]: {
           progress,
+          phase: (phase as DownloadPhase | undefined) ?? (progress >= 100 ? prev[model]?.phase : "downloading") ?? "downloading",
           speed: speed_bps ?? prev[model]?.speed,
           downloaded: downloaded ?? prev[model]?.downloaded,
           total: total ?? prev[model]?.total,
@@ -98,7 +100,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   }, []);
 
   const downloadModel = async (name: string) => {
-    setDownloads((prev) => ({ ...prev, [name]: { progress: 0 } }));
+    setDownloads((prev) => ({ ...prev, [name]: { progress: 0, phase: "downloading" as const } }));
     try {
       await invoke("download_model", { modelName: name });
       toast.addToast(`Downloaded ${name}`, "success");
@@ -298,6 +300,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     isActive={false}
                     isDownloading={key in downloads}
                     progress={downloads[key]?.progress}
+                    phase={downloads[key]?.phase ?? "downloading"}
                     speedBps={downloads[key]?.speed}
                     downloaded={downloads[key]?.downloaded}
                     total={downloads[key]?.total}
