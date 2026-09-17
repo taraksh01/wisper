@@ -1109,11 +1109,29 @@ pub fn ensure_gnome_extension() -> Result<OriginEnvironment, String> {
     };
     std::fs::create_dir_all(&ext_dir)
         .map_err(|e| format!("Could not create {}: {e}", ext_dir.display()))?;
+    // Refuse to install through a symlink (attacker-planted link would redirect
+    // our write to an arbitrary file). Check after create_dir_all since it follows links.
+    if std::fs::symlink_metadata(&ext_dir)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(format!(
+            "Refusing to install through symlink: {}",
+            ext_dir.display()
+        ));
+    }
     for name in ["extension.js", "metadata.json"] {
         let data = std::fs::read(bundled.join(name))
             .map_err(|e| format!("Missing {name} in bundle: {e}"))?;
-        std::fs::write(ext_dir.join(name), data)
-            .map_err(|e| format!("Could not write {}: {e}", ext_dir.join(name).display()))?;
+        let dest = ext_dir.join(name);
+        if std::fs::symlink_metadata(&dest)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(false)
+        {
+            return Err(format!("Refusing to overwrite symlink: {}", dest.display()));
+        }
+        std::fs::write(&dest, data)
+            .map_err(|e| format!("Could not write {}: {e}", dest.display()))?;
     }
     // Best-effort enable: per-user only, no sudo.
     let current = run_cmd_output(
