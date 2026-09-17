@@ -645,20 +645,21 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
 
   useEffect(() => {
     fetchDevices(true);
-    const id = window.setInterval(() => fetchDevices(), 3000);
     const onFocus = () => fetchDevices(true);
     const onVis = () => {
       if (document.visibilityState === "visible") fetchDevices(true);
     };
+    const onDeviceChange = () => fetchDevices(true);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVis);
+    navigator.mediaDevices?.addEventListener("devicechange", onDeviceChange);
     const unlisten = listen<string>("wisper:open-tab", (e) => {
       if (e.payload === "general") fetchDevices(true);
     }).then((fn) => fn).catch(() => () => {});
     return () => {
-      window.clearInterval(id);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVis);
+      navigator.mediaDevices?.removeEventListener("devicechange", onDeviceChange);
       unlisten.then((fn) => fn()).catch(() => {});
     };
   }, [fetchDevices]);
