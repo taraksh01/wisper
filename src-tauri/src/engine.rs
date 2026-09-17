@@ -90,8 +90,16 @@ impl EngineProvider for ParakeetOnnxProvider {
             audio
         };
 
-        // Take the model out of the cache for the duration of inference so the
-        // lock is never held across the (seconds-long) transcribe call.
+        // One owner at a time for load AND inference: the model instance is
+        // &mut-only (taken out of the cache during transcribe), so a second
+        // thread can never infer concurrently anyway — but without holding the
+        // guard across inference it would load a duplicate GB-sized copy.
+        // The guard lives until end of transcribe; waiters block above and
+        // then reuse the returned model. Never wait while holding it.
+        while !try_acquire_engine_load(&self.model_dir) {
+            wait_engine_load(&self.model_dir);
+        }
+        let _owner = EngineLoadGuard(self.model_dir.clone());
         let mut model = {
             let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
@@ -106,88 +114,11 @@ impl EngineProvider for ParakeetOnnxProvider {
                 }
             }
         };
-
         if model.is_none() {
-            if !try_acquire_engine_load(&self.model_dir) {
-                wait_engine_load(&self.model_dir);
-                let retry = {
-                    let mut guard = parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
-                    match guard.as_mut() {
-                        Some(c) if c.dir == self.model_dir && c.last_used.elapsed() < MODEL_TTL => {
-                            c.last_used = Instant::now();
-                            guard.take().map(|c| c.model)
-                        }
-                        _ => None,
-                    }
-                };
-                if let Some(m) = retry {
-                    model = Some(m);
-                } else {
-                    // Become loader if possible, otherwise wait until one finishes.
-                    if !try_acquire_engine_load(&self.model_dir) {
-                        wait_engine_load(&self.model_dir);
-                        let retry2 = {
-                            let mut guard =
-                                parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
-                            match guard.as_mut() {
-                                Some(c)
-                                    if c.dir == self.model_dir
-                                        && c.last_used.elapsed() < MODEL_TTL =>
-                                {
-                                    c.last_used = Instant::now();
-                                    guard.take().map(|c| c.model)
-                                }
-                                _ => None,
-                            }
-                        };
-                        if let Some(m) = retry2 {
-                            model = Some(m);
-                        } else {
-                            // Still no model — acquire and load ourselves.
-                            while !try_acquire_engine_load(&self.model_dir) {
-                                wait_engine_load(&self.model_dir);
-                                let r = {
-                                    let mut guard =
-                                        parakeet_cache().lock().unwrap_or_else(|e| e.into_inner());
-                                    match guard.as_mut() {
-                                        Some(c)
-                                            if c.dir == self.model_dir
-                                                && c.last_used.elapsed() < MODEL_TTL =>
-                                        {
-                                            c.last_used = Instant::now();
-                                            guard.take().map(|c| c.model)
-                                        }
-                                        _ => None,
-                                    }
-                                };
-                                if let Some(m) = r {
-                                    model = Some(m);
-                                    break;
-                                }
-                            }
-                            if model.is_none() {
-                                let _g = EngineLoadGuard(self.model_dir.clone());
-                                let loaded =
-                                    ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                                        .map_err(|e| {
-                                            format!("Failed to load Parakeet ONNX model: {}", e)
-                                        })?;
-                                model = Some(loaded);
-                            }
-                        }
-                    } else {
-                        let _g = EngineLoadGuard(self.model_dir.clone());
-                        let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                            .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
-                        model = Some(loaded);
-                    }
-                }
-            } else {
-                let _g = EngineLoadGuard(self.model_dir.clone());
-                let loaded = ParakeetModel::load(&self.model_dir, &Quantization::Int8)
-                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?;
-                model = Some(loaded);
-            }
+            model = Some(
+                ParakeetModel::load(&self.model_dir, &Quantization::Int8)
+                    .map_err(|e| format!("Failed to load Parakeet ONNX model: {}", e))?,
+            );
         }
 
         let result = model
