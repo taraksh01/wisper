@@ -711,6 +711,7 @@ pub fn run() {
                 });
             }
             if saved_settings.max_history_entries > 0 {
+                let max = saved_settings.max_history_entries as i64;
                 let mode = if saved_settings.keep_recordings
                     && saved_settings.history_retention_mode == "recordings_only"
                 {
@@ -718,10 +719,15 @@ pub fn run() {
                 } else {
                     "both"
                 };
-                let _ = crate::history::HistoryManager::new()
-                    .trim_history(saved_settings.max_history_entries as i64, mode);
+                std::thread::spawn(move || {
+                    let _ = crate::history::HistoryManager::new().trim_history(max, mode);
+                    let _ = crate::history::HistoryManager::new().delete_zero_word_entries();
+                });
+            } else {
+                std::thread::spawn(move || {
+                    let _ = crate::history::HistoryManager::new().delete_zero_word_entries();
+                });
             }
-            let _ = crate::history::HistoryManager::new().delete_zero_word_entries();
 
             if saved_settings.autostart {
                 let _ = app.autolaunch().enable();
