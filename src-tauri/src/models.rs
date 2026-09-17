@@ -34,62 +34,65 @@ pub fn get_models_dir() -> PathBuf {
 }
 
 pub fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
+    // Existence alone passes 0-byte truncated downloads — require non-empty files.
+    let ok = |p: std::path::PathBuf| {
+        std::fs::metadata(&p).map(|m| m.len() > 0).unwrap_or(false)
+    };
+    let f = |n: &str| ok(dir.join(n));
     if name.starts_with("parakeet-") {
-        let has_encoder = dir.join("encoder-model.int8.onnx").exists()
-            || dir.join("encoder-model.onnx").exists()
-            || dir.join("model.onnx").exists();
-        let has_decoder = dir.join("decoder_joint-model.int8.onnx").exists()
-            || dir.join("decoder-model.int8.onnx").exists()
-            || dir.join("model.onnx").exists();
+        let has_encoder = f("encoder-model.int8.onnx")
+            || f("encoder-model.onnx")
+            || f("model.onnx");
+        let has_decoder = f("decoder_joint-model.int8.onnx")
+            || f("decoder-model.int8.onnx")
+            || f("model.onnx");
         return has_encoder
             && has_decoder
-            && (dir.join("vocab.txt").exists()
-                || dir.join("tokens.txt").exists()
-                || dir.join("vocab.json").exists());
+            && (f("vocab.txt") || f("tokens.txt") || f("vocab.json"));
     }
     if name.starts_with("indicconformer-600m-multi") {
-        return dir.join("encoder-model.onnx").exists()
-            && dir.join("encoder-model.onnx.data").exists()
-            && dir.join("ctc_decoder-model.onnx").exists()
-            && dir.join("nemo128.onnx").exists()
-            && dir.join("vocab.txt").exists()
-            && dir.join("language_spans.json").exists();
+        return f("encoder-model.onnx")
+            && f("encoder-model.onnx.data")
+            && f("ctc_decoder-model.onnx")
+            && f("nemo128.onnx")
+            && f("vocab.txt")
+            && f("language_spans.json");
     }
     if name.starts_with("moonshine-tiny-en-int8") || name.starts_with("sherpa-onnx-moonshine-tiny-en") {
-        return dir.join("encode.int8.onnx").exists()
-            && dir.join("cached_decode.int8.onnx").exists()
-            && dir.join("uncached_decode.int8.onnx").exists()
-            && dir.join("tokens.txt").exists();
+        return f("encode.int8.onnx")
+            && f("cached_decode.int8.onnx")
+            && f("uncached_decode.int8.onnx")
+            && f("tokens.txt");
     }
     if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
-        return dir.join("tiny-encoder.onnx").exists()
-            && dir.join("tiny-decoder.onnx").exists()
-            && dir.join("tiny-tokens.txt").exists();
+        return f("tiny-encoder.onnx")
+            && f("tiny-decoder.onnx")
+            && f("tiny-tokens.txt");
     }
     if name.starts_with("whisper-base") || name.starts_with("sherpa-onnx-whisper-base") {
-        return dir.join("base-encoder.onnx").exists()
-            && dir.join("base-decoder.onnx").exists()
-            && dir.join("base-tokens.txt").exists();
+        return f("base-encoder.onnx")
+            && f("base-decoder.onnx")
+            && f("base-tokens.txt");
     }
     if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
-        return dir.join("model.int8.onnx").exists() || dir.join("model.onnx").exists();
+        return f("model.int8.onnx") || f("model.onnx");
     }
     if name.starts_with("qwen3-asr") || name.starts_with("sherpa-onnx-qwen3-asr") {
-        return dir.join("conv_frontend.onnx").exists()
-            && (dir.join("encoder.int8.onnx").exists() || dir.join("encoder.onnx").exists())
-            && (dir.join("decoder.int8.onnx").exists() || dir.join("decoder.onnx").exists())
-            && dir.join("tokenizer").join("vocab.json").exists();
+        return f("conv_frontend.onnx")
+            && (f("encoder.int8.onnx") || f("encoder.onnx"))
+            && (f("decoder.int8.onnx") || f("decoder.onnx"))
+            && ok(dir.join("tokenizer").join("vocab.json"));
     }
     if name.starts_with("whisper-large-v3") {
-        return dir.join("large-v3-encoder.int8.onnx").exists()
-            && dir.join("large-v3-decoder.int8.onnx").exists()
-            && dir.join("large-v3-tokens.txt").exists();
+        return f("large-v3-encoder.int8.onnx")
+            && f("large-v3-decoder.int8.onnx")
+            && f("large-v3-tokens.txt");
     }
     if name.starts_with("indicconformer-120m-") || name == "indicconformer-8lang" {
-        return (dir.join("model.onnx").exists() || dir.join("model.int8.onnx").exists())
-            && (dir.join("tokens.txt").exists() || dir.join("vocab.json").exists());
+        return (f("model.onnx") || f("model.int8.onnx"))
+            && (f("tokens.txt") || f("vocab.json"));
     }
-    if dir.join("model.onnx").exists() || dir.join("encoder_model.onnx").exists() {
+    if f("model.onnx") || f("encoder_model.onnx") {
         return true;
     }
     false
