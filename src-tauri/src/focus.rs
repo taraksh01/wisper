@@ -708,6 +708,18 @@ fn placeholder_origin() -> Option<OriginTarget> {
 }
 
 pub fn capture_origin() -> Option<OriginTarget> {
+    #[cfg(target_os = "windows")]
+    {
+        return capture_windows().or_else(placeholder_origin);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        return capture_origin_unix();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn capture_origin_unix() -> Option<OriginTarget> {
     // Dispatch on the known compositor instead of spawning every backend tool
     // sequentially (~3s worst case when each blocks to timeout).
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
@@ -762,6 +774,111 @@ pub fn capture_origin() -> Option<OriginTarget> {
         return Some(t);
     }
     placeholder_origin()
+}
+
+#[cfg(target_os = "windows")]
+fn capture_windows() -> Option<OriginTarget> {
+    use windows::Win32::Foundation::{CloseHandle, HWND};
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, IsWindow};
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() || !unsafe { IsWindow(hwnd) }.as_bool() {
+        return None;
+    }
+    let mut pid: u32 = 0;
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+            hwnd,
+            Some(&mut pid as *mut u32),
+        )
+    };
+    if pid == 0 {
+        return None;
+    }
+    let mut app_id = String::from("App");
+    if let Ok(h) = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        let mut buf = [0u16; 260];
+        let mut len = buf.len() as u32;
+        if unsafe {
+            QueryFullProcessImageNameW(h, 0, windows::core::PWSTR(buf.as_mut_ptr()), &mut len)
+        }
+        .is_ok()
+        {
+            let path = String::from_utf16_lossy(&buf[..len as usize]);
+            if let Some(stem) = std::path::Path::new(&path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+            {
+                if !stem.is_empty() {
+                    app_id = stem.to_string();
+                }
+            }
+        }
+        let _ = unsafe { CloseHandle(h) };
+    }
+    if app_id.eq_ignore_ascii_case("wisper") {
+        return None;
+    }
+    let mut buf = [0u16; 512];
+    let title = {
+        let n = unsafe { GetWindowTextW(hwnd, &mut buf) };
+        if n > 0 {
+            String::from_utf16_lossy(&buf[..n as usize])
+                .trim()
+                .to_string()
+        } else {
+            String::new()
+        }
+    };
+    if app_id == "App" && title.is_empty() {
+        return None;
+    }
+    let icon_data_url = icon_with_placeholder(&app_id, &title);
+    Some(OriginTarget {
+        backend: "windows".into(),
+        addr: (hwnd.0 as usize).to_string(),
+        app_id,
+        title,
+        icon_data_url,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn parse_hwnd(addr: &str) -> Option<windows::Win32::Foundation::HWND> {
+    use windows::Win32::Foundation::HWND;
+    let n: usize = addr.parse().ok()?;
+    if n == 0 {
+        return None;
+    }
+    Some(HWND(n as *mut std::ffi::c_void))
+}
+
+#[cfg(target_os = "windows")]
+fn focus_windows(target: &OriginTarget) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, IsIconic, IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE,
+    };
+    let hwnd = match parse_hwnd(&target.addr) {
+        Some(h) => h,
+        None => return false,
+    };
+    if !unsafe { IsWindow(hwnd) }.as_bool() {
+        return false;
+    }
+    if unsafe { IsIconic(hwnd) }.as_bool() {
+        unsafe { ShowWindow(hwnd, SW_RESTORE) };
+    }
+    unsafe { SetForegroundWindow(hwnd) };
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_millis(300) {
+        if (unsafe { GetForegroundWindow() }) == hwnd {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    (unsafe { GetForegroundWindow() }) == hwnd
 }
 
 pub fn focus_origin(target: &OriginTarget) -> bool {
@@ -900,6 +1017,8 @@ pub fn focus_origin(target: &OriginTarget) -> bool {
             // Last try: raise via xprop-style (wmctrl without -i already tried)
             false
         }
+        #[cfg(target_os = "windows")]
+        "windows" => focus_windows(target),
         _ => false,
     }
 }
@@ -1029,6 +1148,13 @@ pub fn get_origin_environment() -> OriginEnvironment {
 pub fn is_origin_alive(target: &OriginTarget) -> bool {
     match target.backend.as_str() {
         "placeholder" => false,
+        #[cfg(target_os = "windows")]
+        "windows" => match parse_hwnd(&target.addr) {
+            Some(hwnd) => unsafe {
+                windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd).as_bool()
+            },
+            None => false,
+        },
         "wisper" => {
             let Ok(id) = target.addr.parse::<u64>() else {
                 return true;
