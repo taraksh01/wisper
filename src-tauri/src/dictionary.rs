@@ -625,6 +625,10 @@ pub async fn check_profile_updates() -> Result<Vec<ProfileUpdate>, String> {
             .map_err(|e| e.to_string())?;
         let mut out = Vec::new();
         for p in with_url {
+            // Only https — reject http/file/ftp URLs to block SSRF to local services.
+            if !p.update_url.trim().starts_with("https://") {
+                continue;
+            }
             let text = match client.get(p.update_url.trim()).send() {
                 Ok(r) => match r.text() {
                     Ok(t) => t,
