@@ -1,16 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
-import { Onboarding } from "./components/Onboarding";
 import { GeneralTab } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
-import { ProcessTab } from "./components/ProcessTab";
-import { WordsTab } from "./components/WordsTab";
-import { HistoryTab } from "./components/HistoryTab";
-import { AboutTab } from "./components/AboutTab";
-import { DonateTab } from "./components/DonateTab";
+// Rarely-visited tabs split out so first paint stays small (EngineTab stays
+// eager + mounted-hidden for download progress; GeneralTab is the default tab).
+const Onboarding = lazy(() => import("./components/Onboarding").then((m) => ({ default: m.Onboarding })));
+const ProcessTab = lazy(() => import("./components/ProcessTab").then((m) => ({ default: m.ProcessTab })));
+const WordsTab = lazy(() => import("./components/WordsTab").then((m) => ({ default: m.WordsTab })));
+const HistoryTab = lazy(() => import("./components/HistoryTab").then((m) => ({ default: m.HistoryTab })));
+const AboutTab = lazy(() => import("./components/AboutTab").then((m) => ({ default: m.AboutTab })));
+const DonateTab = lazy(() => import("./components/DonateTab").then((m) => ({ default: m.DonateTab })));
 import { ToastProvider, useToast } from "./components/ToastContext";
 import { storageKey } from "./appConfig";
 import "./styles.css";
@@ -375,7 +377,13 @@ function AppShell() {
     return (
       <>
         <div className={activeTab === "engine" ? "block" : "hidden"}>{engineNode}</div>
-        {other && <div className="block">{other}</div>}
+        {other && (
+          <div className="block">
+            <Suspense fallback={<div className="py-10 text-center text-xs font-mono text-muted">Loading…</div>}>
+              {other}
+            </Suspense>
+          </div>
+        )}
       </>
     );
   };
@@ -383,13 +391,15 @@ function AppShell() {
   return (
     <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex font-sans selection:bg-accent/20`}>
         {!onboarded && settings && (
-          <Onboarding
-            env={pasteEnv}
-            onDone={() => {
-              safeStorageSet(storageKey("onboarded"), "1");
-              setOnboarded(true);
-            }}
-          />
+          <Suspense fallback={null}>
+            <Onboarding
+              env={pasteEnv}
+              onDone={() => {
+                safeStorageSet(storageKey("onboarded"), "1");
+                setOnboarded(true);
+              }}
+            />
+          </Suspense>
         )}
         <Sidebar
           activeTab={activeTab}
