@@ -366,6 +366,7 @@ function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { t
   useEffect(() => {
     let alive = true;
     let raf = 0;
+    let lastPoll = 0;
     // Reset history on device switch so new mic isn't judged by old data
     historyRef.current = [];
     setLevel(0);
@@ -388,13 +389,20 @@ function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { t
         raf = requestAnimationFrame(loop);
         return;
       }
+      // Throttle IPC to ~10Hz — rAF fires at 60fps, the meter is smooth enough at 10Hz
+      const now = performance.now();
+      if (now - lastPoll < 100) {
+        if (alive) raf = requestAnimationFrame(loop);
+        return;
+      }
+      lastPoll = now;
       try {
         const l = await invoke<number>("get_input_level");
         if (alive) {
           const h = historyRef.current;
           h.push(l);
           if (h.length > 30) h.shift();
-          setLevel(l);
+          setLevel((prev) => (prev === l ? prev : l));
           if (previewError) setPreviewError(null);
         }
       } catch (e) {
