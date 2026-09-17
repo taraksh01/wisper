@@ -73,6 +73,12 @@ impl Drop for EngineLoadGuard {
     }
 }
 
+fn inference_threads() -> i32 {
+    std::thread::available_parallelism()
+        .map(|n| n.get().min(8).max(2) as i32)
+        .unwrap_or(2)
+}
+
 fn parakeet_cache() -> &'static Mutex<Option<CachedParakeet>> {
     PARAKEET_CACHE.get_or_init(|| Mutex::new(None))
 }
@@ -573,7 +579,7 @@ impl EngineProvider for SherpaIndicProvider {
             model: Some(model_path.to_string_lossy().to_string()),
         };
         config.model_config.tokens = Some(tokens_path.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
 
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -638,7 +644,7 @@ impl WhisperLargeV3Provider {
         };
         config.model_config.model_type = Some("whisper".to_string());
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -787,7 +793,7 @@ impl EngineProvider for WhisperLargeV3Provider {
                 };
                 config.model_config.model_type = Some("whisper".to_string());
                 config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-                config.model_config.num_threads = 2;
+                config.model_config.num_threads = inference_threads();
                 config.model_config.debug = false;
                 config.model_config.provider = Some("cpu".to_string());
 
@@ -963,7 +969,7 @@ impl EngineProvider for WhisperTinyProvider {
         };
         config.model_config.model_type = Some("whisper".to_string());
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1132,7 +1138,7 @@ impl EngineProvider for WhisperBaseProvider {
         };
         config.model_config.model_type = Some("whisper".to_string());
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1284,7 +1290,7 @@ impl EngineProvider for SenseVoiceProvider {
             use_itn: true,
         };
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1449,7 +1455,7 @@ impl EngineProvider for Qwen3ASRProvider {
             hotwords: None,
         };
         config.model_config.tokens = Some(String::new());
-        config.model_config.num_threads = 4;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
@@ -1643,7 +1649,7 @@ fn build_ort_session(path: &Path) -> Result<ort::session::Session, String> {
     let mut builder = ort::session::Session::builder()
         .map_err(|e| format!("Failed to build ORT session: {}", e))?;
     builder = builder
-        .with_intra_threads(2)
+        .with_intra_threads(inference_threads() as usize)
         .map_err(|e| format!("Failed to set threads: {}", e))?;
     builder
         .commit_from_file(path)
@@ -2113,7 +2119,7 @@ impl EngineProvider for SherpaMoonshineProvider {
             merged_decoder: None,
         };
         config.model_config.tokens = Some(tokens.to_string_lossy().to_string());
-        config.model_config.num_threads = 2;
+        config.model_config.num_threads = inference_threads();
         config.model_config.debug = false;
         config.model_config.provider = Some("cpu".to_string());
         let recognizer = sherpa_onnx::OfflineRecognizer::create(&config).ok_or_else(|| {
