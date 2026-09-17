@@ -307,12 +307,14 @@ impl WordsManager {
         Ok(())
     }
 
-    fn bump_hits(&self, id: i64) {
+    fn bump_hits_many(&self, ids: &[i64]) {
+        if ids.is_empty() {
+            return;
+        }
         let conn = WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = conn.execute(
-            "UPDATE words SET hits = hits + 1 WHERE id = ?1",
-            params![id],
-        );
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("UPDATE words SET hits = hits + 1 WHERE id IN ({})", placeholders);
+        let _ = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
     }
 
     fn known_terms(&self) -> std::collections::HashSet<String> {
@@ -397,6 +399,7 @@ pub fn apply_words(text: &str) -> String {
     let inactive = mgr.inactive_profile_ids();
 
     let mut out = text.to_string();
+    let mut hit_ids: Vec<i64> = Vec::new();
     for entry in &entries {
         if let Some(pid) = entry.profile_id.as_deref() {
             if inactive.contains(pid) {
@@ -461,9 +464,10 @@ pub fn apply_words(text: &str) -> String {
             }
         }
         if matched {
-            mgr.bump_hits(entry.id);
+            hit_ids.push(entry.id);
         }
     }
+    mgr.bump_hits_many(&hit_ids);
     out
 }
 
