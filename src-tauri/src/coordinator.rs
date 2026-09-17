@@ -260,7 +260,16 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
                 .unwrap_or_else(|e| e.into_inner());
             guard = g;
         }
-        SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
+        // Only advance forward — never move the turn backwards or skip over a
+        // newer turn set while we were waiting (timeout recovery). Each seq
+        // value is owned by exactly one pipeline, so cur == my_seq here in the
+        // normal path; otherwise another pipeline already advanced past us.
+        let cur = SEQ_TURN.load(Ordering::Relaxed);
+        if cur == my_seq {
+            SEQ_TURN.store(my_seq + 1, Ordering::Relaxed);
+        } else {
+            eprintln!("[seq] finish_pipeline seq {my_seq} turn already at {cur} — not clobbering");
+        }
         cvar.notify_all();
     }
 }
