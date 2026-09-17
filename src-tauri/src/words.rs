@@ -407,12 +407,15 @@ pub fn apply_words(text: &str) -> String {
         if phrase.is_empty() {
             continue;
         }
-        // Get or build cached regexes for this entry (Arc avoids cloning Regex per word)
+        // Get or build cached regexes for this entry (Arc avoids cloning Regex per word).
+        // Compile outside the lock — Regex::new is expensive and holding the
+        // mutex across it serializes all concurrent transcriptions.
         let regexes: std::sync::Arc<Vec<(Regex, String)>> = {
-            let mut cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
+            let cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
             if let Some(v) = cache.get(&entry.id) {
                 std::sync::Arc::clone(v)
             } else {
+                drop(cache);
                 let mut vec = Vec::new();
                 for form in entry.match_forms() {
                     let escaped = regex::escape(&form);
@@ -433,8 +436,13 @@ pub fn apply_words(text: &str) -> String {
                     }
                 }
                 let arc = std::sync::Arc::new(vec);
-                cache.insert(entry.id, std::sync::Arc::clone(&arc));
-                arc
+                let mut cache = regex_cache().lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(v) = cache.get(&entry.id) {
+                    std::sync::Arc::clone(v)
+                } else {
+                    cache.insert(entry.id, std::sync::Arc::clone(&arc));
+                    arc
+                }
             }
         };
         let mut matched = false;
