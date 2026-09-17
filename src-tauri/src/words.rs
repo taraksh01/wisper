@@ -856,7 +856,10 @@ const COMMON_WORDS: &[&str] = &[
 ];
 
 fn is_common_word(low: &str) -> bool {
-    COMMON_WORDS.contains(&low)
+    static SET: std::sync::OnceLock<std::collections::HashSet<&'static str>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(|| COMMON_WORDS.iter().copied().collect())
+        .contains(low)
 }
 
 #[cfg(test)]

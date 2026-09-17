@@ -339,24 +339,22 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
 
     if let Some((mx, my)) = cursor {
         if let Ok(monitors) = app.available_monitors() {
-            for m in monitors {
+            for m in &monitors {
                 let p = m.position();
                 let s = m.size();
                 if mx >= p.x && mx < p.x + s.width as i32 && my >= p.y && my < p.y + s.height as i32
                 {
-                    return Some(m);
+                    return Some(m.clone());
                 }
             }
             eprintln!(
                 "[overlay] cursor ({},{}) not in any monitor, monitors={:?}",
                 mx,
                 my,
-                app.available_monitors()
-                    .ok()
-                    .map(|v| v
-                        .iter()
-                        .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
-                        .collect::<Vec<_>>())
+                monitors
+                    .iter()
+                    .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
+                    .collect::<Vec<_>>()
             );
         }
     } else {
