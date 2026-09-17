@@ -283,26 +283,68 @@ fn paste_via_clipboard(text: &str, method: &str) -> Result<(), String> {
     } else {
         // Clipboard never confirmed our text; Ctrl+V would paste stale content.
         eprintln!("[paste] clipboard poll timed out after 100ms - falling back to direct typing");
+        // Don't leave our transcript behind in the clipboard.
+        match original_text {
+            Some(orig) => {
+                let _ = clipboard.set_text(orig);
+            }
+            None => {
+                let _ = clipboard.clear();
+            }
+        }
         return type_text_directly(text);
     }
 
     let paste_result = simulate_key_combo(method);
+    if paste_result.is_err() {
+        // Paste never fired — restore immediately instead of leaving the transcript.
+        match original_text {
+            Some(orig) => {
+                let _ = clipboard.set_text(orig);
+            }
+            None => {
+                let _ = clipboard.clear();
+            }
+        }
+        return paste_result;
+    }
 
     let restore_text: Option<String> = original_text.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(100));
+        // Wait for the target app to consume Ctrl+V (100ms raced it and the
+        // app pasted the restored original instead of our text).
+        thread::sleep(Duration::from_millis(500));
+        // Hold CLIPBOARD_LOCK across the gen + content check and the restore
+        // so a concurrent new paste can't slip between check and write (rapid
+        // re-dictation with identical text defeated both guards before).
+        let _guard = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
+            eprintln!("[paste] restore skipped: superseded by newer paste");
             return;
         }
-        let Some(orig) = restore_text else {
-            return;
-        };
-        if let Ok(mut c) = Clipboard::new() {
-            if let Ok(cur) = c.get_text() {
-                if cur == expected {
-                    let _ = c.set_text(orig);
+        match Clipboard::new() {
+            Ok(mut c) => match c.get_text() {
+                Ok(cur) if cur == expected => {
+                    if CLIPBOARD_GEN.load(std::sync::atomic::Ordering::Relaxed) != gen {
+                        eprintln!("[paste] restore skipped: superseded by newer paste");
+                        return;
+                    }
+                    match restore_text {
+                        Some(orig) => {
+                            let _ = c.set_text(orig);
+                            eprintln!("[paste] clipboard original restored");
+                        }
+                        // Original was empty/non-text: clear rather than leak transcript.
+                        None => {
+                            let _ = c.clear();
+                            eprintln!("[paste] clipboard cleared (no original)");
+                        }
+                    }
                 }
-            }
+                Ok(_) => eprintln!("[paste] restore skipped: clipboard changed externally"),
+                Err(e) => eprintln!("[paste] restore skipped: unreadable clipboard ({e})"),
+            },
+            Err(e) => eprintln!("[paste] restore skipped: no clipboard ({e})"),
         }
     });
 
