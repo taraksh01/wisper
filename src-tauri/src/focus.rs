@@ -696,7 +696,56 @@ fn capture_fallback_x11() -> Option<OriginTarget> {
     })
 }
 
+fn placeholder_origin() -> Option<OriginTarget> {
+    // Last resort: always return a placeholder so overlay visibly changes
+    Some(OriginTarget {
+        backend: "placeholder".into(),
+        addr: "placeholder".into(),
+        app_id: "App".into(),
+        title: String::new(),
+        icon_data_url: Some(placeholder_data_url("A")),
+    })
+}
+
 pub fn capture_origin() -> Option<OriginTarget> {
+    // Dispatch on the known compositor instead of spawning every backend tool
+    // sequentially (~3s worst case when each blocks to timeout).
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        return capture_hyprland().or_else(placeholder_origin);
+    }
+    if std::env::var("SWAYSOCK").is_ok() {
+        return capture_sway().or_else(placeholder_origin);
+    }
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_lowercase();
+    let session = crate::paste::detect_session_type();
+    if desktop.contains("gnome") {
+        if let Some(t) = capture_gnome() {
+            return Some(t);
+        }
+        if session == "x11" {
+            if let Some(t) = capture_fallback_x11() {
+                return Some(t);
+            }
+        }
+        return placeholder_origin();
+    }
+    if desktop.contains("kde") {
+        if let Some(t) = capture_kde() {
+            return Some(t);
+        }
+        if session == "x11" {
+            if let Some(t) = capture_fallback_x11() {
+                return Some(t);
+            }
+        }
+        return placeholder_origin();
+    }
+    if session == "x11" {
+        return capture_fallback_x11().or_else(placeholder_origin);
+    }
+    // Unknown Wayland compositor: full chain as before.
     if let Some(t) = capture_hyprland() {
         return Some(t);
     }
@@ -712,14 +761,7 @@ pub fn capture_origin() -> Option<OriginTarget> {
     if let Some(t) = capture_fallback_x11() {
         return Some(t);
     }
-    // Last resort: always return a placeholder so overlay visibly changes
-    Some(OriginTarget {
-        backend: "placeholder".into(),
-        addr: "placeholder".into(),
-        app_id: "App".into(),
-        title: String::new(),
-        icon_data_url: Some(placeholder_data_url("A")),
-    })
+    placeholder_origin()
 }
 
 pub fn focus_origin(target: &OriginTarget) -> bool {
