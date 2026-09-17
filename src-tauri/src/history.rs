@@ -574,8 +574,8 @@ pub fn update_history_entry(
 #[tauri::command]
 pub fn retranscribe_recording(recording_path: String) -> Result<String, String> {
     let validated = validate_recording_path(&recording_path)?;
-    let (samples, sample_rate) =
-        crate::audio::load_wav(validated.to_str().unwrap_or(&recording_path))?;
+    let validated_str = validated.to_str().ok_or("Invalid recording path")?;
+    let (samples, sample_rate) = crate::audio::load_wav(validated_str)?;
 
     // Load the current model from settings
     let settings = crate::settings::AppSettings::load();
@@ -652,7 +652,8 @@ pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
     if !settings.noise_suppression_enabled {
         return std::fs::read(&validated).map_err(|e| format!("Failed to read recording: {}", e));
     }
-    let (samples, sr) = crate::audio::load_wav(validated.to_str().unwrap_or(&recording_path))?;
+    let validated_str = validated.to_str().ok_or("Invalid recording path")?;
+    let (samples, sr) = crate::audio::load_wav(validated_str)?;
     let denoised = crate::audio::suppress_noise(&samples, sr, settings.noise_suppression_level);
     crate::audio::wav_bytes_from_samples(&denoised, sr)
 }
