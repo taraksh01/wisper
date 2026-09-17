@@ -756,7 +756,7 @@ fn transcribe_samples(trimmed: &[f32], sr: u32) -> Result<String, String> {
 }
 
 fn run_pipeline_chunked(
-    remainder: Vec<f32>,
+    mut remainder: Vec<f32>,
     full_for_save: Vec<f32>,
     device_sr: u32,
     cancel: CancelToken,
@@ -779,6 +779,17 @@ fn run_pipeline_chunked(
     let total_len = remainder.len();
     let mut chunk_texts = wait_for_chunk_results(my_gen, chunk_count, 30000);
 
+    // The chunker leaves a 1s overlap at the buffer head for context, so the
+    // remainder starts with a second that the last chunk already transcribed.
+    // Strip it deterministically — the 4-word exact dedup below misses
+    // paraphrased boundaries and duplicated phrases on 30s+ recordings.
+    if chunk_count > 0 && !remainder.is_empty() {
+        let sr = if device_sr == 0 { 16000 } else { device_sr };
+        let overlap = (1.0 * sr as f32) as usize;
+        if remainder.len() > overlap {
+            remainder.drain(..overlap);
+        }
+    }
     if !remainder.is_empty() {
         let sr = if device_sr == 0 { 16000 } else { device_sr };
         if let Some(t) = transcribe_chunk(remainder, sr) {
