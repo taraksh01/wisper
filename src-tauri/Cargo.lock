@@ -7006,7 +7006,7 @@ dependencies = [
 
 [[package]]
 name = "wisper"
-version = "3.3.0-beta.7"
+version = "3.3.0-beta.8"
 dependencies = [
  "arboard",
  "cpal",
