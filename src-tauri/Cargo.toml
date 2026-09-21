@@ -58,3 +58,9 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gd
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 
+# Patched wry: drop malformed custom-scheme tasks instead of aborting across
+# the macOS FFI boundary (upstream tauri-apps/wry#1744, unmerged). Remove once
+# upstream ships the fix.
+[patch.crates-io]
+wry = { git = "https://github.com/taraksh01/wry", branch = "wisper/url-scheme-nil-guard" }
+
