@@ -222,6 +222,12 @@ fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
     let res = whisper_keys::register(&key);
     if res.is_ok() {
         settings::apply(&_app, |s| s.hotkey = key);
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    if !handy_keys::check_accessibility() {
+        let _ = handy_keys::open_accessibility_settings();
+        return Err("Accessibility permission not granted. System Settings has been opened: remove Wisper with minus, re-add it with plus, turn it on, then relaunch the app.".into());
     }
     res
 }
@@ -853,6 +859,11 @@ pub fn run() {
             // Register the global hotkey via whisper-keys (raw input hook:
             // works uniformly across X11/Wayland and every focused app).
             whisper_keys::init(&app.handle());
+            #[cfg(target_os = "macos")]
+            if !handy_keys::check_accessibility() {
+                eprintln!("Accessibility permission not granted: opening System Settings. Remove Wisper with minus, re-add with plus, turn it on, then relaunch.");
+                let _ = handy_keys::open_accessibility_settings();
+            }
             create_overlay(&app.handle());
             let saved = &saved_settings.hotkey;
             if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {
