@@ -145,11 +145,11 @@ jobs:
     # Beta tags only. macOS is in beta verification; stable tags build Linux + Windows.
     if: ${{ (github.event_name == 'push' && contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
     runs-on: macos-latest
-    # Apple Silicon + Intel DMGs. fail-fast false so one arch still ships if the other breaks.
+    # Intel-only for now (Apple Silicon already shipped; re-add aarch64-apple-darwin next beta).
     strategy:
       fail-fast: false
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+        target: [x86_64-apple-darwin]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -187,6 +187,22 @@ jobs:
           [ "$ver" = "$pkg" ] && [ "$ver" = "$cargo" ] || { echo "version drift: tauri=$ver pkg=$pkg cargo=$cargo"; exit 1; }
           if [ "${{ github.event_name }}" = "push" ]; then [ "v$ver" = "${{ github.ref_name }}" ] || { echo "tag ${{ github.ref_name }} != v$ver"; exit 1; }; fi
 
+      - name: Install ONNX Runtime (Intel macOS)
+        # Microsoft ships no x86_64 macOS ONNX Runtime binaries, so ort-sys has
+        # nothing to download. Use the community build and link dynamically,
+        # bundling the dylib into the app Frameworks below.
+        shell: bash
+        run: |
+          ORT_VERSION="1.24.2"
+          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+          tar xzf ort.tgz
+          ORT_DIR="$(pwd)/onnxruntime-osx-x86_64-${ORT_VERSION}"
+          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> $GITHUB_ENV
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> $GITHUB_ENV
+          jq --arg lib "$ORT_DIR/lib/libonnxruntime.${ORT_VERSION}.dylib" \
+            '.bundle.macOS.frameworks = [$lib]' \
+            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+
       - name: Build + release
         uses: tauri-apps/tauri-action@v1
         env:
@@ -197,13 +213,27 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: Wisper v__VERSION__ (macOS beta)
-          releaseBody: "macOS beta - unsigned DMGs below (Apple Silicon and Intel). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
+          releaseBody: "macOS beta - unsigned Intel DMG below (Apple Silicon stays on the previous beta). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
           releaseDraft: true
           prerelease: true
           uploadUpdaterJson: true
           # Beta builds point the in-app updater at the rolling beta feed
           # instead of /latest (which excludes prereleases).
           args: ${{ format('--target {0} --config "{1}/src-tauri/tauri.beta.json"', matrix.target, github.workspace) }}
+
+      - name: Verify dylib bundling
+        shell: bash
+        run: |
+          APP=$(find src-tauri/target -name "*.app" -type d | head -1)
+          ls -la "$APP/Contents/Frameworks/" | grep onnx || true
+          otool -L "$APP/Contents/MacOS/wisper" | grep onnx || true
+          otool -L "$APP/Contents/MacOS/wisper" | grep '@rpath/' | awk '{print $1}' | while read dep; do
+            libname=$(basename "$dep")
+            if [ ! -f "$APP/Contents/Frameworks/$libname" ]; then
+              echo "MISSING: $libname not found in Frameworks/"
+              exit 1
+            fi
+          done
 
   # Republishes this tag's latest.json to a floating `beta` release so
   # installed mac betas (which point at .../releases/download/beta/latest.json)
