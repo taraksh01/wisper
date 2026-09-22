@@ -778,13 +778,14 @@ fn capture_origin_unix() -> Option<OriginTarget> {
 
 #[cfg(target_os = "windows")]
 fn capture_windows() -> Option<OriginTarget> {
-    use windows::Win32::Foundation::{CloseHandle, HWND};
+    use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, IsWindow};
     let hwnd = unsafe { GetForegroundWindow() };
-    if hwnd.0.is_null() || !unsafe { IsWindow(hwnd) }.as_bool() {
+    if hwnd.0.is_null() || !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
         return None;
     }
     let mut pid: u32 = 0;
@@ -802,7 +803,12 @@ fn capture_windows() -> Option<OriginTarget> {
         let mut buf = [0u16; 260];
         let mut len = buf.len() as u32;
         if unsafe {
-            QueryFullProcessImageNameW(h, 0, windows::core::PWSTR(buf.as_mut_ptr()), &mut len)
+            QueryFullProcessImageNameW(
+                h,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            )
         }
         .is_ok()
         {
@@ -866,7 +872,7 @@ fn focus_windows(target: &OriginTarget) -> bool {
         Some(h) => h,
         None => return false,
     };
-    if !unsafe { IsWindow(hwnd) }.as_bool() {
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
         return false;
     }
     if unsafe { IsIconic(hwnd) }.as_bool() {
@@ -1183,7 +1189,7 @@ pub fn is_origin_alive(target: &OriginTarget) -> bool {
         #[cfg(target_os = "windows")]
         "windows" => match parse_hwnd(&target.addr) {
             Some(hwnd) => unsafe {
-                windows::Win32::UI::WindowsAndMessaging::IsWindow(hwnd).as_bool()
+                windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
             },
             None => false,
         },
