@@ -62,7 +62,8 @@ tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-ap
 # NSScreen.visibleFrame for Dock-aware overlay placement.
 objc2 = "0.6"
 objc2-foundation = "0.3"
-objc2-app-kit = "0.3"
+# objc2-core-graphics: NSBitmapImageRep::initWithCGImage for origin icons.
+objc2-app-kit = { version = "0.3", features = ["objc2-core-graphics"] }
 
 # Patched wry: drop malformed custom-scheme tasks instead of aborting across
 # the macOS FFI boundary (upstream tauri-apps/wry#1744, unmerged). Remove once

@@ -740,31 +740,47 @@ fn is_self_app(name: &str, bundle: &str) -> bool {
 /// the initial-letter placeholder.
 #[cfg(target_os = "macos")]
 fn app_icon_data_url(app: &objc2_app_kit::NSRunningApplication) -> Option<String> {
-    let icon = match app.icon() {
-        Some(i) => i,
-        None => {
-            eprintln!("[focus] icon: no NSImage");
-            return None;
+    let icon = app.icon()?;
+    // Render a 64px CGImage and PNG-encode it directly. A full-size
+    // TIFFRepresentation is unusable here: icons backed only by NSISIconImageRep
+    // rasterize to a fixed ~73MB blob, which trips any sane size guard and
+    // leaves the pill without an icon.
+    if let Some(png) = (|| {
+        use objc2::AnyThread;
+        use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
+        use objc2_foundation::{NSPoint, NSRect, NSSize};
+        let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(64.0, 64.0));
+        // SAFETY: rect is a valid local; no context/hints consumed.
+        let cg =
+            unsafe { icon.CGImageForProposedRect_context_hints(&mut rect as *mut _, None, None) }?;
+        let rep = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg);
+        let empty = objc2_foundation::NSDictionary::<
+            objc2_app_kit::NSBitmapImageRepPropertyKey,
+            objc2::runtime::AnyObject,
+        >::new();
+        // SAFETY: PNG type + empty properties is always valid.
+        let data =
+            unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &empty) }?;
+        let v = data.to_vec();
+        (!v.is_empty()).then_some(v)
+    })() {
+        if png.len() <= 256 * 1024 {
+            use base64::Engine as _;
+            return Some(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(&png)
+            ));
         }
-    };
-    let tiff = match icon.TIFFRepresentation() {
-        Some(t) => t.to_vec(),
-        None => {
-            eprintln!("[focus] icon: empty TIFF");
-            return None;
-        }
-    };
-    if tiff.is_empty() || tiff.len() > 4 * 1024 * 1024 {
-        eprintln!("[focus] icon: bad TIFF size {}", tiff.len());
+    }
+    let tiff: Vec<u8> = (|| {
+        icon.TIFFRepresentation()
+            .map(|t| t.to_vec())
+            .filter(|v| !v.is_empty())
+    })()?;
+    if tiff.len() > 4 * 1024 * 1024 {
         return None;
     }
-    let img = match image::load_from_memory(&tiff) {
-        Ok(i) => i,
-        Err(e) => {
-            eprintln!("[focus] icon: TIFF decode failed: {e}");
-            return None;
-        }
-    };
+    let img = image::load_from_memory(&tiff).ok()?;
     let thumb = img.thumbnail(64, 64);
     let mut cursor = std::io::Cursor::new(Vec::new());
     thumb.write_to(&mut cursor, image::ImageFormat::Png).ok()?;
@@ -779,16 +795,42 @@ fn app_icon_data_url(app: &objc2_app_kit::NSRunningApplication) -> Option<String
     ))
 }
 
+/// macOS origin capture, dispatched to the main thread.
+///
+/// `capture_macos` touches AppKit (NSWorkspace, NSRunningApplication.icon,
+/// NSImage TIFFRepresentation), which is only reliable on the main thread.
+/// The coordinator calls from a background thread, where those calls can
+/// return nil and leave the pill without the origin app's icon. Round-trip
+/// through the main event loop with a timeout; on timeout return None so the
+/// existing placeholder fallback applies instead of hanging the hotkey path.
+#[cfg(target_os = "macos")]
+fn capture_macos_on_main() -> Option<OriginTarget> {
+    // Already on the main thread (tests / future direct calls): just run it.
+    if std::thread::current().name() == Some("main") {
+        return capture_macos();
+    }
+    let handle_opt = crate::APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let Some(handle) = handle_opt else {
+        return None;
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = handle.run_on_main_thread(move || {
+        let _ = tx.send(capture_macos());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(2))
+        .ok()
+        .flatten()
+}
+
 #[cfg(target_os = "macos")]
 fn capture_macos() -> Option<OriginTarget> {
     use objc2_app_kit::NSWorkspace;
 
     let front = NSWorkspace::sharedWorkspace().frontmostApplication()?;
     let icon_data_url = app_icon_data_url(&front);
-    eprintln!(
-        "[focus] capture: icon {}",
-        icon_data_url.as_ref().map(|s| s.len()).unwrap_or(0)
-    );
     let name = front
         .localizedName()
         .map(|s| s.to_string())
@@ -798,9 +840,7 @@ fn capture_macos() -> Option<OriginTarget> {
         .map(|s| s.to_string())
         .unwrap_or_default();
     let pid = front.processIdentifier();
-    eprintln!("[focus] capture: frontmost name={name:?} bundle={bundle:?} pid={pid}");
     if pid <= 0 || is_self_app(&name, &bundle) {
-        eprintln!("[focus] capture: skipped (invalid pid or self)");
         return None;
     }
     let app_id = if bundle.is_empty() {
@@ -875,8 +915,46 @@ extern "C" {
         idx: isize,
     ) -> *const std::ffi::c_void;
     fn CFRelease(cf: *const std::ffi::c_void);
-    static kAXWindowsAttribute: *const std::ffi::c_void;
-    static kAXFocusedWindowAttribute: *const std::ffi::c_void;
+    fn AXUIElementPerformAction(
+        element: *const std::ffi::c_void,
+        action: *const std::ffi::c_void,
+    ) -> i32;
+    // NOTE: kAXWindowsAttribute / kAXFocusedWindowAttribute / kAXRaiseAction
+    // are CFSTR macros in Apple's headers, not exported symbols — declaring
+    // them `static` fails to link (ld: symbol(s) not found). Build the
+    // CFStrings at runtime instead.
+    fn CFStringCreateWithCString(
+        alloc: *const std::ffi::c_void,
+        c_str: *const std::ffi::c_char,
+        encoding: u32,
+    ) -> *const std::ffi::c_void;
+    fn GetProcessForPID(pid: i32, psn: *mut ProcessSerialNumber) -> i32;
+    fn SetFrontProcess(psn: *const ProcessSerialNumber) -> i32;
+}
+
+/// Carbon process serial number (two UInt32s). Used by GetProcessForPID /
+/// SetFrontProcess, the synchronous force-focus path for origin refocus.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+#[cfg(target_os = "macos")]
+struct ProcessSerialNumber {
+    high: u32,
+    low: u32,
+}
+
+/// Force the pid's app to the front via Carbon SetFrontProcess. Unlike
+/// NSWorkspace activation requests (ignored for background callers on recent
+/// macOS) this is synchronous. Returns true if the calls reported success;
+/// the caller still polls frontmost for the verdict.
+#[cfg(target_os = "macos")]
+fn set_front_process(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    let mut psn = ProcessSerialNumber::default();
+    // SAFETY: plain FFI, valid out-pointer, synchronous, no callbacks.
+    let ok = unsafe { GetProcessForPID(pid, &mut psn) == 0 && SetFrontProcess(&psn) == 0 };
+    ok
 }
 
 /// AX fallback: mark the app's windows focused directly. Works on recent
@@ -893,14 +971,36 @@ fn ax_focus_window(pid: i32) -> bool {
         if app_el.is_null() {
             return false;
         }
+        // kCFStringEncodingUTF8; a NULL allocator means the default allocator.
+        const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+        let attr_windows =
+            CFStringCreateWithCString(null(), c"AXWindows".as_ptr(), K_CF_STRING_ENCODING_UTF8);
+        let attr_focused = CFStringCreateWithCString(
+            null(),
+            c"AXFocusedWindow".as_ptr(),
+            K_CF_STRING_ENCODING_UTF8,
+        );
+        // kAXRaiseAction is likewise a CFSTR macro. Raising (unlike just
+        // setting the focused window) also activates the owning app, which is
+        // what the frontmost verdict poll below needs on recent macOS where
+        // background NSWorkspace activation is restricted.
+        let attr_raise =
+            CFStringCreateWithCString(null(), c"AXRaise".as_ptr(), K_CF_STRING_ENCODING_UTF8);
+        if attr_windows.is_null() || attr_focused.is_null() || attr_raise.is_null() {
+            CFRelease(app_el);
+            return false;
+        }
         let mut windows: *const c_void = null();
-        let err = AXUIElementCopyAttributeValue(app_el, kAXWindowsAttribute, &mut windows);
+        let err = AXUIElementCopyAttributeValue(app_el, attr_windows, &mut windows);
         if err == -25211 {
             eprintln!(
                 "[focus] AX API disabled — grant Accessibility to this exact binary, then relaunch"
             );
         }
         if err != 0 || windows.is_null() {
+            CFRelease(attr_windows);
+            CFRelease(attr_focused);
+            CFRelease(attr_raise);
             CFRelease(app_el);
             return false;
         }
@@ -908,9 +1008,15 @@ fn ax_focus_window(pid: i32) -> bool {
         for i in 0..count {
             let win = CFArrayGetValueAtIndex(windows, i);
             if !win.is_null() {
-                AXUIElementSetAttributeValue(app_el, kAXFocusedWindowAttribute, win);
+                AXUIElementSetAttributeValue(app_el, attr_focused, win);
+                // Best effort: ignored errors surface as a failed frontmost
+                // verdict below, which the caller already handles.
+                let _ = AXUIElementPerformAction(win, attr_raise);
             }
         }
+        CFRelease(attr_windows);
+        CFRelease(attr_focused);
+        CFRelease(attr_raise);
         CFRelease(windows);
         CFRelease(app_el);
         true
@@ -951,6 +1057,21 @@ fn focus_macos(target: &OriginTarget) -> bool {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    // Mid path: Carbon SetFrontProcess is synchronous and forceful where the
+    // NSWorkspace request above is ignored for background callers.
+    if set_front_process(pid) {
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_millis(800) {
+            if ws
+                .frontmostApplication()
+                .map(|f| f.processIdentifier() == pid)
+                .unwrap_or(false)
+            {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
     // Slow path: AX window focus (recent macOS restricts background
     // activation; the Accessibility grant covers this).
     if !ax_focus_window(pid) {
@@ -976,7 +1097,7 @@ fn focus_macos(target: &OriginTarget) -> bool {
 pub fn capture_origin() -> Option<OriginTarget> {
     #[cfg(target_os = "macos")]
     {
-        return capture_macos().or_else(placeholder_origin);
+        return capture_macos_on_main().or_else(placeholder_origin);
     }
     #[cfg(target_os = "windows")]
     {
