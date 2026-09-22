@@ -1000,8 +1000,12 @@ fn finalize_transcription(
                 } else if !crate::focus::focus_origin(target) {
                     if crate::focus::is_origin_alive(target) {
                         eprintln!("[focus] activate failed but alive {:?}", target.addr);
-                        #[cfg(any(target_os = "windows", target_os = "macos"))]
+                        #[cfg(target_os = "windows")]
                         thread::sleep(std::time::Duration::from_millis(150));
+                        // macOS: activation can land late (VM window server); give
+                        // the key window a moment to settle before keystrokes.
+                        #[cfg(target_os = "macos")]
+                        thread::sleep(std::time::Duration::from_millis(300));
                         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
                         thread::sleep(std::time::Duration::from_millis(30));
                     } else {
@@ -1013,8 +1017,12 @@ fn finalize_transcription(
                         skip_paste = true;
                     }
                 } else {
-                    #[cfg(any(target_os = "windows", target_os = "macos"))]
+                    #[cfg(target_os = "windows")]
                     thread::sleep(std::time::Duration::from_millis(150));
+                    // macOS: let the activation animation finish so the first
+                    // keystrokes land in the origin window, not the old one.
+                    #[cfg(target_os = "macos")]
+                    thread::sleep(std::time::Duration::from_millis(300));
                     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
                     thread::sleep(std::time::Duration::from_millis(30));
                 }
