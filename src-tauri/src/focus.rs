@@ -765,6 +765,10 @@ fn capture_macos() -> Option<OriginTarget> {
 
     let front = NSWorkspace::sharedWorkspace().frontmostApplication()?;
     let icon_data_url = app_icon_data_url(&front);
+    eprintln!(
+        "[focus] capture: icon {}",
+        icon_data_url.as_ref().map(|s| s.len()).unwrap_or(0)
+    );
     let name = front
         .localizedName()
         .map(|s| s.to_string())
