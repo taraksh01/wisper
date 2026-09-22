@@ -197,25 +197,27 @@ pub fn refresh_with(settings: &settings::AppSettings) {
 pub fn build_tray(app: &tauri::AppHandle) -> Result<tauri::tray::TrayIcon, tauri::Error> {
     *APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner()) = Some(app.clone());
 
-    let dev_icon: Option<tauri::image::Image<'static>> = if app_info::is_dev() {
-        let bytes = include_bytes!("../icons/dev/icon.png");
+    let flavour_icon: Option<tauri::image::Image<'static>> = {
+        let bytes: &[u8] = if app_info::is_dev() {
+            include_bytes!("../icons/dev/icon.png")
+        } else {
+            include_bytes!("../icons/icon.png")
+        };
         match tauri::image::Image::from_bytes(bytes) {
             Ok(icon) => Some(icon),
             Err(e) => {
-                eprintln!("[dev] Image::from_bytes failed: {}", e);
+                eprintln!("Image::from_bytes failed: {}", e);
                 None
             }
         }
-    } else {
-        None
     };
 
-    if let Some(dev_icon) = dev_icon.clone() {
+    if let Some(icon) = flavour_icon.clone() {
         if let Some(win) = app.get_webview_window("main") {
-            let _ = win.set_icon(dev_icon.clone());
+            let _ = win.set_icon(icon);
         }
     }
-    let tray_icon = dev_icon
+    let tray_icon = flavour_icon
         .or_else(|| app.default_window_icon().cloned())
         .unwrap_or_else(|| {
             eprintln!("no tray icon available, using fallback");
