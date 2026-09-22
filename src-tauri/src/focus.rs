@@ -774,7 +774,9 @@ fn capture_macos() -> Option<OriginTarget> {
         .map(|s| s.to_string())
         .unwrap_or_default();
     let pid = front.processIdentifier();
+    eprintln!("[focus] capture: frontmost name={name:?} bundle={bundle:?} pid={pid}");
     if pid <= 0 || is_self_app(&name, &bundle) {
+        eprintln!("[focus] capture: skipped (invalid pid or self)");
         return None;
     }
     let app_id = if bundle.is_empty() {
