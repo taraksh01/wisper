@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "windows"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -792,14 +794,14 @@ fn capture_origin_unix() -> Option<OriginTarget> {
 
 #[cfg(target_os = "windows")]
 fn windows_icon_data_url(hwnd: windows::Win32::Foundation::HWND) -> Option<String> {
-    use windows::Win32::Foundation::{HICON, WPARAM};
+    use windows::Win32::Foundation::WPARAM;
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
         ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         DrawIconEx, GetClassLongPtrW, GetSystemMetrics, SendMessageW, DI_NORMAL, GCLP_HICON,
-        GCLP_HICONSM, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CYICON, WM_GETICON,
+        GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CYICON, WM_GETICON,
     };
 
     let hicon = unsafe {
@@ -837,7 +839,7 @@ fn windows_icon_data_url(hwnd: windows::Win32::Foundation::HWND) -> Option<Strin
         if screen.is_invalid() {
             return None;
         }
-        let mem = CreateCompatibleDC(screen);
+        let mem = CreateCompatibleDC(Some(screen));
         if mem.is_invalid() {
             ReleaseDC(None, screen);
             return None;
