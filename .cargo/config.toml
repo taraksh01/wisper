@@ -1,0 +1,9 @@
+# Windows MSVC: a native dependency pulls in static-CRT objects (LIBCMT)
+# while the final binary links the dynamic CRT, producing LNK4098.
+# Excluding the conflicting default lib is Microsoft's prescribed fix and
+# only silences the warning — no code or dependency changes.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/NODEFAULTLIB:LIBCMT"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/NODEFAULTLIB:LIBCMT"]
