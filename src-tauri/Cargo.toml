@@ -57,6 +57,10 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gd
 # the overlay pill needs it (see app.macosPrivateApi in tauri.conf.json).
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+# NSScreen.visibleFrame for Dock-aware overlay placement.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
 
 # Patched wry: drop malformed custom-scheme tasks instead of aborting across
 # the macOS FFI boundary (upstream tauri-apps/wry#1744, unmerged). Remove once

@@ -456,6 +456,49 @@ fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32
     Some((r.left, r.top, r.right, r.bottom))
 }
 
+/// macOS visible work area for the screen under the cursor, as
+/// (x, y, w, h) in logical pixels with a top-left origin. Uses
+/// NSScreen.visibleFrame, so the pill clears the menu bar and the Dock
+/// wherever the user put it (bottom/top/left/right, hidden or shown).
+/// Returns None off the main thread or when AppKit is unreachable — the
+/// caller falls back to the full monitor frame.
+#[cfg(target_os = "macos")]
+fn macos_visible_area_for_cursor() -> Option<(f64, f64, f64, f64)> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSEvent, NSScreen};
+
+    let mtm = MainThreadMarker::new()?;
+    let screens = NSScreen::screens(mtm);
+    if screens.is_empty() {
+        return None;
+    }
+    // Cocoa y grows upward: find the global top edge across all screens so
+    // per-screen rects convert to the top-left-origin space set_position uses.
+    let mut global_top = f64::NEG_INFINITY;
+    for screen in screens.iter() {
+        let f = screen.frame();
+        global_top = global_top.max(f.origin.y + f.size.height);
+    }
+    let mouse = NSEvent::mouseLocation();
+    for screen in screens.iter() {
+        let f = screen.frame();
+        if mouse.x < f.origin.x
+            || mouse.x > f.origin.x + f.size.width
+            || mouse.y < f.origin.y
+            || mouse.y > f.origin.y + f.size.height
+        {
+            continue;
+        }
+        let v = screen.visibleFrame();
+        if v.size.width <= 0.0 || v.size.height <= 0.0 {
+            return None;
+        }
+        let vis_top = v.origin.y + v.size.height;
+        return Some((v.origin.x, global_top - vis_top, v.size.width, v.size.height));
+    }
+    None
+}
+
 /// Computes the overlay's (x, y) logical position for a window of the given
 /// size. When `prefer_cache` is true it reuses the last recording position (so
 /// an error/recreated window stays put); otherwise it tracks the live cursor
@@ -503,7 +546,17 @@ fn overlay_pos_for(
             monitor.size().height as f64 / scale,
         ),
     };
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let (mx, my, mw, mh) = match macos_visible_area_for_cursor() {
+        Some(r) => r,
+        None => (
+            monitor.position().x as f64 / scale,
+            monitor.position().y as f64 / scale,
+            monitor.size().width as f64 / scale,
+            monitor.size().height as f64 / scale,
+        ),
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let (mx, my, mw, mh) = (
         monitor.position().x as f64 / scale,
         monitor.position().y as f64 / scale,
