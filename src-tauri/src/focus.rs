@@ -740,11 +740,31 @@ fn is_self_app(name: &str, bundle: &str) -> bool {
 /// the initial-letter placeholder.
 #[cfg(target_os = "macos")]
 fn app_icon_data_url(app: &objc2_app_kit::NSRunningApplication) -> Option<String> {
-    let tiff = app.icon()?.TIFFRepresentation()?.to_vec();
+    let icon = match app.icon() {
+        Some(i) => i,
+        None => {
+            eprintln!("[focus] icon: no NSImage");
+            return None;
+        }
+    };
+    let tiff = match icon.TIFFRepresentation() {
+        Some(t) => t.to_vec(),
+        None => {
+            eprintln!("[focus] icon: empty TIFF");
+            return None;
+        }
+    };
     if tiff.is_empty() || tiff.len() > 4 * 1024 * 1024 {
+        eprintln!("[focus] icon: bad TIFF size {}", tiff.len());
         return None;
     }
-    let img = image::load_from_memory(&tiff).ok()?;
+    let img = match image::load_from_memory(&tiff) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("[focus] icon: TIFF decode failed: {e}");
+            return None;
+        }
+    };
     let thumb = img.thumbnail(64, 64);
     let mut cursor = std::io::Cursor::new(Vec::new());
     thumb.write_to(&mut cursor, image::ImageFormat::Png).ok()?;
@@ -835,6 +855,68 @@ fn is_macos_alive(target: &OriginTarget) -> bool {
     id_now == target.app_id
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXUIElementCreateApplication(pid: i32) -> *const std::ffi::c_void;
+    fn AXUIElementCopyAttributeValue(
+        element: *const std::ffi::c_void,
+        attribute: *const std::ffi::c_void,
+        value: *mut *const std::ffi::c_void,
+    ) -> i32;
+    fn AXUIElementSetAttributeValue(
+        element: *const std::ffi::c_void,
+        attribute: *const std::ffi::c_void,
+        value: *const std::ffi::c_void,
+    );
+    fn CFArrayGetCount(array: *const std::ffi::c_void) -> isize;
+    fn CFArrayGetValueAtIndex(
+        array: *const std::ffi::c_void,
+        idx: isize,
+    ) -> *const std::ffi::c_void;
+    fn CFRelease(cf: *const std::ffi::c_void);
+    static kAXWindowsAttribute: *const std::ffi::c_void;
+    static kAXFocusedWindowAttribute: *const std::ffi::c_void;
+}
+
+/// AX fallback: mark the app's windows focused directly. Works on recent
+/// macOS where background NSWorkspace activation is restricted, using the
+/// Accessibility grant hotkeys already need. Returns true if the attempt
+/// was issued (the caller polls frontmost for the verdict).
+#[cfg(target_os = "macos")]
+fn ax_focus_window(pid: i32) -> bool {
+    use std::ffi::c_void;
+    use std::ptr::null;
+
+    unsafe {
+        let app_el = AXUIElementCreateApplication(pid);
+        if app_el.is_null() {
+            return false;
+        }
+        let mut windows: *const c_void = null();
+        let err = AXUIElementCopyAttributeValue(app_el, kAXWindowsAttribute, &mut windows);
+        if err == -25211 {
+            eprintln!(
+                "[focus] AX API disabled — grant Accessibility to this exact binary, then relaunch"
+            );
+        }
+        if err != 0 || windows.is_null() {
+            CFRelease(app_el);
+            return false;
+        }
+        let count = CFArrayGetCount(windows).min(16);
+        for i in 0..count {
+            let win = CFArrayGetValueAtIndex(windows, i);
+            if !win.is_null() {
+                AXUIElementSetAttributeValue(app_el, kAXFocusedWindowAttribute, win);
+            }
+        }
+        CFRelease(windows);
+        CFRelease(app_el);
+        true
+    }
+}
+
 /// Refocus the origin app. Returns true once it is frontmost again.
 // IgnoringOtherApps is deprecated (no-op) on macOS 14+, but still honored on
 // Ventura and older, so keep it and silence the warning.
@@ -857,6 +939,23 @@ fn focus_macos(target: &OriginTarget) -> bool {
             | NSApplicationActivationOptions::ActivateIgnoringOtherApps,
     );
     let ws = NSWorkspace::sharedWorkspace();
+    // Fast path: plain activation (works when the system allows it).
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_millis(150) {
+        if ws
+            .frontmostApplication()
+            .map(|f| f.processIdentifier() == pid)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Slow path: AX window focus (recent macOS restricts background
+    // activation; the Accessibility grant covers this).
+    if !ax_focus_window(pid) {
+        return false;
+    }
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_millis(500) {
         if ws
