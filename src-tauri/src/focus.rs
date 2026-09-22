@@ -857,8 +857,10 @@ fn parse_hwnd(addr: &str) -> Option<windows::Win32::Foundation::HWND> {
 
 #[cfg(target_os = "windows")]
 fn focus_windows(target: &OriginTarget) -> bool {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, IsIconic, IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, IsWindow,
+        SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
     };
     let hwnd = match parse_hwnd(&target.addr) {
         Some(h) => h,
@@ -870,9 +872,39 @@ fn focus_windows(target: &OriginTarget) -> bool {
     if unsafe { IsIconic(hwnd) }.as_bool() {
         unsafe { ShowWindow(hwnd, SW_RESTORE) };
     }
+    if (unsafe { GetForegroundWindow() }) == hwnd {
+        return true;
+    }
+    // Background apps cannot steal foreground with a bare SetForegroundWindow
+    // call (foreground lock) — attach our input to the foreground thread and
+    // the target thread first, then bring the target on top.
+    let our_tid = unsafe { GetCurrentThreadId() };
+    let target_tid = unsafe { GetWindowThreadProcessId(hwnd, None) };
+    let fore_hwnd = unsafe { GetForegroundWindow() };
+    let fore_tid = if fore_hwnd.0.is_null() {
+        0
+    } else {
+        unsafe { GetWindowThreadProcessId(fore_hwnd, None) }
+    };
+    let attached_fore = fore_tid != 0
+        && fore_tid != our_tid
+        && unsafe { AttachThreadInput(fore_tid, our_tid, true) }.as_bool();
+    let attached_target = target_tid != 0
+        && target_tid != our_tid
+        && unsafe { AttachThreadInput(our_tid, target_tid, true) }.as_bool();
+    let _ = unsafe { BringWindowToTop(hwnd) };
+    unsafe { ShowWindow(hwnd, SW_SHOW) };
+    unsafe { SetForegroundWindow(hwnd) };
+    if attached_target {
+        unsafe { AttachThreadInput(our_tid, target_tid, false) };
+    }
+    if attached_fore {
+        unsafe { AttachThreadInput(fore_tid, our_tid, false) };
+    }
+    // Second attempt once detached — the lock is often granted on retry.
     unsafe { SetForegroundWindow(hwnd) };
     let start = std::time::Instant::now();
-    while start.elapsed() < Duration::from_millis(300) {
+    while start.elapsed() < Duration::from_millis(500) {
         if (unsafe { GetForegroundWindow() }) == hwnd {
             return true;
         }
