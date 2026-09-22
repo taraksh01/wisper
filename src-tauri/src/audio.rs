@@ -11,6 +11,26 @@ pub fn was_capped_and_reset() -> bool {
     AUDIO_CAP_WARNED.swap(false, Ordering::Relaxed)
 }
 
+/// Infallible device label. cpal's `Display for Device` returns
+/// `Err(fmt::Error)` when the underlying description query fails (e.g.
+/// mic-permission-gated CoreAudio), so `to_string()` on a Device panics —
+/// fatally inside wry's `extern "C"` scheme-handler frame. Same query as
+/// Display, but through `Result`, degrading to the stable id instead.
+fn device_label(d: &cpal::Device) -> String {
+    d.description()
+        .ok()
+        .map(|dd| {
+            dd.name()
+                .lines()
+                .next()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default()
+        })
+        .filter(|s| !s.is_empty())
+        .or_else(|| d.id().ok().map(|i| i.to_string()))
+        .unwrap_or_default()
+}
+
 /// List available audio input devices as (stable id, display name) pairs.
 /// ALSA exposes the same physical microphone under many PCM nodes (hw/plughw/
 /// sysdefault/front/dsnoop) and even under both its numeric and named card id,
@@ -29,7 +49,7 @@ pub fn list_input_devices() -> Vec<(String, String)> {
         };
         let mut out = Vec::new();
         for d in devices {
-            let raw_name = d.to_string();
+            let raw_name = device_label(&d);
             if raw_name.is_empty() {
                 continue;
             }
@@ -113,7 +133,7 @@ pub fn list_input_devices() -> Vec<(String, String)> {
             continue;
         };
         for d in devices {
-            let raw_name = d.to_string();
+            let raw_name = device_label(&d);
             if raw_name.is_empty() {
                 continue;
             }
@@ -184,7 +204,7 @@ fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
                 if let Ok(mut devices) = host.input_devices() {
                     if let Some(d) = devices.find(|d| {
                         let did = d.id().ok().map(|i| i.to_string()).unwrap_or_default();
-                        let dname = d.to_string();
+                        let dname = device_label(d);
                         did.contains(id)
                             || dname.contains(id)
                             || id.contains(&did)
@@ -203,7 +223,7 @@ fn resolve_device(device: Option<&str>) -> Result<cpal::Device, String> {
             if let Ok(mut devices) = host.input_devices() {
                 if let Some(d) = devices.find(|d| {
                     let did = d.id().ok().map(|i| i.to_string()).unwrap_or_default();
-                    let dname = d.to_string();
+                    let dname = device_label(d);
                     did.contains(id)
                         || dname.contains(id)
                         || id.contains(&did)
@@ -360,7 +380,7 @@ impl AudioRecorder {
             .id()
             .ok()
             .map(|i| i.to_string())
-            .unwrap_or_else(|| resolved.to_string());
+            .unwrap_or_else(|| device_label(&resolved));
         {
             let cur_dev = self
                 .preview_device
