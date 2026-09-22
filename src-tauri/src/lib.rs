@@ -281,6 +281,12 @@ const OVERLAY_LABEL: &str = "wisper-overlay";
 const OVERLAY_WIDTH: f64 = 172.0;
 const OVERLAY_HEIGHT: f64 = 60.0;
 const OVERLAY_TOP_OFFSET: f64 = 0.0;
+// macOS reports the full display frame (menu bar + Dock included), so the
+// pill needs a margin to clear the Dock. Windows anchors to the work area
+// already, other platforms keep the previous flush placement.
+#[cfg(target_os = "macos")]
+const OVERLAY_BOTTOM_OFFSET: f64 = 12.0;
+#[cfg(not(target_os = "macos"))]
 const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 
 #[cfg(target_os = "linux")]
@@ -378,7 +384,10 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
     if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
-    let pos = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT);
+    let scale = monitor_with_cursor(app)
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
+    let pos = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT, scale);
     let mut builder =
         tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
             .title(crate::app_info::display_name())
@@ -453,12 +462,15 @@ fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32
 /// monitor and caches the result so the error state can reuse it. `win_w`/
 /// `win_h` are the window's ACTUAL size (read from the live window) so the
 /// bottom-center math stays correct even if the HTML/content size differs from
-/// the `OVERLAY_*` constants.
+/// the `OVERLAY_*` constants. `scale` must be the WINDOW's scale factor (not
+/// the monitor's, which can disagree in VMs) so the rect and the position
+/// share one coordinate space; the result is clamped into the monitor.
 fn overlay_pos_for(
     app: &tauri::AppHandle,
     prefer_cache: bool,
     win_w: f64,
     win_h: f64,
+    scale: f64,
 ) -> Option<(f64, f64)> {
     let top = *OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner()) == "top";
     let cached = LAST_OVERLAY_POS
@@ -470,7 +482,11 @@ fn overlay_pos_for(
         return Some(p);
     }
     let monitor = monitor_with_cursor(app)?;
-    let scale = monitor.scale_factor();
+    let scale = if scale > 0.0 {
+        scale
+    } else {
+        monitor.scale_factor()
+    };
     // Windows: anchor to the work area so the pill clears the taskbar.
     #[cfg(target_os = "windows")]
     let (mx, my, mw, mh) = match windows_work_area_for_cursor(app) {
@@ -500,6 +516,10 @@ fn overlay_pos_for(
     } else {
         my + mh - win_h - OVERLAY_BOTTOM_OFFSET
     };
+    // Never place the pill off-screen: a stale cache or a scale mismatch
+    // between monitor and window would otherwise push it below the display.
+    let x = x.clamp(mx, (mx + mw - win_w).max(mx));
+    let y = y.clamp(my, (my + mh - win_h).max(my));
     let p = (x, y);
     if !prefer_cache {
         *LAST_OVERLAY_POS
@@ -536,7 +556,7 @@ fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_c
         }
         Err(_) => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
     };
-    if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h) {
+    if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h, scale) {
         let _ = win.set_position(tauri::LogicalPosition::new(x, y));
     }
 }
