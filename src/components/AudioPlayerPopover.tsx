@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type CSSProperties } from "react";
 import { Button } from "./ui/Button";
 import { IconStop, IconPlay, IconPause } from "./ui/icons";
 
@@ -170,7 +170,8 @@ export function AudioPlayerPopover({
               step={0.25}
               value={speed}
               onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
-              className="w-[72px] accent-accent cursor-pointer"
+              className="w-[72px] slider-accent cursor-pointer"
+              style={{ "--slider-fill": `${((speed - 0.5) / 2) * 100}%` } as CSSProperties}
               aria-label="Playback speed"
             />
           </div>

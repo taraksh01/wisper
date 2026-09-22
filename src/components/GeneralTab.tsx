@@ -1,5 +1,5 @@
 import { IconGeneral, IconKeyboard } from "./ui/icons";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -637,7 +637,8 @@ function VadThresholdControl({ threshold, onChange, inputDevice, disabled }: { t
           step="0.01"
           value={threshold}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="flex-1 accent-accent"
+          className="flex-1 slider-accent"
+          style={{ "--slider-fill": `${threshold * 100}%` } as CSSProperties}
           aria-label="VAD threshold"
           disabled={disabled}
           title={disabled ? "Enable Trim silence to adjust cutoff" : undefined}
@@ -990,7 +991,8 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
                 step={0.05}
                 value={settings.noise_suppression_level}
                 onChange={(e) => onSave("noise_suppression_level", parseFloat(e.target.value))}
-                className="flex-1 accent-accent"
+                className="flex-1 slider-accent"
+                style={{ "--slider-fill": `${settings.noise_suppression_level * 100}%` } as CSSProperties}
                 aria-label="Noise suppression strength"
               />
               <span className="text-[10px] font-mono text-muted">Aggressive</span>
