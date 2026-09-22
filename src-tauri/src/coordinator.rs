@@ -1000,6 +1000,9 @@ fn finalize_transcription(
                 } else if !crate::focus::focus_origin(target) {
                     if crate::focus::is_origin_alive(target) {
                         eprintln!("[focus] activate failed but alive {:?}", target.addr);
+                        #[cfg(target_os = "windows")]
+                        thread::sleep(std::time::Duration::from_millis(150));
+                        #[cfg(not(target_os = "windows"))]
                         thread::sleep(std::time::Duration::from_millis(30));
                     } else {
                         eprintln!("[focus] origin gone: {:?}", target.addr);
@@ -1010,6 +1013,9 @@ fn finalize_transcription(
                         skip_paste = true;
                     }
                 } else {
+                    #[cfg(target_os = "windows")]
+                    thread::sleep(std::time::Duration::from_millis(150));
+                    #[cfg(not(target_os = "windows"))]
                     thread::sleep(std::time::Duration::from_millis(30));
                 }
             }

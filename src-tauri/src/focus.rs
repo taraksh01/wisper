@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "windows"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -109,6 +111,7 @@ fn placeholder_data_url(label: &str) -> String {
 }
 
 fn icon_with_placeholder(app_id: &str, title: &str) -> Option<String> {
+    #[cfg(not(target_os = "windows"))]
     if let Some(url) = resolve_icon_data_url(app_id) {
         return Some(url);
     }
@@ -122,6 +125,7 @@ fn icon_with_placeholder(app_id: &str, title: &str) -> Option<String> {
     Some(placeholder_data_url(label))
 }
 
+#[cfg(not(target_os = "windows"))]
 fn resolve_icon_data_url(app_id: &str) -> Option<String> {
     if app_id.trim().is_empty() {
         return None;
@@ -159,6 +163,7 @@ fn resolve_icon_data_url(app_id: &str) -> Option<String> {
     Some(format!("data:{mime};base64,{b64}"))
 }
 
+#[cfg(not(target_os = "windows"))]
 fn find_icon_for_app_id(app_id: &str) -> Option<String> {
     let lower = app_id.to_lowercase();
     let mut search_dirs: Vec<PathBuf> = Vec::new();
@@ -219,6 +224,7 @@ fn find_icon_for_app_id(app_id: &str) -> Option<String> {
     Some(app_id.to_string())
 }
 
+#[cfg(not(target_os = "windows"))]
 fn read_desktop_icon(path: &Path) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     for line in content.lines() {
@@ -233,6 +239,7 @@ fn read_desktop_icon(path: &Path) -> Option<String> {
     None
 }
 
+#[cfg(not(target_os = "windows"))]
 fn read_desktop_match(path: &Path, lower_app_id: &str) -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let mut wm_class: Option<String> = None;
@@ -257,6 +264,7 @@ fn read_desktop_match(path: &Path, lower_app_id: &str) -> Option<String> {
     None
 }
 
+#[cfg(not(target_os = "windows"))]
 fn resolve_icon_path(icon: &str) -> Option<PathBuf> {
     if icon.starts_with('/') {
         let p = PathBuf::from(icon);
@@ -341,6 +349,7 @@ fn resolve_icon_path(icon: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(not(target_os = "windows"))]
 fn capture_hyprland() -> Option<OriginTarget> {
     let out = run_cmd_output(
         "hyprctl",
@@ -386,6 +395,7 @@ fn capture_hyprland() -> Option<OriginTarget> {
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn find_focused_sway(node: &serde_json::Value) -> Option<(String, String, String)> {
     if node.get("focused").and_then(|v| v.as_bool()) == Some(true) {
         let id = node
@@ -428,6 +438,7 @@ fn find_focused_sway(node: &serde_json::Value) -> Option<(String, String, String
     None
 }
 
+#[cfg(not(target_os = "windows"))]
 fn capture_sway() -> Option<OriginTarget> {
     let out = run_cmd_output("swaymsg", &["-t", "get_tree"], Duration::from_millis(400))?;
     let v: serde_json::Value = serde_json::from_str(&out).ok()?;
@@ -445,6 +456,7 @@ fn capture_sway() -> Option<OriginTarget> {
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn parse_gdbus_eval_output(out: &str) -> Option<String> {
     // gdbus Eval returns: (true, '"Firefox"') or (true, '""')
     // Extract inner quoted string
@@ -462,6 +474,7 @@ fn parse_gdbus_eval_output(out: &str) -> Option<String> {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 fn capture_wisper_windows() -> Option<OriginTarget> {
     let out = run_cmd_output(
         "gdbus",
@@ -542,6 +555,7 @@ fn capture_wisper_windows() -> Option<OriginTarget> {
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn capture_gnome() -> Option<OriginTarget> {
     // Prefer WisperWindows extension (reliable on Wayland, no Eval block)
     if let Some(t) = capture_wisper_windows() {
@@ -598,6 +612,7 @@ fn capture_gnome() -> Option<OriginTarget> {
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn capture_kde() -> Option<OriginTarget> {
     let out = run_cmd_output(
         "qdbus",
@@ -654,6 +669,7 @@ fn capture_kde() -> Option<OriginTarget> {
     })
 }
 
+#[cfg(not(target_os = "windows"))]
 fn capture_fallback_x11() -> Option<OriginTarget> {
     let win = run_cmd_output(
         "xprop",
@@ -708,6 +724,18 @@ fn placeholder_origin() -> Option<OriginTarget> {
 }
 
 pub fn capture_origin() -> Option<OriginTarget> {
+    #[cfg(target_os = "windows")]
+    {
+        return capture_windows().or_else(placeholder_origin);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        return capture_origin_unix();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn capture_origin_unix() -> Option<OriginTarget> {
     // Dispatch on the known compositor instead of spawning every backend tool
     // sequentially (~3s worst case when each blocks to timeout).
     if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
@@ -762,6 +790,264 @@ pub fn capture_origin() -> Option<OriginTarget> {
         return Some(t);
     }
     placeholder_origin()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_icon_data_url(hwnd: windows::Win32::Foundation::HWND) -> Option<String> {
+    use windows::Win32::Foundation::WPARAM;
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
+        ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DrawIconEx, GetClassLongPtrW, GetSystemMetrics, SendMessageW, DI_NORMAL, GCLP_HICON,
+        GCLP_HICONSM, HICON, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CYICON, WM_GETICON,
+    };
+
+    let hicon = unsafe {
+        let big = SendMessageW(hwnd, WM_GETICON, Some(WPARAM(ICON_BIG as usize)), None);
+        if !HICON(big.0 as _).is_invalid() {
+            HICON(big.0 as _)
+        } else {
+            let small = SendMessageW(hwnd, WM_GETICON, Some(WPARAM(ICON_SMALL as usize)), None);
+            if !HICON(small.0 as _).is_invalid() {
+                HICON(small.0 as _)
+            } else {
+                let cls = GetClassLongPtrW(hwnd, GCLP_HICON);
+                if cls != 0 {
+                    HICON(cls as _)
+                } else {
+                    let cls_sm = GetClassLongPtrW(hwnd, GCLP_HICONSM);
+                    if cls_sm == 0 {
+                        return None;
+                    }
+                    HICON(cls_sm as _)
+                }
+            }
+        }
+    };
+    if hicon.is_invalid() {
+        return None;
+    }
+    let w = unsafe { GetSystemMetrics(SM_CXICON) }.clamp(16, 64);
+    let h = unsafe { GetSystemMetrics(SM_CYICON) }.clamp(16, 64);
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    unsafe {
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return None;
+        }
+        let mem = CreateCompatibleDC(Some(screen));
+        if mem.is_invalid() {
+            ReleaseDC(None, screen);
+            return None;
+        }
+        let bmp = CreateCompatibleBitmap(screen, w, h);
+        if bmp.is_invalid() {
+            let _ = DeleteDC(mem);
+            ReleaseDC(None, screen);
+            return None;
+        }
+        let old = SelectObject(mem, bmp.into());
+        let drawn = DrawIconEx(mem, 0, 0, hicon, w, h, 0, None, DI_NORMAL).is_ok();
+        SelectObject(mem, old);
+        let out = if drawn {
+            let mut bmi: BITMAPINFO = std::mem::zeroed();
+            bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+            bmi.bmiHeader.biWidth = w;
+            bmi.bmiHeader.biHeight = -h;
+            bmi.bmiHeader.biPlanes = 1;
+            bmi.bmiHeader.biBitCount = 32;
+            bmi.bmiHeader.biCompression = BI_RGB.0;
+            let mut pixels = vec![0u8; w as usize * 4 * h as usize];
+            let lines = GetDIBits(
+                mem,
+                bmp,
+                0,
+                h as u32,
+                Some(pixels.as_mut_ptr() as *mut std::ffi::c_void),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+            if lines == 0 {
+                None
+            } else {
+                for px in pixels.chunks_exact_mut(4) {
+                    let b = px[0];
+                    px[0] = px[2];
+                    px[2] = b;
+                }
+                image::RgbaImage::from_raw(w as u32, h as u32, pixels)
+                    .and_then(|img| {
+                        let mut cursor = std::io::Cursor::new(Vec::new());
+                        image::DynamicImage::ImageRgba8(img)
+                            .write_to(&mut cursor, image::ImageFormat::Png)
+                            .ok()
+                            .map(|_| cursor.into_inner())
+                    })
+                    .map(|png| {
+                        use base64::Engine as _;
+                        format!(
+                            "data:image/png;base64,{}",
+                            base64::engine::general_purpose::STANDARD.encode(&png)
+                        )
+                    })
+            }
+        } else {
+            None
+        };
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(mem);
+        ReleaseDC(None, screen);
+        out
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_windows() -> Option<OriginTarget> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, IsWindow};
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0.is_null() || !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return None;
+    }
+    let mut pid: u32 = 0;
+    unsafe {
+        windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(
+            hwnd,
+            Some(&mut pid as *mut u32),
+        )
+    };
+    if pid == 0 {
+        return None;
+    }
+    let mut app_id = String::from("App");
+    if let Ok(h) = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        let mut buf = [0u16; 260];
+        let mut len = buf.len() as u32;
+        if unsafe {
+            QueryFullProcessImageNameW(
+                h,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(buf.as_mut_ptr()),
+                &mut len,
+            )
+        }
+        .is_ok()
+        {
+            let path = String::from_utf16_lossy(&buf[..len as usize]);
+            if let Some(stem) = std::path::Path::new(&path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+            {
+                if !stem.is_empty() {
+                    app_id = stem.to_string();
+                }
+            }
+        }
+        let _ = unsafe { CloseHandle(h) };
+    }
+    if app_id.eq_ignore_ascii_case("wisper") {
+        return None;
+    }
+    let mut buf = [0u16; 512];
+    let title = {
+        let n = unsafe { GetWindowTextW(hwnd, &mut buf) };
+        if n > 0 {
+            String::from_utf16_lossy(&buf[..n as usize])
+                .trim()
+                .to_string()
+        } else {
+            String::new()
+        }
+    };
+    if app_id == "App" && title.is_empty() {
+        return None;
+    }
+    // Prefer the live window icon; fall back to the initial-letter placeholder.
+    let icon_data_url =
+        windows_icon_data_url(hwnd).or_else(|| icon_with_placeholder(&app_id, &title));
+    Some(OriginTarget {
+        backend: "windows".into(),
+        addr: (hwnd.0 as usize).to_string(),
+        app_id,
+        title,
+        icon_data_url,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn parse_hwnd(addr: &str) -> Option<windows::Win32::Foundation::HWND> {
+    use windows::Win32::Foundation::HWND;
+    let n: usize = addr.parse().ok()?;
+    if n == 0 {
+        return None;
+    }
+    Some(HWND(n as *mut std::ffi::c_void))
+}
+
+#[cfg(target_os = "windows")]
+fn focus_windows(target: &OriginTarget) -> bool {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic, IsWindow,
+        SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+    };
+    let hwnd = match parse_hwnd(&target.addr) {
+        Some(h) => h,
+        None => return false,
+    };
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return false;
+    }
+    if unsafe { IsIconic(hwnd) }.as_bool() {
+        let _ = unsafe { ShowWindow(hwnd, SW_RESTORE) };
+    }
+    if (unsafe { GetForegroundWindow() }) == hwnd {
+        return true;
+    }
+    // Background apps cannot steal foreground with a bare SetForegroundWindow
+    // call (foreground lock) — attach our input to the foreground thread and
+    // the target thread first, then bring the target on top.
+    let our_tid = unsafe { GetCurrentThreadId() };
+    let target_tid = unsafe { GetWindowThreadProcessId(hwnd, None) };
+    let fore_hwnd = unsafe { GetForegroundWindow() };
+    let fore_tid = if fore_hwnd.0.is_null() {
+        0
+    } else {
+        unsafe { GetWindowThreadProcessId(fore_hwnd, None) }
+    };
+    let attached_fore = fore_tid != 0
+        && fore_tid != our_tid
+        && unsafe { AttachThreadInput(fore_tid, our_tid, true) }.as_bool();
+    let attached_target = target_tid != 0
+        && target_tid != our_tid
+        && unsafe { AttachThreadInput(our_tid, target_tid, true) }.as_bool();
+    let _ = unsafe { BringWindowToTop(hwnd) };
+    let _ = unsafe { ShowWindow(hwnd, SW_SHOW) };
+    let _ = unsafe { SetForegroundWindow(hwnd) };
+    if attached_target {
+        let _ = unsafe { AttachThreadInput(our_tid, target_tid, false) };
+    }
+    if attached_fore {
+        let _ = unsafe { AttachThreadInput(fore_tid, our_tid, false) };
+    }
+    // Second attempt once detached — the lock is often granted on retry.
+    let _ = unsafe { SetForegroundWindow(hwnd) };
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_millis(500) {
+        if (unsafe { GetForegroundWindow() }) == hwnd {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    (unsafe { GetForegroundWindow() }) == hwnd
 }
 
 pub fn focus_origin(target: &OriginTarget) -> bool {
@@ -900,6 +1186,8 @@ pub fn focus_origin(target: &OriginTarget) -> bool {
             // Last try: raise via xprop-style (wmctrl without -i already tried)
             false
         }
+        #[cfg(target_os = "windows")]
+        "windows" => focus_windows(target),
         _ => false,
     }
 }
@@ -1029,6 +1317,13 @@ pub fn get_origin_environment() -> OriginEnvironment {
 pub fn is_origin_alive(target: &OriginTarget) -> bool {
     match target.backend.as_str() {
         "placeholder" => false,
+        #[cfg(target_os = "windows")]
+        "windows" => match parse_hwnd(&target.addr) {
+            Some(hwnd) => unsafe {
+                windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(hwnd)).as_bool()
+            },
+            None => false,
+        },
         "wisper" => {
             let Ok(id) = target.addr.parse::<u64>() else {
                 return true;

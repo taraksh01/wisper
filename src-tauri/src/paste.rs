@@ -470,9 +470,11 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                 enigo
                     .key(Key::Shift, Direction::Press)
                     .map_err(|e| format!("Enigo Shift press failed: {:?}", e))?;
-                enigo
-                    .key(Key::Unicode('v'), Direction::Click)
-                    .map_err(|e| format!("Enigo V failed: {:?}", e))
+                #[cfg(target_os = "windows")]
+                let v = enigo.key(Key::V, Direction::Click);
+                #[cfg(not(target_os = "windows"))]
+                let v = enigo.key(Key::Unicode('v'), Direction::Click);
+                v.map_err(|e| format!("Enigo V failed: {:?}", e))
             }
             "Shift+Insert" => {
                 enigo
@@ -486,9 +488,11 @@ fn enigo_paste(method: &str) -> Result<(), String> {
                 enigo
                     .key(Key::Control, Direction::Press)
                     .map_err(|e| format!("Enigo Ctrl press failed: {:?}", e))?;
-                enigo
-                    .key(Key::Unicode('v'), Direction::Click)
-                    .map_err(|e| format!("Enigo V failed: {:?}", e))
+                #[cfg(target_os = "windows")]
+                let v = enigo.key(Key::V, Direction::Click);
+                #[cfg(not(target_os = "windows"))]
+                let v = enigo.key(Key::Unicode('v'), Direction::Click);
+                v.map_err(|e| format!("Enigo V failed: {:?}", e))
             }
         };
         // Always release modifiers - never leave Ctrl/Shift stuck on partial failure.
