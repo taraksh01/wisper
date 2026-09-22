@@ -817,10 +817,7 @@ fn focus_macos(target: &OriginTarget) -> bool {
     if app.isTerminated() {
         return false;
     }
-    app.activateWithOptions(
-        NSApplicationActivationOptions::ActivateAllWindows
-            | NSApplicationActivationOptions::ActivateIgnoringOtherApps,
-    );
+    app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
     let ws = NSWorkspace::sharedWorkspace();
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_millis(500) {
@@ -838,6 +835,7 @@ fn focus_macos(target: &OriginTarget) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(unreachable_code)]
 pub fn capture_origin() -> Option<OriginTarget> {
     #[cfg(target_os = "macos")]
     {
