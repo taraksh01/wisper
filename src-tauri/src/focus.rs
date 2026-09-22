@@ -734,11 +734,37 @@ fn is_self_app(name: &str, bundle: &str) -> bool {
         || name.eq_ignore_ascii_case("wisper dev")
 }
 
+/// App icon as a small PNG data URL for the overlay pill. Goes through the
+/// `image` crate (TIFF decode, 64px thumbnail, PNG encode) to avoid unsafe
+/// AppKit bitmap calls. None when anything fails — the pill falls back to
+/// the initial-letter placeholder.
+#[cfg(target_os = "macos")]
+fn app_icon_data_url(app: &objc2_app_kit::NSRunningApplication) -> Option<String> {
+    let tiff = app.icon()?.TIFFRepresentation()?.to_vec();
+    if tiff.is_empty() || tiff.len() > 4 * 1024 * 1024 {
+        return None;
+    }
+    let img = image::load_from_memory(&tiff).ok()?;
+    let thumb = img.thumbnail(64, 64);
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    thumb.write_to(&mut cursor, image::ImageFormat::Png).ok()?;
+    let png = cursor.into_inner();
+    if png.is_empty() || png.len() > 256 * 1024 {
+        return None;
+    }
+    use base64::Engine as _;
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&png)
+    ))
+}
+
 #[cfg(target_os = "macos")]
 fn capture_macos() -> Option<OriginTarget> {
     use objc2_app_kit::NSWorkspace;
 
     let front = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+    let icon_data_url = app_icon_data_url(&front);
     let name = front
         .localizedName()
         .map(|s| s.to_string())
@@ -764,7 +790,7 @@ fn capture_macos() -> Option<OriginTarget> {
         addr: pid.to_string(),
         app_id,
         title: name,
-        icon_data_url: None,
+        icon_data_url,
     })
 }
 
@@ -804,6 +830,9 @@ fn is_macos_alive(target: &OriginTarget) -> bool {
 }
 
 /// Refocus the origin app. Returns true once it is frontmost again.
+// IgnoringOtherApps is deprecated (no-op) on macOS 14+, but still honored on
+// Ventura and older, so keep it and silence the warning.
+#[allow(deprecated)]
 #[cfg(target_os = "macos")]
 fn focus_macos(target: &OriginTarget) -> bool {
     use objc2_app_kit::{NSApplicationActivationOptions, NSWorkspace};
@@ -817,7 +846,10 @@ fn focus_macos(target: &OriginTarget) -> bool {
     if app.isTerminated() {
         return false;
     }
-    app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows);
+    app.activateWithOptions(
+        NSApplicationActivationOptions::ActivateAllWindows
+            | NSApplicationActivationOptions::ActivateIgnoringOtherApps,
+    );
     let ws = NSWorkspace::sharedWorkspace();
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_millis(500) {
