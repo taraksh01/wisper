@@ -280,6 +280,7 @@ pub struct TranscriptionCoordinator {
     audio_recorder: AudioRecorder,
     rx: Receiver<CoordinatorCommand>,
     state_tx: Option<Sender<CoordinatorState>>,
+    pending_origin: Option<crate::focus::OriginTarget>,
 }
 
 impl TranscriptionCoordinator {
@@ -293,6 +294,7 @@ impl TranscriptionCoordinator {
             audio_recorder,
             rx,
             state_tx,
+            pending_origin: None,
         }
     }
 
@@ -321,6 +323,7 @@ impl TranscriptionCoordinator {
                     let is_push_to_talk = HOTKEY_MODE.load(Ordering::Relaxed);
                     if is_push_to_talk {
                         if self.state == CoordinatorState::Idle {
+                            self.pending_origin = crate::focus::capture_origin();
                             if let Err(e) = self.audio_recorder.start_recording(self.input_device())
                             {
                                 eprintln!("Failed to start recording: {}", e);
@@ -333,6 +336,7 @@ impl TranscriptionCoordinator {
                         // Toggle mode
                         match self.state {
                             CoordinatorState::Idle => {
+                                self.pending_origin = crate::focus::capture_origin();
                                 if let Err(e) =
                                     self.audio_recorder.start_recording(self.input_device())
                                 {
@@ -361,6 +365,7 @@ impl TranscriptionCoordinator {
                     if self.state == CoordinatorState::Recording {
                         eprintln!("[cancel] discarding active recording");
                         let _ = self.audio_recorder.stop_recording();
+                        self.pending_origin = None;
                         self.set_state(CoordinatorState::Idle);
                         play_cancel_sound();
                     }
@@ -383,9 +388,10 @@ impl TranscriptionCoordinator {
 
         let cancel_for_thread = cancel.clone();
         let my_seq = SEQ_NEXT.fetch_add(1, Ordering::Relaxed);
+        let origin = self.pending_origin.take();
         if let Err(e) = thread::Builder::new()
             .name("wisper-pipeline".into())
-            .spawn(move || run_pipeline(samples, device_sr, cancel_for_thread, my_seq))
+            .spawn(move || run_pipeline(samples, device_sr, cancel_for_thread, my_seq, origin))
         {
             eprintln!("Failed to spawn pipeline thread: {}", e);
             ACTIVE_JOBS
@@ -396,7 +402,13 @@ impl TranscriptionCoordinator {
     }
 }
 
-fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: u64) {
+fn run_pipeline(
+    samples: Vec<f32>,
+    device_sr: u32,
+    cancel: CancelToken,
+    my_seq: u64,
+    origin: Option<crate::focus::OriginTarget>,
+) {
     let _guard = PipelineGuard {
         seq: my_seq,
         cancel: cancel.clone(),
@@ -695,8 +707,28 @@ fn run_pipeline(samples: Vec<f32>, device_sr: u32, cancel: CancelToken, my_seq: 
                 } else {
                     final_text.clone()
                 };
-                if let Err(e) = paste_text(&to_paste, &paste_method) {
-                    eprintln!("Paste failed: {}", e);
+                // Paste back where the hotkey was pressed. If the origin app
+                // is gone, skip the paste (text is still saved to history).
+                let mut skip_paste = false;
+                if let Some(ref target) = origin {
+                    if crate::focus::is_origin_alive(target) {
+                        if !crate::focus::focus_origin(target) {
+                            eprintln!("[focus] activate failed for {:?}", target.app_id);
+                        }
+                        thread::sleep(std::time::Duration::from_millis(150));
+                    } else {
+                        eprintln!("[focus] origin gone: {:?}", target.app_id);
+                        crate::show_overlay_error(Some(
+                            "Original app closed — transcription saved to history".into(),
+                        ));
+                        play_error_sound();
+                        skip_paste = true;
+                    }
+                }
+                if !skip_paste {
+                    if let Err(e) = paste_text(&to_paste, &paste_method) {
+                        eprintln!("Paste failed: {}", e);
+                    }
                 }
                 let duration_ms = if device_sr > 0 {
                     (samples_len as i64 * 1000) / device_sr as i64

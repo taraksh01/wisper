@@ -3,6 +3,7 @@ pub mod audio;
 pub mod coordinator;
 pub mod dictionary;
 pub mod engine;
+pub mod focus;
 pub mod history;
 pub mod hotkey;
 pub mod models;
