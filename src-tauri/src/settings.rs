@@ -16,8 +16,10 @@ pub struct AppSettings {
     pub voice_api_key: String,
     pub voice_api_key_openai: String,
     pub voice_api_key_groq: String,
+    pub voice_api_key_sarvam: String,
     pub voice_api_key_custom: String,
     pub engine_model: String,
+    pub engine_sarvam_mode: String,
     pub local_model_file: String,
     /// Last local model that was loaded; used by "Load last model" in the tray.
     /// Persisted so it survives restarts - there is no separate in-memory copy.
@@ -135,8 +137,10 @@ impl Default for AppSettings {
             voice_api_key: String::new(),
             voice_api_key_openai: String::new(),
             voice_api_key_groq: String::new(),
+            voice_api_key_sarvam: String::new(),
             voice_api_key_custom: String::new(),
             engine_model: String::new(),
+            engine_sarvam_mode: "transcribe".into(),
             local_model_file: String::new(),
             last_local_model_file: String::new(),
             process_enabled: false,
@@ -342,6 +346,7 @@ pub fn sync_runtime(settings: &AppSettings) {
         *v = match settings.engine_provider.as_str() {
             "openai" => settings.voice_api_key_openai.clone(),
             "groq" => settings.voice_api_key_groq.clone(),
+            "sarvam" => settings.voice_api_key_sarvam.clone(),
             "custom" => settings.voice_api_key_custom.clone(),
             _ => settings.voice_api_key.clone(),
         };
@@ -355,6 +360,17 @@ pub fn sync_runtime(settings: &AppSettings) {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         *v = settings.engine_model.clone();
+    }
+    {
+        let mut v = crate::coordinator::CLOUD_SARVAM_MODE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mode = settings.engine_sarvam_mode.trim();
+        *v = if mode.is_empty() {
+            "transcribe".to_string()
+        } else {
+            mode.to_string()
+        };
     }
 
     // Engine mode + current local model path (derived, not stored twice)
@@ -378,12 +394,23 @@ pub fn sync_runtime(settings: &AppSettings) {
     }
     let model_dir = crate::models::get_models_dir();
     let model_path = model_dir.join(&settings.local_model_file);
-    let model_exists = model_path.exists();
+    let model_complete = if settings.local_model_file.is_empty() {
+        false
+    } else {
+        let dir_name = crate::models::onnx_dir_name(&settings.local_model_file)
+            .unwrap_or_else(|| settings.local_model_file.clone());
+        let dir = model_dir.join(&dir_name);
+        dir.exists() && crate::models::is_model_complete(&dir, &dir_name)
+    };
     {
         let mut current = crate::coordinator::CURRENT_MODEL
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *current = if model_exists { Some(model_path) } else { None };
+        *current = if model_complete {
+            Some(model_path)
+        } else {
+            None
+        };
     }
 
     // Display name (derived from mode + model)
@@ -395,10 +422,16 @@ pub fn sync_runtime(settings: &AppSettings) {
             let provider_label = match settings.engine_provider.as_str() {
                 "openai" => "OpenAI",
                 "groq" => "Groq",
+                "sarvam" => "Sarvam",
                 _ => "Custom",
             };
-            *name = format!("{} · {}", provider_label, settings.engine_model);
-        } else if model_exists {
+            let m = settings.engine_model.trim();
+            *name = if m.is_empty() {
+                format!("{} · not configured", provider_label)
+            } else {
+                format!("{} · {}", provider_label, m)
+            };
+        } else if model_complete {
             *name =
                 crate::coordinator::model_display_name(&model_dir.join(&settings.local_model_file));
         } else {
@@ -451,7 +484,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
     let prev_mode = prev.history_retention_mode.clone();
     let prev_hotkey = prev.hotkey.clone();
     let prev_words_enabled = prev.words_enabled;
-    let mut s = AppSettings::load();
+    let mut s = prev.clone();
     mutate(&mut s);
     // Clamp retention limit to sane range (0 = unlimited)
     if s.max_history_entries < 0 {
@@ -503,7 +536,7 @@ pub fn apply(app: &tauri::AppHandle, mutate: impl FnOnce(&mut AppSettings)) -> u
         let _ = app.autolaunch().disable();
     }
 
-    crate::tray::refresh();
+    crate::tray::refresh_with(&s);
     let _ = app.emit("wisper:settings-changed", &s);
     trimmed
 }

@@ -1,0 +1,15 @@
+{
+  "uuid": "wisper-focus@wisper.app",
+  "name": "Wisper Focus",
+  "description": "Minimal List+Activate for Wisper paste-back-to-origin",
+  "shell-version": [
+    "45",
+    "46",
+    "47",
+    "48",
+    "49",
+    "50"
+  ],
+  "version": 1,
+  "url": "https://github.com/taraksh01/wisper"
+}

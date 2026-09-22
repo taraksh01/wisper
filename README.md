@@ -7,6 +7,7 @@ Wisper is a lightweight, privacy-first desktop dictation app for Linux and Windo
 ## Features
 
 - **Speak instead of type** - press a global hotkey (hold for push-to-talk or tap for toggle mode), say what you want, and the text lands wherever your cursor is.
+- **Pastes back where you started** - Wisper remembers the window where you pressed the hotkey and pastes there, even if you click elsewhere while speaking. The recording pill shows that app's icon.
 - **Stays on your device** - transcription runs locally with ONNX models; nothing leaves your computer unless you choose a cloud provider.
 - **Pick your microphone** - choose a specific input device, or let the system default handle it.
 - **Cleans up as it goes** - optional AI step reformats and polishes the transcript (6 Writing Styles: Auto, Clean-up, Email, Developer, Messaging, Formal + Custom; 6 providers: OpenAI, Anthropic, Groq, OpenRouter, Ollama, OpenCode Go + Custom with endpoint-aware `/chat/completions` `/responses` `/messages` and Test connection), compact deduplicated output with typo/filler fixes, plus silence trimming.
@@ -81,6 +82,17 @@ macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel).
 - Apple Silicon and Intel builds, on macOS 13 or newer.
 - No ydotool/wtype on macOS; paste always uses the Built-in backend.
 - Beta builds update from the beta channel (About → Check for updates). Stable releases do not include macOS yet.
+
+### Paste back to where you started
+
+Wisper remembers the window where you press the hotkey and jumps back there before pasting — so moving your cursor mid-dictation doesn't lose your place. If that window was closed, Wisper skips paste, keeps your clipboard untouched, and saves the text to history with an error toast.
+
+- **What you see:** the recording pill shows the origin app's icon (real icon when found, otherwise the app's first letter). Check status anytime under **General → Output → Paste back to where you started**.
+- **Why GNOME Wayland needs a tiny helper:** on GNOME Wayland, apps are isolated — Wisper can't see or focus other windows on its own (`Shell.Eval` is blocked, `Introspect GetWindows` is denied). So Wisper bundles a minimal **“Wisper Focus”** GNOME Shell extension (`wisper-focus@wisper.app`) that only exposes window list (`id`, app name, title, focused) + jump-back. No keystrokes, no window content, no network, per-user only, no sudo. Source is in `src-tauri/resources/gnome-shell/wisper-focus@wisper.app/`.
+- **How install works:** on first run (GNOME + Wayland only) Wisper copies the helper to `~/.local/share/gnome-shell/extensions/`, enables it via `gsettings` + `gnome-extensions enable`, and shows status in General tab. First time needs **one logout/login** for GNOME to activate it — until then Wisper pastes at your current cursor. Use **Install helper / Recheck** in General tab if needed.
+- **Other desktops:** X11, KDE, Hyprland (`hyprctl`), Sway (`swaymsg`) and X11 fallbacks (`xdotool` / `wmctrl`) work out of the box with no helper. If activation fails there, Wisper pastes at current focus instead of erroring.
+- **Limit:** browser tabs share one OS window — Wisper returns to the right window, but pastes into whichever tab is active at paste time. Use the origin tab if you need exact-tab paste.
+- **Verify / remove:** `gnome-extensions show wisper-focus@wisper.app`, `gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions/WisperWindows --method org.gnome.Shell.Extensions.WisperWindows.List`. Disable anytime with `gnome-extensions disable wisper-focus@wisper.app` — paste-back then falls back to current focus.
 
 ## Tech Stack
 

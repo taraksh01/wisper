@@ -42,7 +42,7 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
     const tick = async () => {
       try {
         const l = await invoke<number>("get_input_level");
-        if (active) setLevel(l);
+        if (active) setLevel((prev) => (prev === l ? prev : l));
       } catch {}
     };
     const id = setInterval(tick, 60);
@@ -95,10 +95,10 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
                 ) : (
                   <button
                     onClick={onOpenEngineTab}
-                    className="flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-amber-500/20 hover:border-amber-500/30 w-full text-left transition-colors group"
+                    className="flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-accent/20 hover:border-accent/30 w-full text-left transition-colors group"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                    <span className="text-[11px] font-medium text-amber-600 truncate flex-1">No local model</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                    <span className="text-[11px] font-medium text-accent truncate flex-1">No local model</span>
                     <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
                   </button>
                 )
@@ -110,6 +110,8 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
                         return settings.voice_api_key_openai.trim() !== "" || settings.voice_api_key.trim() !== "";
                       case "groq":
                         return settings.voice_api_key_groq.trim() !== "" || settings.voice_api_key.trim() !== "";
+                      case "sarvam":
+                        return (settings.voice_api_key_sarvam || "").trim() !== "" || settings.voice_api_key.trim() !== "";
                       case "custom":
                         return settings.voice_api_key_custom.trim() !== "" || settings.voice_api_key.trim() !== "";
                       default:
@@ -125,6 +127,8 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
                       ? "OpenAI"
                       : settings.engine_provider === "groq"
                       ? "Groq"
+                      : settings.engine_provider === "sarvam"
+                      ? "Sarvam"
                       : "Custom";
                   const cloudName = `${providerLabel} · ${settings.engine_model}`;
                   return (
@@ -143,10 +147,10 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
                 return (
                   <button
                     onClick={onOpenEngineTab}
-                    className="flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-amber-500/20 hover:border-amber-500/30 w-full text-left transition-colors group"
+                    className="flex items-center gap-2 px-2.5 py-2 h-9 rounded-xl bg-elevated border border-accent/20 hover:border-accent/30 w-full text-left transition-colors group"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
-                    <span className="text-[11px] font-medium text-amber-600 truncate flex-1">Cloud not configured</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 animate-pulse" />
+                    <span className="text-[11px] font-medium text-accent truncate flex-1">Cloud not configured</span>
                     <IconChevronRight className="w-3 h-3 shrink-0 text-muted/40 group-hover:text-muted" />
                   </button>
                 );

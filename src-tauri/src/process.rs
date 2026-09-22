@@ -175,6 +175,25 @@ static PROCESS_CLIENT_ASYNC: once_cell::sync::Lazy<reqwest::Client> =
             })
     });
 
+static PROCESS_RT: once_cell::sync::Lazy<tokio::runtime::Runtime> =
+    once_cell::sync::Lazy::new(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap_or_else(|e| {
+                eprintln!("[process] failed to build RT: {} - using current_thread", e);
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("process RT fallback")
+            })
+    });
+
+pub fn process_runtime() -> &'static tokio::runtime::Runtime {
+    &PROCESS_RT
+}
+
 fn normalize_endpoint(raw: &str) -> String {
     let t = raw.trim();
     if t.is_empty() {

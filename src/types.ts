@@ -71,8 +71,10 @@ export interface AppSettings {
   voice_api_key: string;
   voice_api_key_openai: string;
   voice_api_key_groq: string;
+  voice_api_key_sarvam: string;
   voice_api_key_custom: string;
   engine_model: string;
+  engine_sarvam_mode: string;
   local_model_file: string;
   process_enabled: boolean;
   process_provider: string;
@@ -151,6 +153,19 @@ export const groqModels = [
   "whisper-large-v3",
   "whisper-large-v3-turbo",
 ];
+
+export const sarvamModels = [
+  "saaras:v4",
+  "saaras:v3",
+];
+
+export const sarvamModes = [
+  { value: "transcribe", label: "Transcribe", desc: "Writes what you said in its original language." },
+  { value: "translate", label: "Translate to English", desc: "Translates your speech directly into English." },
+  { value: "verbatim", label: "Verbatim", desc: "Writes every word exactly as spoken, including fillers like 'uh' and repeats." },
+  { value: "translit", label: "Transliterate", desc: "Writes Indic speech in English letters, like 'namaste' instead of 'नमस्ते'." },
+  { value: "codemix", label: "Code-mix", desc: "Keeps Hindi-English mixed speech natural, each word in its own script." },
+] as const;
 
 export const modelCatalog: Record<string, ModelInfo> = {
   "parakeet-onnx-tdt-0.6b-v3": {
@@ -377,6 +392,97 @@ export const modelCatalog: Record<string, ModelInfo> = {
     translate: false,
     runtime: "onnx",
   },
+  "moonshine-tiny-en-int8": {
+    name: "Moonshine Tiny EN (INT8)",
+    size: "~118 MB",
+    accuracy: 89,
+    speed: 98,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
+    languages: ["en"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "whisper-tiny-int8": {
+    name: "Whisper Tiny Multilingual (INT8)",
+    size: "~100 MB",
+    accuracy: 82,
+    speed: 90,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
+    languages: [
+      "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr",
+      "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi",
+      "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+      "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk",
+      "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk",
+      "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+      "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc",
+      "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
+      "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+      "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su",
+    ],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "whisper-base-int8": {
+    name: "Whisper Base Multilingual (INT8)",
+    size: "~160 MB",
+    accuracy: 86,
+    speed: 75,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2",
+    languages: [
+      "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr",
+      "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi",
+      "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+      "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk",
+      "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk",
+      "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+      "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc",
+      "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
+      "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+      "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su",
+    ],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "sensevoice-small-int8": {
+    name: "SenseVoice Small (INT8)",
+    size: "~230 MB",
+    accuracy: 88,
+    speed: 80,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+    languages: ["en", "zh", "ja", "ko", "yue"],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
+  "qwen3-asr-0.6b-int8": {
+    name: "Qwen3-ASR 0.6B (INT8)",
+    size: "~940 MB",
+    accuracy: 92,
+    speed: 40,
+    source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+    languages: [
+      "en", "zh", "ja", "ko", "yue", "vi", "de", "es", "ru", "fr",
+      "pt", "it", "ar", "hi", "id", "tr", "pl", "nl", "sv", "cs",
+      "da", "fi", "el", "hu", "ro", "no", "uk", "hr", "bg", "th",
+    ],
+    format: "onnx",
+    quantization: "int8",
+    streaming: false,
+    translate: false,
+    runtime: "onnx",
+  },
 };
 
 export const allModelKeys = Object.keys(modelCatalog);
@@ -458,6 +564,11 @@ export function formatModelFilename(key: string, _format: "ggml" | "gguf" | "onn
     "indicconformer-600m-multi": "indicconformer-600m-multi",
     "whisper-large-v3-int8": "whisper-large-v3-int8",
     "moonshine-base": "moonshine-base",
+    "moonshine-tiny-en-int8": "sherpa-onnx-moonshine-tiny-en-int8",
+    "whisper-tiny-int8": "sherpa-onnx-whisper-tiny",
+    "whisper-base-int8": "sherpa-onnx-whisper-base",
+    "sensevoice-small-int8": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
+    "qwen3-asr-0.6b-int8": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
   };
   return map[key] || key;
 }

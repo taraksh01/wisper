@@ -1,16 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
-import { Onboarding } from "./components/Onboarding";
 import { GeneralTab } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
-import { ProcessTab } from "./components/ProcessTab";
-import { WordsTab } from "./components/WordsTab";
-import { HistoryTab } from "./components/HistoryTab";
-import { AboutTab } from "./components/AboutTab";
-import { DonateTab } from "./components/DonateTab";
+// Rarely-visited tabs split out so first paint stays small (EngineTab stays
+// eager + mounted-hidden for download progress; GeneralTab is the default tab).
+const Onboarding = lazy(() => import("./components/Onboarding").then((m) => ({ default: m.Onboarding })));
+const ProcessTab = lazy(() => import("./components/ProcessTab").then((m) => ({ default: m.ProcessTab })));
+const WordsTab = lazy(() => import("./components/WordsTab").then((m) => ({ default: m.WordsTab })));
+const HistoryTab = lazy(() => import("./components/HistoryTab").then((m) => ({ default: m.HistoryTab })));
+const AboutTab = lazy(() => import("./components/AboutTab").then((m) => ({ default: m.AboutTab })));
+const DonateTab = lazy(() => import("./components/DonateTab").then((m) => ({ default: m.DonateTab })));
 import { ToastProvider, useToast } from "./components/ToastContext";
 import { storageKey } from "./appConfig";
 import "./styles.css";
@@ -53,7 +55,7 @@ function safeStorageSet(key: string, value: string) {
   }
 }
 
-const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"];
+const MODEL_KEYS: (keyof AppSettings)[] = ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_sarvam", "voice_api_key_custom", "engine_model", "engine_sarvam_mode", "local_model_file"];
 
 function AppShell() {
   const dark = useSystemTheme();
@@ -61,6 +63,7 @@ function AppShell() {
     const saved = safeStorageGet(storageKey("active-tab"));
     return saved && tabs.some((t) => t.id === saved) ? saved : "general";
   });
+
   const [appState, setAppState] = useState("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -141,14 +144,13 @@ function AppShell() {
 
   const fetchHistory = useCallback(async () => {
     try {
-      const [h, s, c] = await Promise.all([
+      const [h, s] = await Promise.all([
         invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 }),
         invoke<[number, number, number]>("get_history_stats"),
-        invoke<number>("get_history_count"),
       ]);
       setHistory(h);
       setStats(s);
-      setHistoryTotal(c);
+      setHistoryTotal(s[0]);
     } catch (e) {
       console.error("fetchHistory failed:", e);
     }
@@ -180,30 +182,8 @@ function AppShell() {
     };
   }, [fetchHistory]);
 
-  const hasMounted = useRef(false);
-  useEffect(() => {
-    if (!hasMounted.current) {
-      hasMounted.current = true;
-      return;
-    }
-    if (appState === "idle") {
-      let alive = true;
-      const h = invoke<HistoryEntry[]>("get_history_entries", { limit: PAGE_SIZE, offset: 0 });
-      const s = invoke<[number, number, number]>("get_history_stats");
-      const c = invoke<number>("get_history_count");
-      const settingsReq = invoke<AppSettings>("load_settings");
-      Promise.all([h, s, c, settingsReq]).then(([entries, st, count, stt]) => {
-        if (!alive) return;
-        setHistory(entries);
-        setStats(st);
-        setHistoryTotal(count);
-        setSettings(stt);
-      }).catch(() => {});
-      return () => {
-        alive = false;
-      };
-    }
-  }, [appState]);
+  // History is refreshed via wisper:history-changed listener above; no
+  // extra fetch on idle to avoid double DB work after every dictation.
 
   const fetchAgentProfiles = useCallback(async () => {
     try {
@@ -326,7 +306,7 @@ function AppShell() {
 
   const TAB_FIELDS: Record<string, (keyof AppSettings)[]> = {
     general: ["autostart", "hotkey", "hotkey_mode", "language", "launch_to_tray", "paste_method", "paste_tool", "paste_add_trailing_space", "vad_enabled", "vad_threshold", "noise_suppression_enabled", "noise_suppression_level", "overlay_enabled", "overlay_position", "sound_enabled", "sound_on_start", "sound_on_done", "sound_on_cancel", "sound_on_error", "input_device", "max_history_entries", "history_retention_mode", "keep_recordings"],
-    engine: ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_custom", "engine_model", "local_model_file"],
+    engine: ["engine_mode", "engine_provider", "engine_base_url", "voice_api_key", "voice_api_key_openai", "voice_api_key_groq", "voice_api_key_sarvam", "voice_api_key_custom", "engine_model", "engine_sarvam_mode", "local_model_file"],
     process: ["process_enabled", "process_provider", "process_base_url", "process_endpoint", "process_timeout_secs", "process_api_key", "process_api_key_openai", "process_api_key_anthropic", "process_api_key_google", "process_api_key_groq", "process_api_key_together", "process_api_key_deepseek", "process_api_key_kimi", "process_api_key_qwen", "process_api_key_glm", "process_api_key_openrouter", "process_api_key_ollama", "process_api_key_opencode_go", "process_api_key_custom", "process_model", "process_max_tokens", "process_agent_profile", "process_agent_name", "process_agent_prompt"],
     words: ["words_enabled", "words_auto_scan"],
   };
@@ -397,7 +377,13 @@ function AppShell() {
     return (
       <>
         <div className={activeTab === "engine" ? "block" : "hidden"}>{engineNode}</div>
-        {other && <div className="block">{other}</div>}
+        {other && (
+          <div className="block">
+            <Suspense fallback={<div className="py-10 text-center text-xs font-mono text-muted">Loading…</div>}>
+              {other}
+            </Suspense>
+          </div>
+        )}
       </>
     );
   };
@@ -405,13 +391,15 @@ function AppShell() {
   return (
     <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex font-sans selection:bg-accent/20`}>
         {!onboarded && settings && (
-          <Onboarding
-            env={pasteEnv}
-            onDone={() => {
-              safeStorageSet(storageKey("onboarded"), "1");
-              setOnboarded(true);
-            }}
-          />
+          <Suspense fallback={null}>
+            <Onboarding
+              env={pasteEnv}
+              onDone={() => {
+                safeStorageSet(storageKey("onboarded"), "1");
+                setOnboarded(true);
+              }}
+            />
+          </Suspense>
         )}
         <Sidebar
           activeTab={activeTab}

@@ -13,8 +13,7 @@
 
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -145,9 +144,16 @@ fn bundled_jsons() -> Vec<&'static str> {
 }
 
 fn content_hash(text: &str) -> String {
-    let mut h = DefaultHasher::new();
-    text.hash(&mut h);
-    format!("{:016x}", h.finish())
+    // FNV-1a 64 — deterministic across runs (DefaultHasher is per-process random).
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in text.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    // Include length to avoid trivial collisions on prefix.
+    h ^= text.len() as u64;
+    h = h.wrapping_mul(0x100000001b3);
+    format!("{h:016x}")
 }
 
 fn normalize_variants(raw: &str) -> String {
@@ -619,6 +625,10 @@ pub async fn check_profile_updates() -> Result<Vec<ProfileUpdate>, String> {
             .map_err(|e| e.to_string())?;
         let mut out = Vec::new();
         for p in with_url {
+            // Only https — reject http/file/ftp URLs to block SSRF to local services.
+            if !p.update_url.trim().starts_with("https://") {
+                continue;
+            }
             let text = match client.get(p.update_url.trim()).send() {
                 Ok(r) => match r.text() {
                     Ok(t) => t,

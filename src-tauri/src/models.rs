@@ -33,26 +33,67 @@ pub fn get_models_dir() -> PathBuf {
     path
 }
 
-fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
+pub fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
+    // Existence alone passes 0-byte truncated downloads — require non-empty files.
+    let ok = |p: std::path::PathBuf| {
+        std::fs::metadata(&p).map(|m| m.len() > 0).unwrap_or(false)
+    };
+    let f = |n: &str| ok(dir.join(n));
     if name.starts_with("parakeet-") {
-        return dir.join("model.onnx").exists()
-            && (dir.join("tokens.txt").exists() || dir.join("vocab.json").exists());
-    }
-    if dir.join("model.onnx").exists() || dir.join("encoder_model.onnx").exists() {
-        return true;
+        let has_encoder = f("encoder-model.int8.onnx")
+            || f("encoder-model.onnx")
+            || f("model.onnx");
+        let has_decoder = f("decoder_joint-model.int8.onnx")
+            || f("decoder-model.int8.onnx")
+            || f("model.onnx");
+        return has_encoder
+            && has_decoder
+            && (f("vocab.txt") || f("tokens.txt") || f("vocab.json"));
     }
     if name.starts_with("indicconformer-600m-multi") {
-        return dir.join("encoder-model.onnx").exists()
-            && dir.join("encoder-model.onnx.data").exists()
-            && dir.join("ctc_decoder-model.onnx").exists()
-            && dir.join("nemo128.onnx").exists()
-            && dir.join("vocab.txt").exists()
-            && dir.join("language_spans.json").exists();
+        return f("encoder-model.onnx")
+            && f("encoder-model.onnx.data")
+            && f("ctc_decoder-model.onnx")
+            && f("nemo128.onnx")
+            && f("vocab.txt")
+            && f("language_spans.json");
+    }
+    if name.starts_with("moonshine-tiny-en-int8") || name.starts_with("sherpa-onnx-moonshine-tiny-en") {
+        return f("encode.int8.onnx")
+            && f("cached_decode.int8.onnx")
+            && f("uncached_decode.int8.onnx")
+            && f("tokens.txt");
+    }
+    if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
+        return f("tiny-encoder.onnx")
+            && f("tiny-decoder.onnx")
+            && f("tiny-tokens.txt");
+    }
+    if name.starts_with("whisper-base") || name.starts_with("sherpa-onnx-whisper-base") {
+        return f("base-encoder.onnx")
+            && f("base-decoder.onnx")
+            && f("base-tokens.txt");
+    }
+    if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
+        return f("model.int8.onnx") || f("model.onnx");
+    }
+    if name.starts_with("qwen3-asr") || name.starts_with("sherpa-onnx-qwen3-asr") {
+        return f("conv_frontend.onnx")
+            && (f("encoder.int8.onnx") || f("encoder.onnx"))
+            && (f("decoder.int8.onnx") || f("decoder.onnx"))
+            && ok(dir.join("tokenizer").join("vocab.json"));
     }
     if name.starts_with("whisper-large-v3") {
-        return dir.join("large-v3-encoder.int8.onnx").exists()
-            && dir.join("large-v3-decoder.int8.onnx").exists()
-            && dir.join("large-v3-tokens.txt").exists();
+        return f("large-v3-encoder.int8.onnx")
+            && f("large-v3-decoder.int8.onnx")
+            && f("large-v3-tokens.txt");
+    }
+    if name.starts_with("indicconformer-120m-") || name == "indicconformer-8lang" {
+        return (f("model.onnx") || f("model.int8.onnx"))
+            && (f("tokens.txt") || f("vocab.json"));
+    }
+    if f("model.onnx") || f("encoder_model.onnx") {
+        return true;
     }
     false
 }
@@ -69,7 +110,16 @@ pub fn list_local_models() -> Vec<String> {
                     && (name.starts_with("parakeet-")
                         || name.starts_with("indicconformer-")
                         || name.starts_with("moonshine-")
-                        || name.starts_with("whisper-large-v3"))
+                        || name.starts_with("sherpa-onnx-moonshine-")
+                        || name.starts_with("whisper-large-v3")
+                        || name.starts_with("whisper-tiny")
+                        || name.starts_with("sherpa-onnx-whisper-tiny")
+                        || name.starts_with("whisper-base")
+                        || name.starts_with("sherpa-onnx-whisper-base")
+                        || name.starts_with("sensevoice")
+                        || name.starts_with("sherpa-onnx-sense-voice")
+                        || name.starts_with("qwen3-asr")
+                        || name.starts_with("sherpa-onnx-qwen3-asr"))
                 {
                     let path = entry.path();
                     if is_model_complete(&path, &name) {
@@ -97,14 +147,72 @@ pub fn download_url(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/pa/model.int8.onnx",
         "indicconformer-8lang" => "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx",
         "moonshine-base" => "https://blob.handy.computer/moonshine-base.tar.gz",
+        "moonshine-tiny-en-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2",
         "indicconformer-600m-multi" => "https://huggingface.co/christopherthompson81/indicconformer-600m-onnx/resolve/main/encoder-model.onnx",
         "whisper-large-v3-int8" => "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-large-v3/resolve/main/large-v3-encoder.int8.onnx",
+        "whisper-tiny-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
+        "whisper-base-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2",
+        "sensevoice-small-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
+        "qwen3-asr-0.6b-int8" => "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
         _ => return None,
     };
     Some(url.to_string())
 }
 
-fn onnx_dir_name(model_name: &str) -> Option<String> {
+pub fn pretty_model_name(id: &str) -> String {
+    match id {
+        "parakeet-onnx-tdt-0.6b-v3" | "parakeet-tdt-0.6b-v3-int8" => "Parakeet TDT 0.6B V3".into(),
+        "parakeet-onnx-tdt-0.6b-v2" | "parakeet-tdt-0.6b-v2-int8" => "Parakeet TDT 0.6B V2".into(),
+        "indicconformer-120m-hi" => "IndicConformer Hindi 120M".into(),
+        "indicconformer-120m-bn" => "IndicConformer Bengali 120M".into(),
+        "indicconformer-120m-ta" => "IndicConformer Tamil 120M".into(),
+        "indicconformer-120m-te" => "IndicConformer Telugu 120M".into(),
+        "indicconformer-120m-mr" => "IndicConformer Marathi 120M".into(),
+        "indicconformer-120m-gu" => "IndicConformer Gujarati 120M".into(),
+        "indicconformer-120m-kn" => "IndicConformer Kannada 120M".into(),
+        "indicconformer-120m-ml" => "IndicConformer Malayalam 120M".into(),
+        "indicconformer-120m-pa" => "IndicConformer Punjabi 120M".into(),
+        "indicconformer-8lang" => "IndicConformer 8-Lang Multi".into(),
+        "indicconformer-600m-multi" => "IndicConformer 600M Multi".into(),
+        "whisper-large-v3-int8" => "Whisper Large V3".into(),
+        "moonshine-base" => "Moonshine Base".into(),
+        "moonshine-tiny-en-int8" | "sherpa-onnx-moonshine-tiny-en-int8" => "Moonshine Tiny".into(),
+        "whisper-tiny-int8" | "sherpa-onnx-whisper-tiny" => "Whisper Tiny".into(),
+        "whisper-base-int8" | "sherpa-onnx-whisper-base" => "Whisper Base".into(),
+        "sensevoice-small-int8" | "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" => {
+            "SenseVoice Small".into()
+        }
+        "qwen3-asr-0.6b-int8"
+        | "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+        | "sherpa-onnx-qwen3-asr-0.6b-int8-2026-03-25" => "Qwen3-ASR 0.6B".into(),
+        _ => {
+            let s = id
+                .strip_prefix("sherpa-onnx-")
+                .unwrap_or(id)
+                .replace('-', " ")
+                .replace('_', " ");
+            let mut out = String::with_capacity(s.len());
+            let mut cap = true;
+            for ch in s.chars() {
+                if cap && ch.is_ascii_alphabetic() {
+                    out.push(ch.to_ascii_uppercase());
+                    cap = false;
+                } else {
+                    out.push(ch);
+                }
+                if ch == ' ' {
+                    cap = true;
+                }
+            }
+            out.replace("Int8", "INT8")
+                .replace("  ", " ")
+                .trim()
+                .to_string()
+        }
+    }
+}
+
+pub fn onnx_dir_name(model_name: &str) -> Option<String> {
     match model_name {
         "parakeet-onnx-tdt-0.6b-v3" => Some("parakeet-tdt-0.6b-v3-int8".into()),
         "parakeet-onnx-tdt-0.6b-v2" => Some("parakeet-tdt-0.6b-v2-int8".into()),
@@ -119,8 +227,13 @@ fn onnx_dir_name(model_name: &str) -> Option<String> {
         "indicconformer-120m-pa" => Some("indicconformer-120m-pa".into()),
         "indicconformer-8lang" => Some("indicconformer-8lang".into()),
         "moonshine-base" => Some("moonshine-base".into()),
+        "moonshine-tiny-en-int8" => Some("sherpa-onnx-moonshine-tiny-en-int8".into()),
         "indicconformer-600m-multi" => Some("indicconformer-600m-multi".into()),
         "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
+        "whisper-tiny-int8" => Some("sherpa-onnx-whisper-tiny".into()),
+        "whisper-base-int8" => Some("sherpa-onnx-whisper-base".into()),
+        "sensevoice-small-int8" => Some("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17".into()),
+        "qwen3-asr-0.6b-int8" => Some("sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25".into()),
         _ => None,
     }
 }
@@ -310,6 +423,16 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
             f.sync_all().ok();
         }
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "model": &model_name,
+                "progress": 100,
+                "phase": "finalizing",
+                "downloaded": downloaded,
+                "total": total,
+            }),
+        );
         _clear_guard.active = false;
         ACTIVE_CANCEL
             .lock()
@@ -326,11 +449,18 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         "onnx"
     } else if url.ends_with(".tar.gz") {
         "tar.gz"
+    } else if url.ends_with(".tar.bz2") {
+        "tar.bz2"
     } else {
         "bin"
     };
-    let temp_archive =
-        std::env::temp_dir().join(format!("wisper_{}_{}.{}", &model_name, nanos, ext));
+    let mut temp_archive = std::env::temp_dir().join(format!(
+        "wisper_{}_{}_{}.{}",
+        &model_name,
+        nanos,
+        std::process::id(),
+        ext
+    ));
 
     let client = models_client();
     let response = client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -341,17 +471,60 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&temp_archive)
-                .map_err(|e| e.to_string())?
+            // create_new (O_EXCL): never truncate an existing file — a planted
+            // symlink/name at our path must fail, not get overwritten.
+            loop {
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(&temp_archive)
+                {
+                    Ok(f) => break f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let n = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos();
+                        temp_archive = std::env::temp_dir().join(format!(
+                            "wisper_{}_{}_{}.{}",
+                            &model_name,
+                            n,
+                            std::process::id(),
+                            ext
+                        ));
+                        continue;
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
         }
         #[cfg(not(unix))]
         {
-            fs::File::create(&temp_archive).map_err(|e| e.to_string())?
+            loop {
+                match std::fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&temp_archive)
+                {
+                    Ok(f) => break f,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let n = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos();
+                        temp_archive = std::env::temp_dir().join(format!(
+                            "wisper_{}_{}_{}.{}",
+                            &model_name,
+                            n,
+                            std::process::id(),
+                            ext
+                        ));
+                        continue;
+                    }
+                    Err(e) => return Err(e.to_string()),
+                }
+            }
         }
     };
 
@@ -416,14 +589,35 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
         }
     }
 
-    // Handle single ONNX file vs tar.gz archive
+    // Post-download phase — keep the UI from looking stuck at 100%.
     if ext == "onnx" {
-        // Single file model (e.g., IndicConformer, Moonshine) - just move into target_dir
+        if model_name.starts_with("indicconformer-") {
+            let _ = app_handle.emit(
+                "download-progress",
+                serde_json::json!({
+                    "model": &model_name,
+                    "progress": 100,
+                    "phase": "installing",
+                    "downloaded": downloaded,
+                    "total": total,
+                }),
+            );
+        } else {
+            let _ = app_handle.emit(
+                "download-progress",
+                serde_json::json!({
+                    "model": &model_name,
+                    "progress": 100,
+                    "phase": "finalizing",
+                    "downloaded": downloaded,
+                    "total": total,
+                }),
+            );
+        }
         let _ = fs::create_dir_all(&target_dir);
         let dest = target_dir.join("model.onnx");
         fs::copy(&temp_archive, &dest).map_err(|e| format!("Failed to save model: {}", e))?;
         let _ = fs::remove_file(&temp_archive);
-        // For IndicConformer, also fetch tokens.txt / vocab.json for sherpa
         if model_name.starts_with("indicconformer-") {
             if let Err(e) = fetch_indic_assets(&target_dir, &model_name).await {
                 eprintln!("[models] asset fetch failed for {}: {}", model_name, e);
@@ -434,35 +628,32 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             }
         }
     } else {
-        // Extract archive with path traversal validation
-        let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "model": &model_name,
+                "progress": 100,
+                "phase": "verifying",
+                "downloaded": downloaded,
+                "total": total,
+            }),
+        );
+        // Extract archive with path traversal validation (supports .tar.gz and .tar.bz2)
+        // Single-pass validate+unpack to avoid TOCTOU (no second open that could
+        // observe a swapped file after the validation scan).
+        let is_bz2 = ext == "tar.bz2";
         let mut validated_paths: Vec<PathBuf> = Vec::new();
-        for entry in archive
-            .entries()
-            .map_err(|e| format!("Failed to read archive: {}", e))?
-        {
-            let entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
-            if matches!(entry.link_name(), Ok(Some(_))) {
-                return Err("Archive contains symlink".into());
-            }
-            let et = entry.header().entry_type();
-            if et == tar::EntryType::Block
-                || et == tar::EntryType::Char
-                || et == tar::EntryType::Fifo
-            {
-                return Err(format!("Archive contains special file: {:?}", et));
-            }
-            if !(et.is_file() || et.is_dir()) {
-                if et != tar::EntryType::GNULongName
-                    && et != tar::EntryType::GNULongLink
-                    && et != tar::EntryType::XHeader
-                    && et != tar::EntryType::XGlobalHeader
-                {
-                    return Err(format!("Archive contains unsupported entry type: {:?}", et));
-                }
-            }
-            let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?;
+        let _ = app_handle.emit(
+            "download-progress",
+            serde_json::json!({
+                "model": &model_name,
+                "progress": 100,
+                "phase": "extracting",
+                "downloaded": downloaded,
+                "total": total,
+            }),
+        );
+        let validate_dest = |path: &std::path::Path, models_dir: &PathBuf| -> Result<PathBuf, String> {
             if path.is_absolute()
                 || path
                     .components()
@@ -470,18 +661,83 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             {
                 return Err("Archive contains invalid path".into());
             }
-            let dest = models_dir.join(&path);
-            if !dest.starts_with(&models_dir) {
+            let dest = models_dir.join(path);
+            if !dest.starts_with(models_dir) {
                 return Err("Archive path escapes models dir".into());
             }
-            validated_paths.push(dest);
+            Ok(dest)
+        };
+        if is_bz2 {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(bzip2::read::BzDecoder::new(archive_file));
+            for entry in archive
+                .entries()
+                .map_err(|e| format!("Failed to read archive: {}", e))?
+            {
+                let mut entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+                if matches!(entry.link_name(), Ok(Some(_))) {
+                    return Err("Archive contains symlink".into());
+                }
+                let et = entry.header().entry_type();
+                if et == tar::EntryType::Block
+                    || et == tar::EntryType::Char
+                    || et == tar::EntryType::Fifo
+                {
+                    return Err(format!("Archive contains special file: {:?}", et));
+                }
+                if !(et.is_file() || et.is_dir()) {
+                    if et != tar::EntryType::GNULongName
+                        && et != tar::EntryType::GNULongLink
+                        && et != tar::EntryType::XHeader
+                        && et != tar::EntryType::XGlobalHeader
+                    {
+                        return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                    }
+                    continue;
+                }
+                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?.into_owned();
+                let dest = validate_dest(&path, &models_dir)?;
+                validated_paths.push(dest.clone());
+                entry
+                    .unpack_in(&models_dir)
+                    .map_err(|e| format!("Failed to extract model: {}", e))?;
+            }
+        } else {
+            let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
+            for entry in archive
+                .entries()
+                .map_err(|e| format!("Failed to read archive: {}", e))?
+            {
+                let mut entry = entry.map_err(|e| format!("Bad archive entry: {}", e))?;
+                if matches!(entry.link_name(), Ok(Some(_))) {
+                    return Err("Archive contains symlink".into());
+                }
+                let et = entry.header().entry_type();
+                if et == tar::EntryType::Block
+                    || et == tar::EntryType::Char
+                    || et == tar::EntryType::Fifo
+                {
+                    return Err(format!("Archive contains special file: {:?}", et));
+                }
+                if !(et.is_file() || et.is_dir()) {
+                    if et != tar::EntryType::GNULongName
+                        && et != tar::EntryType::GNULongLink
+                        && et != tar::EntryType::XHeader
+                        && et != tar::EntryType::XGlobalHeader
+                    {
+                        return Err(format!("Archive contains unsupported entry type: {:?}", et));
+                    }
+                    continue;
+                }
+                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?.into_owned();
+                let dest = validate_dest(&path, &models_dir)?;
+                validated_paths.push(dest.clone());
+                entry
+                    .unpack_in(&models_dir)
+                    .map_err(|e| format!("Failed to extract model: {}", e))?;
+            }
         }
-        // Re-open and unpack after validation (entries consumed above)
-        let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
-        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(archive_file));
-        archive
-            .unpack(&models_dir)
-            .map_err(|e| format!("Failed to extract model: {}", e))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -532,13 +788,16 @@ pub fn delete_model(model_name: String) -> Result<(), String> {
     if !(model_name.starts_with("parakeet-")
         || model_name.starts_with("indicconformer-")
         || model_name.starts_with("moonshine-")
-        || model_name.starts_with("whisper-large-v3"))
+        || model_name.starts_with("whisper-")
+        || model_name.starts_with("sensevoice-")
+        || model_name.starts_with("qwen3-asr"))
     {
         return Err("Invalid model name prefix".to_string());
     }
     let models_dir = get_models_dir();
     let canonical_base = models_dir.canonicalize().unwrap_or(models_dir.clone());
-    let path = models_dir.join(&model_name);
+    let dir_name = onnx_dir_name(&model_name).unwrap_or(model_name.clone());
+    let path = models_dir.join(&dir_name);
     let canonical_path = path.canonicalize().unwrap_or(path.clone());
     if !canonical_path.starts_with(&canonical_base) {
         return Err("Invalid model path".to_string());

@@ -2,7 +2,7 @@ import { IconEngine, IconSearch, IconChevronDown } from "./ui/icons";
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AppSettings, modelCatalog, allModelKeys, languages, formatModelFilename } from "../types";
+import { AppSettings, modelCatalog, allModelKeys, languages, formatModelFilename, sarvamModes } from "../types";
 import ModelCard from "./ModelCard";
 import { Select } from "./Select";
 import { Field } from "./Field";
@@ -29,7 +29,8 @@ function sortKeys(keys: string[]) {
   });
 }
 
-type DownloadEntry = { progress: number; speed?: number; downloaded?: number; total?: number };
+type DownloadPhase = "downloading" | "verifying" | "extracting" | "installing" | "finalizing";
+type DownloadEntry = { progress: number; phase?: DownloadPhase; speed?: number; downloaded?: number; total?: number };
 export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   const toast = useToast();
   const [localModels, setLocalModels] = useState<string[]>([]);
@@ -48,7 +49,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
       const m = await invoke<string[]>("list_local_models");
       setLocalModels(m);
       // Check which downloaded Indic models are missing tokens/vocab
-      const indic = m.filter((k) => k.startsWith("indicconformer-"));
+      const indic = m.filter((k) => k.startsWith("indicconformer-") || k.startsWith("whisper-large-v3"));
       const missing = new Set<string>();
       await Promise.all(
         indic.map(async (k) => {
@@ -70,12 +71,13 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
 
   useEffect(() => {
     fetchModels();
-    const unlistenProgressPromise = listen<{ model: string; progress: number; speed_bps?: number; downloaded?: number; total?: number }>("download-progress", (event) => {
-      const { model, progress, speed_bps, downloaded, total } = event.payload;
+    const unlistenProgressPromise = listen<{ model: string; progress: number; phase?: DownloadPhase; speed_bps?: number; downloaded?: number; total?: number }>("download-progress", (event) => {
+      const { model, progress, phase, speed_bps, downloaded, total } = event.payload;
       setDownloads((prev) => ({
         ...prev,
         [model]: {
           progress,
+          phase: (phase as DownloadPhase | undefined) ?? (progress >= 100 ? prev[model]?.phase : "downloading") ?? "downloading",
           speed: speed_bps ?? prev[model]?.speed,
           downloaded: downloaded ?? prev[model]?.downloaded,
           total: total ?? prev[model]?.total,
@@ -98,7 +100,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
   }, []);
 
   const downloadModel = async (name: string) => {
-    setDownloads((prev) => ({ ...prev, [name]: { progress: 0 } }));
+    setDownloads((prev) => ({ ...prev, [name]: { progress: 0, phase: "downloading" as const } }));
     try {
       await invoke("download_model", { modelName: name });
       toast.addToast(`Downloaded ${name}`, "success");
@@ -298,6 +300,7 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     isActive={false}
                     isDownloading={key in downloads}
                     progress={downloads[key]?.progress}
+                    phase={downloads[key]?.phase ?? "downloading"}
                     speedBps={downloads[key]?.speed}
                     downloaded={downloads[key]?.downloaded}
                     total={downloads[key]?.total}
@@ -327,10 +330,10 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
         <>
           <SectionCard title="Provider" className="card-enter">
             <div className="relative bg-elevated/40 rounded-xl p-1 flex mb-4">
-              <div className={`absolute top-1 bottom-1 w-1/3 rounded-lg bg-accent transition-all duration-300 ease-out ${
-                settings.engine_provider === "openai" ? "left-1" : settings.engine_provider === "groq" ? "left-[calc(33.333%-1px)]" : "left-[calc(66.666%-2px)]"
+              <div className={`absolute top-1 bottom-1 w-1/4 rounded-lg bg-accent transition-all duration-300 ease-out ${
+                settings.engine_provider === "openai" ? "left-1" : settings.engine_provider === "groq" ? "left-[calc(25%-1px)]" : settings.engine_provider === "sarvam" ? "left-[calc(50%-1px)]" : "left-[calc(75%-1px)]"
               }`} />
-              {(["openai", "groq", "custom"] as const).map((p) => (
+              {(["openai", "groq", "sarvam", "custom"] as const).map((p) => (
                 <button
                   key={p}
                   onClick={() => {
@@ -341,12 +344,20 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                     } else if (p === "groq") {
                       updates.engine_model = "whisper-large-v3";
                       updates.engine_base_url = "https://api.groq.com/openai/v1";
+                    } else if (p === "sarvam") {
+                      updates.engine_model = "saaras:v4";
+                      updates.engine_base_url = "";
                     }
                     onSaveAll(updates);
                   }}
                   className={`relative z-10 flex-1 py-2.5 text-xs font-mono font-medium rounded-lg transition-colors duration-200 ${settings.engine_provider === p ? "text-white" : "text-muted hover:text-ink"}`}
                 >
-                  {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : "Custom"}
+                  {p === "openai" ? "OpenAI" : p === "groq" ? "Groq" : p === "sarvam" ? "Sarvam" : "Custom"}
+                  {p === "sarvam" && settings.engine_provider === "sarvam" && (
+                    <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-2.5 px-2 py-1 text-[10px] font-bold tracking-widest leading-none rounded-full bg-neutral-900 text-amber-300 border border-amber-400/60 whitespace-nowrap">
+                      Best in class
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -366,6 +377,8 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                   ? "voice_api_key_openai"
                   : settings.engine_provider === "groq"
                   ? "voice_api_key_groq"
+                  : settings.engine_provider === "sarvam"
+                  ? "voice_api_key_sarvam"
                   : "voice_api_key_custom";
               return (
                 <Field
@@ -383,6 +396,29 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                 />
               );
             })()}
+            {settings.engine_provider === "sarvam" && (
+              <div className="mt-3">
+                <span className="text-[11px] font-medium text-muted">Output mode</span>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {sarvamModes.map((m) => (
+                    <button
+                      key={m.value}
+                      onClick={() => onSave("engine_sarvam_mode", m.value)}
+                      className={`px-2.5 py-1.5 text-[11px] font-mono rounded-lg border transition-colors ${
+                        (settings.engine_sarvam_mode || "transcribe") === m.value
+                          ? "bg-accent text-white border-accent"
+                          : "bg-elevated/40 text-muted border-stroke hover:text-ink"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] leading-snug text-muted mt-2">
+                  {sarvamModes.find((m) => m.value === (settings.engine_sarvam_mode || "transcribe"))?.desc}
+                </p>
+              </div>
+            )}
             <p className="text-[10px] text-muted/70 mt-1">Saved on this device only - it's sent nowhere except to your chosen service.</p>
           </SectionCard>
         </>

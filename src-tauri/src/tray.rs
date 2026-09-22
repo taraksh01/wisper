@@ -16,8 +16,7 @@ static APP_HANDLE: once_cell::sync::Lazy<Mutex<Option<tauri::AppHandle>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(None));
 
 fn pretty_model(file: &str) -> String {
-    file.replace("parakeet-", "Parakeet ")
-        .replace("-int8", " (INT8)")
+    crate::models::pretty_model_name(file)
 }
 
 fn tooltip_text() -> String {
@@ -44,11 +43,13 @@ fn tooltip_text() -> String {
 /// Rebuild the entire menu from current settings. The menu is a pure VIEW:
 /// every label is derived here, every action delegates to `settings::ops`.
 /// Layout: hotkey · load/unload action | switch | nav | quit
-fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
+fn rebuild_menu_with(
+    app: &tauri::AppHandle,
+    s: &settings::AppSettings,
+) -> Result<(), tauri::Error> {
     let Some(tray) = app.tray_by_id("main") else {
         return Ok(());
     };
-    let s = settings::AppSettings::load();
 
     // 1. Hotkey — info only (disabled), opens nowhere
     let hk_display = if s.hotkey.is_empty() {
@@ -75,6 +76,7 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
             let label = match s.engine_provider.as_str() {
                 "openai" => "OpenAI",
                 "groq" => "Groq",
+                "sarvam" => "Sarvam",
                 _ => "Custom",
             };
             if s.engine_model.trim().is_empty() {
@@ -112,6 +114,9 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
                 !s.voice_api_key_openai.trim().is_empty() || !s.voice_api_key.trim().is_empty()
             }
             "groq" => !s.voice_api_key_groq.trim().is_empty() || !s.voice_api_key.trim().is_empty(),
+            "sarvam" => {
+                !s.voice_api_key_sarvam.trim().is_empty() || !s.voice_api_key.trim().is_empty()
+            }
             "custom" => {
                 !s.voice_api_key_custom.trim().is_empty() || !s.voice_api_key.trim().is_empty()
             }
@@ -131,11 +136,8 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
         MenuItem::with_id(app, "switch", "Switch engine", false, None::<&str>)?
     };
 
-    // 4. Copy last + Open + Quit
-    let has_history = crate::history::HistoryManager::new()
-        .get_history(1, 0)
-        .map(|v| !v.is_empty())
-        .unwrap_or(false);
+    // 4. Copy last + Open + Quit — use EXISTS, not fetching rows.
+    let has_history = crate::history::HistoryManager::new().has_history();
     let copy_i = MenuItem::with_id(
         app,
         "copy_last",
@@ -166,6 +168,11 @@ fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     Ok(())
 }
 
+fn rebuild_menu(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
+    let s = settings::AppSettings::load();
+    rebuild_menu_with(app, &s)
+}
+
 /// Refresh the whole tray (menu + tooltip) from current settings.
 pub fn refresh() {
     if let Some(handle) = APP_HANDLE
@@ -177,28 +184,40 @@ pub fn refresh() {
     }
 }
 
+pub fn refresh_with(settings: &settings::AppSettings) {
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        let _ = rebuild_menu_with(handle, settings);
+    }
+}
+
 pub fn build_tray(app: &tauri::AppHandle) -> Result<tauri::tray::TrayIcon, tauri::Error> {
     *APP_HANDLE.lock().unwrap_or_else(|e| e.into_inner()) = Some(app.clone());
 
-    let dev_icon: Option<tauri::image::Image<'static>> = if app_info::is_dev() {
-        let bytes = include_bytes!("../icons/dev/icon.png");
+    let flavour_icon: Option<tauri::image::Image<'static>> = {
+        let bytes: &[u8] = if app_info::is_dev() {
+            include_bytes!("../icons/dev/icon.png")
+        } else {
+            include_bytes!("../icons/icon.png")
+        };
         match tauri::image::Image::from_bytes(bytes) {
             Ok(icon) => Some(icon),
             Err(e) => {
-                eprintln!("[dev] Image::from_bytes failed: {}", e);
+                eprintln!("Image::from_bytes failed: {}", e);
                 None
             }
         }
-    } else {
-        None
     };
 
-    if let Some(dev_icon) = dev_icon.clone() {
+    if let Some(icon) = flavour_icon.clone() {
         if let Some(win) = app.get_webview_window("main") {
-            let _ = win.set_icon(dev_icon.clone());
+            let _ = win.set_icon(icon);
         }
     }
-    let tray_icon = dev_icon
+    let tray_icon = flavour_icon
         .or_else(|| app.default_window_icon().cloned())
         .unwrap_or_else(|| {
             eprintln!("no tray icon available, using fallback");

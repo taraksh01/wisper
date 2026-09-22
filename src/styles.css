@@ -333,6 +333,12 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Model post-download indeterminate shimmer ── */
+@keyframes model-indeterminate {
+  0% { background-position: -32px 0; }
+  100% { background-position: 220px 0; }
+}
+
 /* ── Press feedback ── */
 .pressable {
   transition: transform 140ms var(--ease-out), background 140ms var(--ease-out), border-color 140ms var(--ease-out), box-shadow 140ms var(--ease-out);
