@@ -9,21 +9,17 @@ import { WisperLogo } from "./WisperLogo";
 const GITHUB_REPO = "taraksh01/wisper";
 
 /* One-off animations for this page.
-   pipe-flow: data streaming left → right (one gradient period = 7px).
-   caret-blink: terminal-style instant blink on the Insert icon. */
+   pipe-flow: data streaming left → right (one gradient period = 7px). */
 const ABOUT_CSS = `
 @keyframes pipe-flow { to { background-position-x: 7px; } }
-@keyframes caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .animate-\\[pipe-flow_0\\.7s_linear_infinite\\],
-  .animate-\\[caret-blink_1\\.1s_steps\\(1\\)_infinite\\] { animation: none; }
+  .animate-\\[pipe-flow_0\\.7s_linear_infinite\\] { animation: none; }
 }`;
 
 interface Step {
   label: string;
   desc: string;
   optional?: boolean;
-  blink?: boolean;
   Icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
@@ -32,7 +28,7 @@ const STEPS: Step[] = [
   { label: "Record", desc: "Captured right on your device.", Icon: IconRecord },
   { label: "Transcribe", desc: "Your voice becomes text.", Icon: IconBars },
   { label: "Refine", desc: "AI cleans up and formats it.", optional: true, Icon: IconProcess },
-  { label: "Insert", desc: "Pasted back in the app where you started.", blink: true, Icon: IconInsert },
+  { label: "Insert", desc: "Pasted back in the app where you started.", Icon: IconInsert },
 ];
 
 export function AboutTab() {
@@ -140,9 +136,6 @@ export function AboutTab() {
           <p className="text-[10px] font-mono text-muted mt-1 tracking-[0.16em] uppercase">
             Version {version || "…"}
           </p>
-          <p className="text-[10px] font-mono text-muted mt-1 tracking-[0.16em] uppercase">
-            Linux · Windows · macOS
-          </p>
           <p className="text-xs text-muted leading-relaxed mt-3 max-w-[430px] mx-auto">
             Your voice, typed anywhere. Press your shortcut key, speak, and your words
             appear as text, transcribed{" "}
@@ -216,11 +209,7 @@ export function AboutTab() {
                       : "bg-accent/10 ring-accent/30 text-accent shadow-[0_0_16px_-6px] shadow-accent/55"
                   }`}
                 >
-                  <step.Icon
-                    className={`w-[19px] h-[19px] ${
-                      step.blink ? "animate-[caret-blink_1.1s_steps(1)_infinite]" : ""
-                    }`}
-                  />
+                  <step.Icon className="w-[19px] h-[19px]" />
                 </div>
                 <h3 className={`text-xs font-semibold font-mono mt-2.5 ${step.optional ? "text-muted" : "text-ink"}`}>
                   {step.label}
