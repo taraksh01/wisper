@@ -21,7 +21,7 @@ const steps: {
   {
     Icon: IconMic,
     title: "Speak",
-    desc: "Hold your shortcut key and just talk.",
+    desc: "Press your shortcut key and just talk.",
   },
   {
     Icon: IconBars,
