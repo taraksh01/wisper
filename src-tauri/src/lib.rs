@@ -107,6 +107,12 @@ static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
 static OVERLAY_ERROR_REASON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
+// Last origin payload sent to the pill. The overlay window is destroyed on
+// Idle and recreated per recording, so an eval issued before its JS loads is
+// silently dropped — update_overlay re-applies this after showing.
+static LAST_ORIGIN_JSON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
 pub(crate) fn emit_overlay_origin(origin: Option<&crate::focus::OriginTarget>) {
     let Some(handle) = APP_HANDLE
         .lock()
@@ -125,6 +131,7 @@ pub(crate) fn emit_overlay_origin(origin: Option<&crate::focus::OriginTarget>) {
         .to_string(),
         None => "null".to_string(),
     };
+    *LAST_ORIGIN_JSON.lock().unwrap_or_else(|e| e.into_inner()) = Some(json.clone());
     let h = handle.clone();
     let _ = handle.run_on_main_thread(move || {
         if let Some(win) = h.get_webview_window(OVERLAY_LABEL) {
@@ -689,6 +696,28 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 let _ = win.eval("window.__mode && window.__mode('recording')");
                 let _ = win.show();
                 position_overlay(app, &win, false);
+                // The window may have just been recreated, so its JS might
+                // not have defined __origin yet when the Pressed-time eval
+                // ran. Re-apply the stored origin once it can land. Reading
+                // the store late (not cloning here) lets a newer recording's
+                // origin win if the user re-triggers quickly.
+                let app_for_origin = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    let win_for_origin = app_for_origin.clone();
+                    let _ = app_for_origin.run_on_main_thread(move || {
+                        let json = LAST_ORIGIN_JSON
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
+                        if let (Some(j), Some(w)) = (
+                            json,
+                            win_for_origin.get_webview_window(OVERLAY_LABEL),
+                        ) {
+                            let _ = w.eval(&format!("window.__origin && window.__origin({j})"));
+                        }
+                    });
+                });
             }
             CoordinatorState::Error => {
                 let reason = OVERLAY_ERROR_REASON
