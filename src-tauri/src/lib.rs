@@ -1066,6 +1066,14 @@ pub fn run() {
                 eprintln!("Accessibility permission not granted: opening System Settings. Remove Wisper with minus, re-add with plus, turn it on, then relaunch.");
                 let _ = handy_keys::open_accessibility_settings();
             }
+            // Title bar carries "Name · version" so the sidebar doesn't have to.
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_title(&format!(
+                    "{} · {}",
+                    crate::app_info::display_name(),
+                    app.package_info().version
+                ));
+            }
             create_overlay(&app.handle());
             let saved = &saved_settings.hotkey;
             if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {

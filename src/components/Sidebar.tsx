@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, tabs } from "../types";
 import { APP_NAME } from "../appConfig";
@@ -26,12 +25,7 @@ const stateLabel = (state: string) => {
 };
 
 export function Sidebar({ activeTab, appState, settings, currentModelName, onTabChange, onUnloadModel, onOpenEngineTab }: SidebarProps) {
-  const [version, setVersion] = useState("");
   const [level, setLevel] = useState(0);
-
-  useEffect(() => {
-    getVersion().then(setVersion).catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (appState !== "recording") {
@@ -196,10 +190,6 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
             <span className="text-[10px] font-medium tracking-widest uppercase text-muted">to talk</span>
           </div>
         )}
-        <div className="flex items-center justify-between text-[10px] font-mono text-muted/50 tracking-wider">
-          <span>{APP_NAME} · {version || "-"}</span>
-          <span className={`w-1.5 h-1.5 rounded-full ${appState === "recording" ? "bg-recording" : appState === "processing" ? "bg-accent" : "bg-ready/60"}`} />
-        </div>
       </div>
     </aside>
   );
