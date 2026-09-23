@@ -297,6 +297,36 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
     update_overlay(app, state);
 }
 
+/// Re-emit idle once the last background pipeline drains. Without this the
+/// sidebar stays on "processing": stop_and_process announces Idle while its
+/// job is still counted, and nothing announces the drain.
+pub(crate) fn emit_idle_if_drained() {
+    if crate::coordinator::active_job_count() > 0 {
+        return;
+    }
+    {
+        let state = crate::tray::STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if state == CoordinatorState::Recording || state == CoordinatorState::Error {
+            return;
+        }
+        let mut lock = crate::tray::STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *lock = CoordinatorState::Idle;
+    }
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    {
+        emit_state(&handle, CoordinatorState::Idle);
+    }
+}
+
 const OVERLAY_LABEL: &str = "wisper-overlay";
 const OVERLAY_WIDTH: f64 = 294.0;
 const OVERLAY_HEIGHT: f64 = 46.0;

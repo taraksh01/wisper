@@ -239,6 +239,7 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
     drop(state_lock);
     if !recording_now && active_job_count() == 0 && !error_now {
         crate::hide_overlay();
+        crate::emit_idle_if_drained();
     }
     {
         let (lock, cvar) = &*SEQ_CV;
