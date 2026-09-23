@@ -132,7 +132,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
       {isMac && (
         <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
-          Built-in pastes with Cmd+V and needs an Accessibility grant: System Settings → Privacy &amp; Security → Accessibility → enable Wisper.
+          Built-in pastes with Cmd+V and needs an Accessibility grant: System Settings → Privacy &amp; Security → Accessibility → enable Wisper. After each app update, remove Wisper with minus and re-add it with plus, or the hotkey will stop firing.
         </div>
       )}
 
