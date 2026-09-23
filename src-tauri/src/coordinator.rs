@@ -1,12 +1,14 @@
 use crate::audio::{suppress_noise, trim_silence, AudioRecorder};
 use crate::hotkey::HotkeyEvent;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::engine::{
-    create_local_engine, CloudEngineProvider, EngineProvider, SarvamCloudProvider,
+    classify_cloud_error, create_local_engine, CloudEngineProvider, CloudFailure, EngineProvider,
+    SarvamCloudProvider,
 };
 use crate::focus::OriginTarget;
 use crate::paste::paste_text;
@@ -153,6 +155,14 @@ pub static CLOUD_BASE_URL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_API_KEY: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_MODEL: Mutex<String> = Mutex::new(String::new());
 pub static CLOUD_SARVAM_MODE: Mutex<String> = Mutex::new(String::new());
+/// Sticky active key index per cloud provider: the working key keeps being
+/// used until an upstream error rotates to the next one.
+static CLOUD_ACTIVE_KEY: once_cell::sync::Lazy<Mutex<HashMap<String, usize>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+/// (provider, key index) pairs rejected with 401/403 this session.
+/// Session-only: cleared on restart so re-added keys work again.
+static CLOUD_DISABLED_KEYS: once_cell::sync::Lazy<Mutex<HashSet<(String, usize)>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(HashSet::new()));
 
 fn pretty_model_id(id: &str) -> String {
     crate::models::pretty_model_name(id)
@@ -695,6 +705,146 @@ fn prepare_audio(samples: Vec<f32>, sr: u32) -> Vec<f32> {
     }
 }
 
+/// Single-key cloud transcription attempt (no rotation).
+fn transcribe_cloud_once(
+    provider: &str,
+    api_key: &str,
+    trimmed: &[f32],
+    sr: u32,
+) -> Result<String, String> {
+    if provider == "sarvam" {
+        let mut model = CLOUD_MODEL
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if model.trim().is_empty() {
+            model = "saaras:v4".into();
+        }
+        let mut sarvam_mode = CLOUD_SARVAM_MODE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if sarvam_mode.trim().is_empty() {
+            sarvam_mode = "transcribe".into();
+        }
+        return SarvamCloudProvider::new(api_key.to_string(), model, sarvam_mode)
+            .transcribe(trimmed, sr);
+    }
+    let mut base_url = CLOUD_BASE_URL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    if base_url.trim().is_empty() {
+        base_url = match provider {
+            "openai" => "https://api.openai.com/v1".into(),
+            "groq" => "https://api.groq.com/openai/v1".into(),
+            _ => base_url,
+        };
+    }
+    if base_url.trim().is_empty() {
+        return Err("Cloud provider not configured (missing base URL)".into());
+    }
+    let model = CLOUD_MODEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    CloudEngineProvider::new(base_url, api_key.to_string(), model).transcribe(trimmed, sr)
+}
+
+fn provider_key_list(settings: &crate::settings::AppSettings, provider: &str) -> Vec<String> {
+    let list = match provider {
+        "openai" => &settings.voice_api_keys_openai,
+        "groq" => &settings.voice_api_keys_groq,
+        "sarvam" => &settings.voice_api_keys_sarvam,
+        _ => &settings.voice_api_keys_custom,
+    };
+    let mut keys: Vec<String> = list
+        .iter()
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+        .collect();
+    // Back-compat: the synced single key covers pre-list settings files
+    // whose migration hasn't run through load() yet.
+    if keys.is_empty() {
+        let legacy = CLOUD_API_KEY
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if !legacy.trim().is_empty() {
+            keys.push(legacy.trim().to_string());
+        }
+    }
+    keys
+}
+
+/// Cloud transcription with per-provider key rotation. Starts at the sticky
+/// active key; 401/403 disables a key for the session, 429/5xx/transport
+/// errors move to the next key, anything else fails immediately.
+fn transcribe_cloud_with_fallback(
+    provider: &str,
+    trimmed: &[f32],
+    sr: u32,
+) -> Result<String, String> {
+    let settings = crate::settings::AppSettings::load();
+    let keys = provider_key_list(&settings, provider);
+    if keys.is_empty() {
+        return Err(format!("{} API key not configured", provider));
+    }
+    let start = CLOUD_ACTIVE_KEY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(provider)
+        .copied()
+        .unwrap_or(0)
+        % keys.len();
+    let mut last_err = String::new();
+    for step in 0..keys.len() {
+        let idx = (start + step) % keys.len();
+        if CLOUD_DISABLED_KEYS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&(provider.to_string(), idx))
+        {
+            continue;
+        }
+        match transcribe_cloud_once(provider, &keys[idx], trimmed, sr) {
+            Ok(text) => {
+                CLOUD_ACTIVE_KEY
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(provider.to_string(), idx);
+                return Ok(text);
+            }
+            Err(e) => match classify_cloud_error(&e) {
+                CloudFailure::InvalidKey => {
+                    eprintln!(
+                        "[engine] {} key #{} rejected (401/403); disabling for this session",
+                        provider, idx
+                    );
+                    CLOUD_DISABLED_KEYS
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert((provider.to_string(), idx));
+                    last_err = e;
+                }
+                CloudFailure::Retryable => {
+                    eprintln!(
+                        "[engine] {} key #{} failed, trying next key: {}",
+                        provider, idx, e
+                    );
+                    last_err = e;
+                }
+                CloudFailure::Fatal => return Err(e),
+            },
+        }
+    }
+    Err(if last_err.is_empty() {
+        format!("All {} API keys disabled for this session", provider)
+    } else {
+        last_err
+    })
+}
+
 fn transcribe_samples(trimmed: &[f32], sr: u32) -> Result<String, String> {
     let mode = ENGINE_MODE
         .lock()
@@ -705,54 +855,7 @@ fn transcribe_samples(trimmed: &[f32], sr: u32) -> Result<String, String> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        if provider == "sarvam" {
-            let api_key = CLOUD_API_KEY
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            if api_key.trim().is_empty() {
-                return Err("Sarvam API key not configured".into());
-            }
-            let mut model = CLOUD_MODEL
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            if model.trim().is_empty() {
-                model = "saaras:v4".into();
-            }
-            let mut sarvam_mode = CLOUD_SARVAM_MODE
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            if sarvam_mode.trim().is_empty() {
-                sarvam_mode = "transcribe".into();
-            }
-            return SarvamCloudProvider::new(api_key, model, sarvam_mode).transcribe(trimmed, sr);
-        } else {
-            let mut base_url = CLOUD_BASE_URL
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            if base_url.trim().is_empty() {
-                base_url = match provider.as_str() {
-                    "openai" => "https://api.openai.com/v1".into(),
-                    "groq" => "https://api.groq.com/openai/v1".into(),
-                    _ => base_url,
-                };
-            }
-            if base_url.trim().is_empty() {
-                return Err("Cloud provider not configured (missing base URL)".into());
-            }
-            let api_key = CLOUD_API_KEY
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            let model = CLOUD_MODEL
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            return CloudEngineProvider::new(base_url, api_key, model).transcribe(trimmed, sr);
-        }
+        return transcribe_cloud_with_fallback(&provider, trimmed, sr);
     }
     let model_path = CURRENT_MODEL
         .lock()
@@ -1127,6 +1230,7 @@ impl TranscriptionCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::{classify_cloud_error, CloudFailure};
     use std::sync::mpsc;
 
     #[test]
@@ -1145,5 +1249,49 @@ mod tests {
             .send(CoordinatorCommand::Hotkey(HotkeyEvent::Pressed))
             .unwrap();
         // Since start_recording might fail in unit test without audio device, let's verify coordinator builds and channels work
+    }
+
+    #[test]
+    fn test_classify_auth_errors() {
+        assert_eq!(
+            classify_cloud_error("Cloud API error 401: Incorrect API key"),
+            CloudFailure::InvalidKey
+        );
+        assert_eq!(
+            classify_cloud_error("Sarvam API error 403: forbidden"),
+            CloudFailure::InvalidKey
+        );
+    }
+
+    #[test]
+    fn test_classify_retryable_errors() {
+        assert_eq!(
+            classify_cloud_error("Cloud API error 429: rate limit"),
+            CloudFailure::Retryable
+        );
+        assert_eq!(
+            classify_cloud_error("Cloud API error 500: server error"),
+            CloudFailure::Retryable
+        );
+        assert_eq!(
+            classify_cloud_error("Sarvam API error 503: unavailable"),
+            CloudFailure::Retryable
+        );
+        assert_eq!(
+            classify_cloud_error("HTTP request failed: connection reset"),
+            CloudFailure::Retryable
+        );
+    }
+
+    #[test]
+    fn test_classify_fatal_errors() {
+        assert_eq!(
+            classify_cloud_error("Cloud API error 400: bad request"),
+            CloudFailure::Fatal
+        );
+        assert_eq!(
+            classify_cloud_error("Failed to parse response JSON: eof"),
+            CloudFailure::Fatal
+        );
     }
 }

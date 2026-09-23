@@ -18,6 +18,17 @@ pub struct AppSettings {
     pub voice_api_key_groq: String,
     pub voice_api_key_sarvam: String,
     pub voice_api_key_custom: String,
+    /// Ordered fallback key lists (unlimited), one per cloud provider.
+    /// The active key is sticky; 401s disable a key for the session,
+    /// 429/5xx/network errors rotate to the next key.
+    #[serde(default)]
+    pub voice_api_keys_openai: Vec<String>,
+    #[serde(default)]
+    pub voice_api_keys_groq: Vec<String>,
+    #[serde(default)]
+    pub voice_api_keys_sarvam: Vec<String>,
+    #[serde(default)]
+    pub voice_api_keys_custom: Vec<String>,
     pub engine_model: String,
     pub engine_sarvam_mode: String,
     pub local_model_file: String,
@@ -139,6 +150,10 @@ impl Default for AppSettings {
             voice_api_key_groq: String::new(),
             voice_api_key_sarvam: String::new(),
             voice_api_key_custom: String::new(),
+            voice_api_keys_openai: Vec::new(),
+            voice_api_keys_groq: Vec::new(),
+            voice_api_keys_sarvam: Vec::new(),
+            voice_api_keys_custom: Vec::new(),
             engine_model: String::new(),
             engine_sarvam_mode: "transcribe".into(),
             local_model_file: String::new(),
@@ -234,6 +249,25 @@ impl AppSettings {
                     s.lifetime_dictations = s.lifetime_dictations.max(0);
                     s.lifetime_words = s.lifetime_words.max(0);
                     s.time_saved_sec = s.time_saved_sec.max(0);
+                    // Migrate legacy single keys into the fallback lists.
+                    if s.voice_api_keys_openai.is_empty()
+                        && !s.voice_api_key_openai.trim().is_empty()
+                    {
+                        s.voice_api_keys_openai.push(s.voice_api_key_openai.clone());
+                    }
+                    if s.voice_api_keys_groq.is_empty() && !s.voice_api_key_groq.trim().is_empty() {
+                        s.voice_api_keys_groq.push(s.voice_api_key_groq.clone());
+                    }
+                    if s.voice_api_keys_sarvam.is_empty()
+                        && !s.voice_api_key_sarvam.trim().is_empty()
+                    {
+                        s.voice_api_keys_sarvam.push(s.voice_api_key_sarvam.clone());
+                    }
+                    if s.voice_api_keys_custom.is_empty()
+                        && !s.voice_api_key_custom.trim().is_empty()
+                    {
+                        s.voice_api_keys_custom.push(s.voice_api_key_custom.clone());
+                    }
                     return s;
                 }
             }
@@ -343,14 +377,27 @@ pub fn sync_runtime(settings: &AppSettings) {
         let mut v = crate::coordinator::CLOUD_API_KEY
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        *v = match settings.engine_provider.as_str() {
-            "openai" => settings.voice_api_key_openai.clone(),
-            "groq" => settings.voice_api_key_groq.clone(),
-            "sarvam" => settings.voice_api_key_sarvam.clone(),
-            "custom" => settings.voice_api_key_custom.clone(),
-            _ => settings.voice_api_key.clone(),
+        let list: &[String] = match settings.engine_provider.as_str() {
+            "openai" => &settings.voice_api_keys_openai,
+            "groq" => &settings.voice_api_keys_groq,
+            "sarvam" => &settings.voice_api_keys_sarvam,
+            _ => &settings.voice_api_keys_custom,
         };
-        // Fallback to generic key if provider-specific is empty (migration)
+        *v = list
+            .iter()
+            .find(|k| !k.trim().is_empty())
+            .cloned()
+            .unwrap_or_default();
+        // Fallback to legacy singles (migration) then the generic key.
+        if v.trim().is_empty() {
+            *v = match settings.engine_provider.as_str() {
+                "openai" => settings.voice_api_key_openai.clone(),
+                "groq" => settings.voice_api_key_groq.clone(),
+                "sarvam" => settings.voice_api_key_sarvam.clone(),
+                "custom" => settings.voice_api_key_custom.clone(),
+                _ => settings.voice_api_key.clone(),
+            };
+        }
         if v.trim().is_empty() {
             *v = settings.voice_api_key.clone();
         }
