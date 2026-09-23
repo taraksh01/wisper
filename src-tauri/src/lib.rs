@@ -677,14 +677,17 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 if crate::coordinator::active_job_count() > 0 {
                     let _ = win.eval("window.__mode && window.__mode('processing')");
                 } else {
-                    #[cfg(target_os = "windows")]
+                    // Linux destroys (transparent windows can go stale on
+                    // some compositors); macOS/Windows hide so the pill's JS
+                    // stays alive and the origin icon is already painted on show.
+                    #[cfg(target_os = "linux")]
+                    {
+                        let _ = win.destroy();
+                    }
+                    #[cfg(not(target_os = "linux"))]
                     {
                         let _ = win.eval("window.__mode && window.__mode('idle')");
                         let _ = win.hide();
-                    }
-                    #[cfg(not(target_os = "windows"))]
-                    {
-                        let _ = win.destroy();
                     }
                 }
             }
