@@ -152,7 +152,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
             </>
           )}
           {env.preference_unavailable && <span className="text-warning">fallback: {value} unavailable</span>}
-          {!env.reliable && <span className="text-recording">Install wtype or ydotool for Wayland</span>}
+          {isLinux && !env.reliable && <span className="text-recording">Install wtype or ydotool for Wayland</span>}
         </div>
       )}
      </div>
