@@ -420,7 +420,7 @@ function AppShell() {
             </div>
           </div>
 
-          <div className="shrink-0 px-6 h-10 border-t border-stroke/80 bg-surface/60 backdrop-blur-[6px] flex items-center gap-2.5 text-[11px] font-mono leading-none">
+          <div className="shrink-0 px-6 h-10 border-t border-stroke/80 bg-surface flex items-center gap-2.5 text-[11px] font-mono leading-none">
             <span className="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full bg-elevated border border-stroke text-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
               {stats[0]} dictations
