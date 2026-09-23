@@ -31,7 +31,7 @@ function Keycap({ children, active }: { children: React.ReactNode; active?: bool
   );
 }
 
-function HotkeyDisplay({ hotkey }: { hotkey: string }) {
+export function HotkeyDisplay({ hotkey }: { hotkey: string }) {
   const pretty: Record<string, string> = {
     Super: "Meta",
     SuperLeft: "Meta L",
@@ -49,7 +49,7 @@ function HotkeyDisplay({ hotkey }: { hotkey: string }) {
   };
   const parts = hotkey.split("+");
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="flex items-center justify-center gap-1.5 flex-wrap">
       {parts.map((part) => (
         <Keycap key={part}>{pretty[part] ?? part}</Keycap>
       ))}
