@@ -2,11 +2,11 @@
 
 Turn your voice into text right on your device, with your privacy always in your hands. Just speak, and your words are ready to paste anywhere. Everything stays on your computer by default, with optional cloud providers available whenever you choose to use them.
 
-Wisper is a lightweight, privacy-first desktop dictation app for Linux and Windows, with a macOS beta in testing. Press a global hotkey, speak, and the transcribed text is inserted wherever your cursor is. An optional AI step can clean up and format the result before it lands.
+Wisper is a lightweight, privacy-first desktop dictation app for Linux and Windows, with a macOS beta in testing. Press a global hotkey, speak, and the transcribed text is pasted back into the app where you started. An optional AI step can clean up and format the result before it lands.
 
 ## Features
 
-- **Speak instead of type** - press a global hotkey (hold for push-to-talk or tap for toggle mode), say what you want, and the text lands wherever your cursor is.
+- **Speak instead of type** - press a global hotkey (hold for push-to-talk or tap for toggle mode), say what you want, and the text is pasted back into the app where you started.
 - **Pastes back where you started** - Wisper remembers the window where you pressed the hotkey and pastes there, even if you click elsewhere while speaking. The recording pill shows that app's icon.
 - **Stays on your device** - transcription runs locally with ONNX models; nothing leaves your computer unless you choose a cloud provider.
 - **Pick your microphone** - choose a specific input device, or let the system default handle it.
@@ -22,11 +22,11 @@ Wisper is a lightweight, privacy-first desktop dictation app for Linux and Windo
 Speak → Record → Transcribe → [Refine] → Insert
 ```
 
-You speak, Wisper records locally, transcribes your voice to text, optionally refines it with an AI model, then types it at your cursor or copies it to the clipboard.
+You speak, Wisper records locally, transcribes your voice to text, optionally refines it with an AI model, then pastes it back into the app where you started.
 
 ## Requirements
 
-Wisper inserts text by simulating a paste/keystroke into whatever app is focused. How well this works depends on your display server and which paste helper is installed:
+Wisper inserts text by simulating a paste/keystroke into the app where you started dictating. How well this works depends on your display server and which paste helper is installed:
 
 - **ydotool ≥1.0.4 (recommended on Wayland)** - injects keystrokes through a kernel `uinput` virtual device, so it works on **both X11 and Wayland with no permission prompt**. It needs the `ydotoold` daemon running and your user in the `input` group. **1.0.4 is required** - older distro packages (e.g. Ubuntu 22.04 ships 0.x) lack the `-d`/`-H` timing flags Wisper uses for lightning-fast direct typing (`-d 0 -H 0`) and will be noticeably slower or may error.
 - **wtype** - a zero-config Wayland tool, but it only works on compositors that implement the Wayland `virtual-keyboard` protocol. On compositors that don't (you'll see `Compositor does not support the virtual keyboard protocol`), wtype fails entirely.
@@ -54,11 +54,11 @@ By default Wisper auto-detects the best available tool, but you can pick a speci
 
 > **Why does it ask for remote desktop permission?** When you use the **built-in** paste tool on Wayland, Wisper has no direct way to type into other apps, so it routes input through the XDG Desktop Portal's RemoteDesktop interface - the same mechanism screen-sharing tools use - which requires your consent. This is a Wayland limitation, not a bug. Installing `wtype` or `ydotool` avoids the portal (and the prompt) entirely, since they inject input through dedicated channels.
 
-> **Note:** If you install the `.deb` or `.rpm` package, these tools may be pulled in automatically. AppImage users should install them manually as shown above.
+> **Note:** If you install the `.deb` or `.rpm` package, these tools may be pulled in automatically. AppImage users should install them manually as shown above. Make the AppImage executable first: `chmod +x Wisper-*.AppImage`.
 
-## macOS beta
+## macOS
 
-macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel). The website does not list it yet; this section is the documentation for beta testers.
+macOS ships as an unsigned DMG (Apple Silicon and Intel). The website does not list it yet; this section is the documentation for Mac users.
 
 ### Install
 
@@ -68,20 +68,20 @@ macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel).
    `xattr -cr /Applications/Wisper.app`
 4. Grant access when prompted:
    - Microphone: System Settings → Privacy & Security → Microphone → enable Wisper. Without this, recording captures silence.
-   - Accessibility: System Settings → Privacy & Security → Accessibility → enable Wisper. Without this, the global hotkey never fires and pasting types nothing.
+   - Accessibility: System Settings → Privacy & Security → Accessibility → enable Wisper. Without this, the global hotkey never fires and pasting types nothing. If the hotkey stops working after an update, remove Wisper with the minus button and re-add it with plus, turn it on, then relaunch.
 
 ### What works
 
 - Local ONNX transcription (Parakeet, Moonshine, IndicConformer) plus cloud engines.
 - Paste via the Built-in tool: Direct Typing, or Cmd+V / Cmd+Shift+V clipboard paste.
-- Global hotkey (default F9), overlay pill, tray icon, autostart, history, words, and in-app beta updates.
+- Global hotkey (default F9), overlay pill, tray icon, autostart, history, words, and in-app updates.
 
 ### Known limitations
 
 - Unsigned build, so the Gatekeeper bypass above is needed on every fresh install.
 - Apple Silicon and Intel builds, on macOS 13 or newer.
 - No ydotool/wtype on macOS; paste always uses the Built-in backend.
-- Beta builds update from the beta channel (About → Check for updates). Stable releases do not include macOS yet.
+- From 3.4.0, stable releases include macOS and update from the stable channel. Older beta builds update from the beta channel (About → Check for updates).
 
 ### Paste back to where you started
 
@@ -99,7 +99,7 @@ Wisper remembers the window where you press the hotkey and jumps back there befo
 - **Frontend:** React + TypeScript + Vite + Tailwind CSS
 - **Backend:** Tauri v2 (Rust)
 - **STT:** local ONNX models + optional cloud APIs (OpenAI-compatible)
-- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio); macOS beta (unsigned DMG, Apple Silicon and Intel, CoreAudio)
+- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio); macOS (unsigned DMG, Apple Silicon and Intel, CoreAudio)
 
 ## Development
 
