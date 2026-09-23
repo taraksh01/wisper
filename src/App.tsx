@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
+import { SidebarUpdateBanner } from "./components/SidebarUpdateBanner";
 import { GeneralTab, HotkeyDisplay } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
 // Rarely-visited tabs split out so first paint stays small (EngineTab stays
@@ -423,6 +424,7 @@ function AppShell() {
         </div>
         </div>
 
+          <SidebarUpdateBanner />
           <div className="shrink-0 px-3 h-10 border-t border-stroke/80 bg-surface flex items-center gap-2.5 text-[11px] font-mono leading-none">
             {settings && (
               <span className="inline-flex items-center gap-2 text-muted">

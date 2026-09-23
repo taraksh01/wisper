@@ -4,7 +4,6 @@ import { AppSettings, tabs } from "../types";
 import { APP_NAME } from "../appConfig";
 import { WisperLogo } from "./WisperLogo";
 import { tabIconMap, IconCloseSmall, IconChevronRight } from "./ui/icons";
-import { SidebarUpdateBanner } from "./SidebarUpdateBanner";
 
 interface SidebarProps {
   activeTab: string;
@@ -180,8 +179,6 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
           })}
         </nav>
       </div>
-
-      <SidebarUpdateBanner />
     </aside>
   );
 }
