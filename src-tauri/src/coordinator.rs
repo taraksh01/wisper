@@ -363,6 +363,10 @@ impl TranscriptionCoordinator {
                             if let Err(e) = self.audio_recorder.start_recording(self.input_device())
                             {
                                 eprintln!("Failed to start recording: {}", e);
+                                crate::show_overlay_error(Some(
+                                    "Could not start recording - check microphone access.".into(),
+                                ));
+                                play_error_sound();
                             } else {
                                 self.start_chunked();
                                 let origin = crate::focus::capture_origin();
@@ -379,6 +383,11 @@ impl TranscriptionCoordinator {
                                     self.audio_recorder.start_recording(self.input_device())
                                 {
                                     eprintln!("Failed to start recording: {}", e);
+                                    crate::show_overlay_error(Some(
+                                        "Could not start recording - check microphone access."
+                                            .into(),
+                                    ));
+                                    play_error_sound();
                                 } else {
                                     self.start_chunked();
                                     let origin = crate::focus::capture_origin();
