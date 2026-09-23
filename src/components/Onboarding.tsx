@@ -37,7 +37,7 @@ const steps: {
   {
     Icon: IconInsert,
     title: "Insert",
-    desc: "The text appears wherever your cursor is, in any app.",
+    desc: "The text lands back in the app where you started talking.",
   },
 ];
 

@@ -32,7 +32,7 @@ const STEPS: Step[] = [
   { label: "Record", desc: "Captured right on your device.", Icon: IconRecord },
   { label: "Transcribe", desc: "Your voice becomes text.", Icon: IconBars },
   { label: "Refine", desc: "AI cleans up and formats it.", optional: true, Icon: IconProcess },
-  { label: "Insert", desc: "Typed at your cursor or copied.", blink: true, Icon: IconInsert },
+  { label: "Insert", desc: "Pasted back in the app where you started.", blink: true, Icon: IconInsert },
 ];
 
 export function AboutTab() {
@@ -146,8 +146,8 @@ export function AboutTab() {
           <p className="text-xs text-muted leading-relaxed mt-3 max-w-[430px] mx-auto">
             Your voice, typed anywhere. Press your shortcut key, speak, and your words
             appear as text, transcribed{" "}
-            <span className="text-ink font-medium">on your own machine</span>, ready
-            to paste into whatever you're doing.
+            <span className="text-ink font-medium">on your own machine</span>, pasted
+            back into the app where you started.
           </p>
         </div>
       </SectionCard>
