@@ -420,12 +420,12 @@ function AppShell() {
             </div>
           </div>
 
-          <div className="shrink-0 px-6 py-3 border-t border-stroke/80 bg-surface/60 backdrop-blur-[6px] flex items-center gap-2.5 text-[11px] font-mono">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-elevated border border-stroke text-muted">
+          <div className="shrink-0 px-6 h-10 border-t border-stroke/80 bg-surface/60 backdrop-blur-[6px] flex items-center gap-2.5 text-[11px] font-mono leading-none">
+            <span className="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full bg-elevated border border-stroke text-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
               {stats[0]} dictations
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft border border-accent/15 text-ink/80 capitalize">
+            <span className="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full bg-accent-soft border border-accent/15 text-ink/80 capitalize">
               <span className="w-1.5 h-1.5 rounded-full bg-accent" />
               {settings.engine_mode}
             </span>
