@@ -5,9 +5,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 type Phase = "idle" | "checking" | "downloading" | "done";
 
 export function SidebarUpdateBanner() {
-  // TEMPORARY PREVIEW - revert after screenshot
-  const [available, setAvailable] = useState(true);
-  const [version, setVersion] = useState("9.9.9-preview");
+  const [available, setAvailable] = useState(false);
+  const [version, setVersion] = useState("");
   const [dismissed, setDismissed] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [progress, setProgress] = useState(0);
