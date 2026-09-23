@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Wisper",
-  "version": "3.3.0-beta.3",
+  "version": "3.3.0-beta.10",
   "identifier": "com.taraksh01.wisper",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -12,6 +12,7 @@
   "app": {
     "withGlobalTauri": true,
     "enableGTKAppId": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Wisper",
@@ -27,11 +28,14 @@
   },
   "bundle": {
     "active": true,
+    "category": "Productivity",
     "targets": [
       "appimage",
       "deb",
       "rpm",
-      "nsis"
+      "nsis",
+      "dmg",
+      "app"
     ],
     "publisher": "Tarak Shaw",
     "shortDescription": "Turn your voice into text right on your device, with your privacy always in your hands.",
@@ -50,6 +54,11 @@
       }
     },
     "createUpdaterArtifacts": true,
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "entitlements": "./entitlements.plist",
+      "infoPlist": "./Info.plist"
+    },
     "resources": [
       "resources/gnome-shell"
     ]

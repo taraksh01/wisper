@@ -239,6 +239,7 @@ fn finish_pipeline(my_seq: u64, cancel: &CancelToken) {
     drop(state_lock);
     if !recording_now && active_job_count() == 0 && !error_now {
         crate::hide_overlay();
+        crate::emit_idle_if_drained();
     }
     {
         let (lock, cvar) = &*SEQ_CV;
@@ -1002,7 +1003,11 @@ fn finalize_transcription(
                         eprintln!("[focus] activate failed but alive {:?}", target.addr);
                         #[cfg(target_os = "windows")]
                         thread::sleep(std::time::Duration::from_millis(150));
-                        #[cfg(not(target_os = "windows"))]
+                        // macOS: activation can land late (VM window server); give
+                        // the key window a moment to settle before keystrokes.
+                        #[cfg(target_os = "macos")]
+                        thread::sleep(std::time::Duration::from_millis(300));
+                        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
                         thread::sleep(std::time::Duration::from_millis(30));
                     } else {
                         eprintln!("[focus] origin gone: {:?}", target.addr);
@@ -1015,7 +1020,11 @@ fn finalize_transcription(
                 } else {
                     #[cfg(target_os = "windows")]
                     thread::sleep(std::time::Duration::from_millis(150));
-                    #[cfg(not(target_os = "windows"))]
+                    // macOS: let the activation animation finish so the first
+                    // keystrokes land in the origin window, not the old one.
+                    #[cfg(target_os = "macos")]
+                    thread::sleep(std::time::Duration::from_millis(300));
+                    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
                     thread::sleep(std::time::Duration::from_millis(30));
                 }
             }

@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: "Platform to build (linux, windows, all)"
+        description: "Platform to build (linux, windows, macos, all)"
         required: false
         default: "all"
         type: choice
-        options: ["all", "linux", "windows"]
+        options: ["all", "linux", "windows", "macos"]
 
 permissions:
   contents: write
@@ -20,15 +20,16 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# Two separate jobs (not a matrix) so beta tags can skip Linux entirely:
-# a skipped job shows gray instead of failing the run. Job-level `if`
-# only uses github/event/inputs contexts - never matrix (unavailable
+# Three separate jobs (not a matrix) so each channel builds only its
+# platforms: stable tags build Linux + Windows, beta tags build macOS
+# only. A skipped job shows gray instead of failing the run. Job-level
+# `if` only uses github/event/inputs contexts - never matrix (unavailable
 # there and fails the run at startup). Plain v tags are the only
 # supported trigger: tagName v__VERSION__ must match the pushed tag.
 
 jobs:
   release-linux:
-    # Stable tags only. Beta tags (containing 'beta') are Windows-only.
+    # Stable tags only. Beta tags (containing 'beta') build macOS only.
     if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux')) }}
     runs-on: ubuntu-24.04
     steps:
@@ -87,7 +88,8 @@ jobs:
           uploadUpdaterJson: true
 
   release-windows:
-    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) }}
+    # Stable tags only. Windows graduated from beta; beta tags build macOS only.
+    if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -133,22 +135,113 @@ jobs:
         with:
           projectPath: src-tauri
           tagName: v__VERSION__
-          releaseName: Wisper v__VERSION__${{ contains(github.ref_name, 'beta') && ' (Windows beta)' || '' }}
-          releaseBody: ${{ contains(github.ref_name, 'beta') && 'Windows beta - NSIS installer below. Not for production use yet.' || 'See the assets below for the Windows installer (NSIS).' }}
+          releaseName: Wisper v__VERSION__
+          releaseBody: "See the assets below for the Windows installer (NSIS)."
           releaseDraft: true
-          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          prerelease: false
+          uploadUpdaterJson: true
+
+  release-macos:
+    # Beta tags only. macOS is in beta verification; stable tags build Linux + Windows.
+    if: ${{ (github.event_name == 'push' && contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
+    runs-on: macos-latest
+    # Intel-only for now (Apple Silicon already shipped; re-add aarch64-apple-darwin next beta).
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-apple-darwin]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Guard tag matches version
+        shell: bash
+        run: |
+          ver=$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          pkg=$(python3 -c "import json; print(json.load(open('package.json'))['version'])")
+          cargo=$(python3 -c "import re; print(re.search(r'^version\s*=\s*\"([^\"]+)\"', open('src-tauri/Cargo.toml').read(), re.M).group(1))")
+          [ "$ver" = "$pkg" ] && [ "$ver" = "$cargo" ] || { echo "version drift: tauri=$ver pkg=$pkg cargo=$cargo"; exit 1; }
+          if [ "${{ github.event_name }}" = "push" ]; then [ "v$ver" = "${{ github.ref_name }}" ] || { echo "tag ${{ github.ref_name }} != v$ver"; exit 1; }; fi
+
+      - name: Install ONNX Runtime (Intel macOS)
+        # Microsoft ships no x86_64 macOS ONNX Runtime binaries, so ort-sys has
+        # nothing to download. Use the community build and link dynamically,
+        # bundling the dylib into the app Frameworks below.
+        shell: bash
+        run: |
+          ORT_VERSION="1.24.2"
+          curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+          tar xzf ort.tgz
+          ORT_DIR="$(pwd)/onnxruntime-osx-x86_64-${ORT_VERSION}"
+          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> $GITHUB_ENV
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> $GITHUB_ENV
+          jq --arg lib "$ORT_DIR/lib/libonnxruntime.${ORT_VERSION}.dylib" \
+            '.bundle.macOS.frameworks = [$lib]' \
+            src-tauri/tauri.conf.json > tmp.json && mv tmp.json src-tauri/tauri.conf.json
+
+      - name: Build + release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+        with:
+          projectPath: src-tauri
+          tagName: v__VERSION__
+          releaseName: Wisper v__VERSION__ (macOS beta)
+          releaseBody: "macOS beta - unsigned Intel DMG below (Apple Silicon stays on the previous beta). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
+          releaseDraft: true
+          prerelease: true
           uploadUpdaterJson: true
           # Beta builds point the in-app updater at the rolling beta feed
-          # instead of /latest (which excludes prereleases). Stable builds
-          # keep the default endpoint from tauri.conf.json.
-          args: ${{ contains(github.ref_name, 'beta') && format('--config "{0}/src-tauri/tauri.beta.json"', github.workspace) || '' }}
+          # instead of /latest (which excludes prereleases).
+          args: ${{ format('--target {0} --config "{1}/src-tauri/tauri.beta.json"', matrix.target, github.workspace) }}
+
+      - name: Verify dylib bundling
+        shell: bash
+        run: |
+          APP=$(find src-tauri/target -name "*.app" -type d | head -1)
+          ls -la "$APP/Contents/Frameworks/" | grep onnx || true
+          otool -L "$APP/Contents/MacOS/wisper" | grep onnx || true
+          otool -L "$APP/Contents/MacOS/wisper" | grep '@rpath/' | awk '{print $1}' | while read dep; do
+            libname=$(basename "$dep")
+            if [ ! -f "$APP/Contents/Frameworks/$libname" ]; then
+              echo "MISSING: $libname not found in Frameworks/"
+              exit 1
+            fi
+          done
 
   # Republishes this tag's latest.json to a floating `beta` release so
-  # installed betas (which point at .../releases/download/beta/latest.json)
+  # installed mac betas (which point at .../releases/download/beta/latest.json)
   # discover new betas in-app. Stable /latest never includes prereleases,
   # so stable installs are unaffected.
   beta-feed:
-    needs: release-windows
+    needs: release-macos
     if: github.event_name == 'push' && contains(github.ref_name, 'beta')
     runs-on: ubuntu-latest
     steps:

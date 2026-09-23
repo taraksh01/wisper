@@ -68,15 +68,16 @@ export function SidebarUpdateBanner() {
   const isWorking = phase === "checking" || phase === "downloading";
 
   return (
-    <div className="mx-2 rounded-lg bg-elevated border border-stroke overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <div className="shrink-0 border-t border-stroke/80 bg-surface overflow-hidden">
+      <div className="flex items-center gap-2.5 px-3 h-8 text-[11px] font-mono leading-none">
         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
-        <span className="text-[11px] font-mono font-medium text-ink tabular-nums">v{version}</span>
-        {phase !== "idle" && phase !== "done" && (
-          <span className="text-[10px] font-mono text-muted">
-            {phase === "downloading" ? "downloading" : "checking…"}
-          </span>
-        )}
+        <span className="font-medium text-ink tabular-nums whitespace-nowrap">v{version}</span>
+        <span className="text-muted whitespace-nowrap">
+          {phase === "checking" && "checking…"}
+          {phase === "downloading" && "downloading"}
+          {phase === "done" && "ready to apply"}
+          {phase === "idle" && "new version available"}
+        </span>
         <span className="flex-1" />
         {phase === "done" ? (
           <button

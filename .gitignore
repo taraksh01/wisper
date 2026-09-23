@@ -55,3 +55,7 @@ scripts/test_process_*.results.json
 
 # Local runtime (hub port, not for CI)
 hub.runtime.json
+
+# Intel macOS community ONNX Runtime (fetched by scripts/setup-ort-intel-mac.sh)
+third-party/
+ort.tgz

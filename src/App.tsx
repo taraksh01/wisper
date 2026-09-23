@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { AppSettings, HistoryEntry, AgentProfile, tabs } from "./types";
 import { Sidebar } from "./components/Sidebar";
-import { GeneralTab } from "./components/GeneralTab";
+import { SidebarUpdateBanner } from "./components/SidebarUpdateBanner";
+import { GeneralTab, HotkeyDisplay } from "./components/GeneralTab";
 import { EngineTab } from "./components/EngineTab";
 // Rarely-visited tabs split out so first paint stays small (EngineTab stays
 // eager + mounted-hidden for download progress; GeneralTab is the default tab).
@@ -389,7 +390,7 @@ function AppShell() {
   };
 
   return (
-    <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex font-sans selection:bg-accent/20`}>
+    <div className={`h-screen ${dark ? "dark" : "light"} app-canvas text-ink flex flex-col font-sans selection:bg-accent/20`}>
         {!onboarded && settings && (
           <Suspense fallback={null}>
             <Onboarding
@@ -401,6 +402,7 @@ function AppShell() {
             />
           </Suspense>
         )}
+        <div className="flex-1 flex min-h-0">
         <Sidebar
           activeTab={activeTab}
           appState={appState}
@@ -419,20 +421,28 @@ function AppShell() {
               </div>
             </div>
           </div>
+        </div>
+        </div>
 
-          <div className="shrink-0 px-6 py-3 border-t border-stroke/80 bg-surface/60 backdrop-blur-[6px] flex items-center gap-2.5 text-[11px] font-mono">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-elevated border border-stroke text-muted">
+          <SidebarUpdateBanner />
+          <div className="shrink-0 px-3 h-10 border-t border-stroke/80 bg-surface flex items-center gap-2.5 text-[11px] font-mono leading-none">
+            {settings && (
+              <span className="inline-flex items-center gap-2 text-muted">
+                <span className="text-[10px] font-medium tracking-widest uppercase">{settings.hotkey_mode === "toggle" ? "Press to talk" : "Hold to talk"}</span>
+                <HotkeyDisplay hotkey={settings.hotkey} />
+              </span>
+            )}
+            <span className="ml-auto" />
+            <span className="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full bg-elevated border border-stroke text-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-ink/20" />
               {stats[0]} dictations
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-soft border border-accent/15 text-ink/80 capitalize">
+            <span className="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full bg-accent-soft border border-accent/15 text-ink/80 capitalize">
               <span className="w-1.5 h-1.5 rounded-full bg-accent" />
               {settings.engine_mode}
             </span>
-            <span className="ml-auto text-muted/50 text-[10px] tracking-widest uppercase hidden sm:inline">private · on-device</span>
           </div>
         </div>
-      </div>
   );
 }
 

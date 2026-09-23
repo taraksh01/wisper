@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { AppSettings, tabs } from "../types";
 import { APP_NAME } from "../appConfig";
 import { WisperLogo } from "./WisperLogo";
 import { tabIconMap, IconCloseSmall, IconChevronRight } from "./ui/icons";
-import { SidebarUpdateBanner } from "./SidebarUpdateBanner";
 
 interface SidebarProps {
   activeTab: string;
@@ -26,12 +24,7 @@ const stateLabel = (state: string) => {
 };
 
 export function Sidebar({ activeTab, appState, settings, currentModelName, onTabChange, onUnloadModel, onOpenEngineTab }: SidebarProps) {
-  const [version, setVersion] = useState("");
   const [level, setLevel] = useState(0);
-
-  useEffect(() => {
-    getVersion().then(setVersion).catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (appState !== "recording") {
@@ -185,21 +178,6 @@ export function Sidebar({ activeTab, appState, settings, currentModelName, onTab
             );
           })}
         </nav>
-      </div>
-
-      <div className="shrink-0 px-3.5 py-3.5 border-t border-stroke/80 bg-elevated/20 space-y-3">
-        <SidebarUpdateBanner />
-        {settings && (
-          <div className="flex items-center justify-between gap-2 rounded-xl bg-surface border border-stroke px-3 py-2">
-            <span className="text-[10px] font-medium tracking-widest uppercase text-muted">Hold</span>
-            <kbd className="inline-flex items-center justify-center min-h-[20px] px-1.5 py-0.5 bg-elevated border border-stroke border-b-[2px] rounded-md text-[10px] font-mono font-medium text-ink shadow-[0_1px_0_rgba(0,0,0,0.06)]">{settings.hotkey}</kbd>
-            <span className="text-[10px] font-medium tracking-widest uppercase text-muted">to talk</span>
-          </div>
-        )}
-        <div className="flex items-center justify-between text-[10px] font-mono text-muted/50 tracking-wider">
-          <span>{APP_NAME} · {version || "-"}</span>
-          <span className={`w-1.5 h-1.5 rounded-full ${appState === "recording" ? "bg-recording" : appState === "processing" ? "bg-accent" : "bg-ready/60"}`} />
-        </div>
       </div>
     </aside>
   );

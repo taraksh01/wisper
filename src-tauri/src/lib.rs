@@ -1,9 +1,9 @@
 pub mod app_info;
 pub mod audio;
 pub mod coordinator;
-pub mod focus;
 pub mod dictionary;
 pub mod engine;
+pub mod focus;
 pub mod history;
 pub mod hotkey;
 pub mod models;
@@ -107,6 +107,12 @@ static OVERLAY_ERROR_ACTIVE: std::sync::atomic::AtomicBool =
 static OVERLAY_ERROR_REASON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
     once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
 
+// Last origin payload sent to the pill. The overlay window is destroyed on
+// Idle and recreated per recording, so an eval issued before its JS loads is
+// silently dropped — update_overlay re-applies this after showing.
+static LAST_ORIGIN_JSON: once_cell::sync::Lazy<std::sync::Mutex<Option<String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(None));
+
 pub(crate) fn emit_overlay_origin(origin: Option<&crate::focus::OriginTarget>) {
     let Some(handle) = APP_HANDLE
         .lock()
@@ -125,6 +131,7 @@ pub(crate) fn emit_overlay_origin(origin: Option<&crate::focus::OriginTarget>) {
         .to_string(),
         None => "null".to_string(),
     };
+    *LAST_ORIGIN_JSON.lock().unwrap_or_else(|e| e.into_inner()) = Some(json.clone());
     let h = handle.clone();
     let _ = handle.run_on_main_thread(move || {
         if let Some(win) = h.get_webview_window(OVERLAY_LABEL) {
@@ -245,6 +252,12 @@ fn set_hotkey(_app: tauri::AppHandle, key: String) -> Result<(), String> {
     let res = whisper_keys::register(&key);
     if res.is_ok() {
         settings::apply(&_app, |s| s.hotkey = key);
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    if !handy_keys::check_accessibility() {
+        let _ = handy_keys::open_accessibility_settings();
+        return Err("Accessibility permission not granted. System Settings has been opened: remove Wisper with minus, re-add it with plus, turn it on, then relaunch the app.".into());
     }
     res
 }
@@ -291,10 +304,46 @@ fn emit_state(app: &tauri::AppHandle, state: CoordinatorState) {
     update_overlay(app, state);
 }
 
+/// Re-emit idle once the last background pipeline drains. Without this the
+/// sidebar stays on "processing": stop_and_process announces Idle while its
+/// job is still counted, and nothing announces the drain.
+pub(crate) fn emit_idle_if_drained() {
+    if crate::coordinator::active_job_count() > 0 {
+        return;
+    }
+    {
+        let state = crate::tray::STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if state == CoordinatorState::Recording || state == CoordinatorState::Error {
+            return;
+        }
+        let mut lock = crate::tray::STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *lock = CoordinatorState::Idle;
+    }
+    if let Some(handle) = APP_HANDLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .cloned()
+    {
+        emit_state(&handle, CoordinatorState::Idle);
+    }
+}
+
 const OVERLAY_LABEL: &str = "wisper-overlay";
 const OVERLAY_WIDTH: f64 = 294.0;
 const OVERLAY_HEIGHT: f64 = 46.0;
 const OVERLAY_TOP_OFFSET: f64 = 0.0;
+// macOS reports the full display frame (menu bar + Dock included), so the
+// pill needs a margin to clear the Dock. Windows anchors to the work area
+// already, other platforms keep the previous flush placement.
+#[cfg(target_os = "macos")]
+const OVERLAY_BOTTOM_OFFSET: f64 = 12.0;
+#[cfg(not(target_os = "macos"))]
 const OVERLAY_BOTTOM_OFFSET: f64 = 0.0;
 
 #[cfg(target_os = "linux")]
@@ -374,7 +423,10 @@ fn create_overlay_with(app: &tauri::AppHandle, url: &str) {
     if !*OVERLAY_ENABLED.lock().unwrap_or_else(|e| e.into_inner()) {
         return;
     }
-    let pos = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT);
+    let scale = monitor_with_cursor(app)
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
+    let pos = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT, scale);
     let mut builder =
         tauri::WebviewWindowBuilder::new(app, OVERLAY_LABEL, tauri::WebviewUrl::App(url.into()))
             .title(crate::app_info::display_name())
@@ -437,11 +489,64 @@ fn windows_work_area_for_cursor(app: &tauri::AppHandle) -> Option<(i32, i32, i32
     Some((r.left, r.top, r.right, r.bottom))
 }
 
+/// macOS visible work area for the screen under the cursor, as
+/// (x, y, w, h) in logical pixels with a top-left origin. Uses
+/// NSScreen.visibleFrame, so the pill clears the menu bar and the Dock
+/// wherever the user put it (bottom/top/left/right, hidden or shown).
+/// Returns None off the main thread or when AppKit is unreachable — the
+/// caller falls back to the full monitor frame.
+#[cfg(target_os = "macos")]
+fn macos_visible_area_for_cursor() -> Option<(f64, f64, f64, f64)> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSEvent, NSScreen};
+
+    let mtm = MainThreadMarker::new()?;
+    let screens = NSScreen::screens(mtm);
+    if screens.is_empty() {
+        return None;
+    }
+    // Cocoa y grows upward: find the global top edge across all screens so
+    // per-screen rects convert to the top-left-origin space set_position uses.
+    let mut global_top = f64::NEG_INFINITY;
+    for screen in screens.iter() {
+        let f = screen.frame();
+        global_top = global_top.max(f.origin.y + f.size.height);
+    }
+    let mouse = NSEvent::mouseLocation();
+    for screen in screens.iter() {
+        let f = screen.frame();
+        if mouse.x < f.origin.x
+            || mouse.x > f.origin.x + f.size.width
+            || mouse.y < f.origin.y
+            || mouse.y > f.origin.y + f.size.height
+        {
+            continue;
+        }
+        let v = screen.visibleFrame();
+        if v.size.width <= 0.0 || v.size.height <= 0.0 {
+            return None;
+        }
+        let vis_top = v.origin.y + v.size.height;
+        return Some((v.origin.x, global_top - vis_top, v.size.width, v.size.height));
+    }
+    None
+}
+
+/// Computes the overlay's (x, y) logical position for a window of the given
+/// size. When `prefer_cache` is true it reuses the last recording position (so
+/// an error/recreated window stays put); otherwise it tracks the live cursor
+/// monitor and caches the result so the error state can reuse it. `win_w`/
+/// `win_h` are the window's ACTUAL size (read from the live window) so the
+/// bottom-center math stays correct even if the HTML/content size differs from
+/// the `OVERLAY_*` constants. `scale` must be the WINDOW's scale factor (not
+/// the monitor's, which can disagree in VMs) so the rect and the position
+/// share one coordinate space; the result is clamped into the monitor.
 fn overlay_pos_for(
     app: &tauri::AppHandle,
     prefer_cache: bool,
     win_w: f64,
     win_h: f64,
+    scale: f64,
 ) -> Option<(f64, f64)> {
     let top = *OVERLAY_POSITION.lock().unwrap_or_else(|e| e.into_inner()) == "top";
     let cached = LAST_OVERLAY_POS
@@ -453,7 +558,12 @@ fn overlay_pos_for(
         return Some(p);
     }
     let monitor = monitor_with_cursor(app)?;
-    let scale = monitor.scale_factor();
+    let scale = if scale > 0.0 {
+        scale
+    } else {
+        monitor.scale_factor()
+    };
+    // Windows: anchor to the work area so the pill clears the taskbar.
     #[cfg(target_os = "windows")]
     let (mx, my, mw, mh) = match windows_work_area_for_cursor(app) {
         Some((l, t, r, b)) => (
@@ -469,7 +579,17 @@ fn overlay_pos_for(
             monitor.size().height as f64 / scale,
         ),
     };
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    let (mx, my, mw, mh) = match macos_visible_area_for_cursor() {
+        Some(r) => r,
+        None => (
+            monitor.position().x as f64 / scale,
+            monitor.position().y as f64 / scale,
+            monitor.size().width as f64 / scale,
+            monitor.size().height as f64 / scale,
+        ),
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     let (mx, my, mw, mh) = (
         monitor.position().x as f64 / scale,
         monitor.position().y as f64 / scale,
@@ -482,6 +602,10 @@ fn overlay_pos_for(
     } else {
         my + mh - win_h - OVERLAY_BOTTOM_OFFSET
     };
+    // Never place the pill off-screen: a stale cache or a scale mismatch
+    // between monitor and window would otherwise push it below the display.
+    let x = x.clamp(mx, (mx + mw - win_w).max(mx));
+    let y = y.clamp(my, (my + mh - win_h).max(my));
     let p = (x, y);
     if !prefer_cache {
         *LAST_OVERLAY_POS
@@ -491,6 +615,43 @@ fn overlay_pos_for(
     Some(p)
 }
 
+/// Positions the overlay. `set_position` is called AFTER `show` because on
+/// X11/Wayland a position set on a not-yet-mapped window is ignored by the WM
+/// and overridden to the default (centered) at map time - the root cause of the
+/// position drift. Uses the window's real size. Must be called on the main thread.
+fn position_overlay(app: &tauri::AppHandle, win: &tauri::WebviewWindow, prefer_cache: bool) {
+    // Use the window's own scale factor for correct physical→logical conversion;
+    // fall back to cursor monitor's scale only if the window query fails (e.g. not yet mapped).
+    let scale = win.scale_factor().unwrap_or_else(|_| {
+        monitor_with_cursor(app)
+            .or_else(|| app.primary_monitor().ok().flatten())
+            .as_ref()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0)
+    });
+    let (win_w, win_h) = match win.inner_size() {
+        Ok(phys) => {
+            let logical = phys.to_logical::<f64>(scale);
+            let w = logical.width;
+            let h = logical.height;
+            if w <= 0.0 || h <= 0.0 {
+                (OVERLAY_WIDTH, OVERLAY_HEIGHT)
+            } else {
+                (w, h)
+            }
+        }
+        Err(_) => (OVERLAY_WIDTH, OVERLAY_HEIGHT),
+    };
+    if let Some((x, y)) = overlay_pos_for(app, prefer_cache, win_w, win_h, scale) {
+        let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+    }
+}
+
+/// Show/hide the overlay, mirroring Handy's show_overlay_state positioning.
+/// Window ops must run on the main thread in Tauri v2, so the whole body is
+/// dispatched there. Running off-thread (e.g. from the state-listener thread)
+/// silently no-ops set_position/show/destroy and the window falls back to
+/// Tauri's default centered placement - the recurring position-drift bug.
 fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
     let app_clone = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -516,15 +677,10 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                 if crate::coordinator::active_job_count() > 0 {
                     let _ = win.eval("window.__mode && window.__mode('processing')");
                 } else {
-                    #[cfg(target_os = "windows")]
-                    {
-                        let _ = win.eval("window.__mode && window.__mode('idle')");
-                        let _ = win.hide();
-                    }
-                    #[cfg(not(target_os = "windows"))]
-                    {
-                        let _ = win.destroy();
-                    }
+                    // Same on every OS: hide (never destroy) so the pill's
+                    // JS stays alive and the origin icon paints before show.
+                    let _ = win.eval("window.__mode && window.__mode('idle')");
+                    let _ = win.hide();
                 }
             }
             CoordinatorState::Recording | CoordinatorState::Processing => {
@@ -534,9 +690,29 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                     .unwrap_or_else(|e| e.into_inner()) = None;
                 let _ = win.eval("window.__mode && window.__mode('recording')");
                 let _ = win.show();
-                if let Some((x, y)) = overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT) {
-                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
-                }
+                position_overlay(app, &win, false);
+                // The window may have just been recreated, so its JS might
+                // not have defined __origin yet when the Pressed-time eval
+                // ran. Re-apply the stored origin once it can land. Reading
+                // the store late (not cloning here) lets a newer recording's
+                // origin win if the user re-triggers quickly.
+                let app_for_origin = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    let win_for_origin = app_for_origin.clone();
+                    let _ = app_for_origin.run_on_main_thread(move || {
+                        let json = LAST_ORIGIN_JSON
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clone();
+                        if let (Some(j), Some(w)) = (
+                            json,
+                            win_for_origin.get_webview_window(OVERLAY_LABEL),
+                        ) {
+                            let _ = w.eval(&format!("window.__origin && window.__origin({j})"));
+                        }
+                    });
+                });
             }
             CoordinatorState::Error => {
                 let reason = OVERLAY_ERROR_REASON
@@ -548,11 +724,7 @@ fn update_overlay(app: &tauri::AppHandle, state: CoordinatorState) {
                     "window.__errReason = {reason_json}; window.__mode && window.__mode('error', {reason_json})"
                 ));
                 let _ = win.show();
-                if let Some((x, y)) =
-                    overlay_pos_for(app, false, OVERLAY_WIDTH, OVERLAY_HEIGHT)
-                {
-                    let _ = win.set_position(tauri::LogicalPosition::new(x, y));
-                }
+                position_overlay(app, &win, true);
             }
         }
     });
@@ -697,7 +869,9 @@ pub fn run() {
             }
             settings::sync_runtime(&saved_settings);
             crate::tray::refresh_with(&saved_settings);
-            #[cfg(target_os = "windows")]
+            // Windows/macOS: pre-create the hidden overlay so the first hotkey is instant too.
+            // (Windows WebView2 creation costs 1-3s; on macOS this just warms the WKWebView.)
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
             {
                 let prewarm_handle = app_handle.clone();
                 std::thread::spawn(move || {
@@ -887,6 +1061,19 @@ pub fn run() {
             }
 
             whisper_keys::init(&app.handle());
+            #[cfg(target_os = "macos")]
+            if !handy_keys::check_accessibility() {
+                eprintln!("Accessibility permission not granted: opening System Settings. Remove Wisper with minus, re-add with plus, turn it on, then relaunch.");
+                let _ = handy_keys::open_accessibility_settings();
+            }
+            // Title bar carries "Name · version" so the sidebar doesn't have to.
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.set_title(&format!(
+                    "{} · {}",
+                    crate::app_info::display_name(),
+                    app.package_info().version
+                ));
+            }
             create_overlay(&app.handle());
             let saved = &saved_settings.hotkey;
             if whisper_keys::register(saved).is_err() && saved != DEFAULT_HOTKEY {
