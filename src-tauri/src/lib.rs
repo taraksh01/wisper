@@ -1192,6 +1192,7 @@ pub fn run() {
             history::get_history_entries,
             history::get_history_count,
             history::get_history_stats,
+            history::get_today_stats,
             history::delete_history_entry,
             history::update_history_entry,
             history::retranscribe_recording,

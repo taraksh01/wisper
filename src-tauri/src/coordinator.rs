@@ -1186,6 +1186,9 @@ fn finalize_transcription(
                     let speak_sec = duration_ms as f64 / 1000.0;
                     let saved = (typing_sec - speak_sec).max(0.0) as i64;
                     crate::settings::add_dictation_stats(raw_words as i64, saved);
+                    if let Err(e) = history.add_daily_stats(raw_words as i64, saved) {
+                        eprintln!("Failed to record daily stats: {}", e);
+                    }
                     if WORDS_ENABLED.load(Ordering::Relaxed)
                         && WORDS_AUTO_SCAN.load(Ordering::Relaxed)
                         && text_bg != final_text_bg
