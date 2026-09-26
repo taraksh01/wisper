@@ -124,4 +124,4 @@ No portal prompt is needed for ydotool (it uses `uinput` below the compositor).
 - **wtype** - zero-config Wayland tool, needs `virtual-keyboard` protocol. Install: `sudo apt install wtype` / `sudo dnf install wtype` / `sudo pacman -S wtype`. No daemon/group needed, but fails on some compositors.
 - **enigo** - built into Wisper, no install. On Wayland it uses the `RemoteDesktop` portal → one-time permission dialog (tick “remember”).
 
-AppImage users: the `.deb`/`.rpm` may pull `ydotool` automatically; AppImage users install it manually as above.
+AppImage, deb, and rpm users: `ydotool` is not bundled and not pulled in automatically; install it manually as above.

@@ -1,22 +1,23 @@
 # Wisper
 
-> Privacy-first voice dictation for Linux and Windows. Press a global hotkey, speak, and your words are typed where your cursor sits. Transcription runs locally with ONNX speech models (Parakeet, Moonshine, IndicConformer). No cloud required, no keystrokes sent anywhere by default. Works on Wayland, X11, and Windows.
+> Privacy-first voice dictation for Linux, Windows, and macOS. Press a global hotkey, speak, and your words are pasted back into the app where you started. Transcription runs locally with ONNX speech models (Whisper, Parakeet, IndicConformer, Moonshine, SenseVoice, Qwen3). No cloud required, no keystrokes sent anywhere by default. Works on Wayland, X11, Windows, and macOS.
 
 Wisper is free and open source (MIT), built by Tarak Shaw. Optional AI cleanup can polish transcripts; it is off by default and never runs without explicit opt-in.
 
 ## Key facts
 
-- Platform: Linux (Wayland and X11) and Windows (NSIS installer, WASAPI audio)
-- Transcription: local ONNX speech models (Parakeet, Moonshine, IndicConformer). 13 models across 3 families, on-device by default.
-- Input: global hotkey, types at the cursor via the active window
+- Platform: Linux (Wayland and X11), Windows (NSIS installer, WASAPI audio), macOS (unsigned DMG, Apple Silicon and Intel, CoreAudio, macOS 13+)
+- Transcription: local ONNX speech models (Whisper, Parakeet, IndicConformer, Moonshine, SenseVoice, Qwen3). 20 models across 6 families, on-device by default.
+- Input: global hotkey (Super/Win/Cmd read per OS), pastes back into the app where dictation started (ydotool/wtype on Wayland, built-in on X11, Ctrl+V on Windows, Cmd+V + Accessibility grant on macOS)
+- Cloud (opt-in): OpenAI, Groq, Sarvam (5 output modes), or OpenAI-compatible custom endpoint; multiple keys per provider with automatic rate-limit rotation
 - License: MIT
 - Price: free
-- Optional: AI cleanup (opt-in), custom vocabulary + dictionary profiles, searchable history with Today stats, trailing space, sound feedback
+- Optional: AI cleanup (opt-in, 6 writing styles), custom vocabulary + 4 dictionary profiles, language priority ordering, searchable history with Today stats, trailing space, sound feedback, in-app updates on all three OSes
 
 ## Links
 
 - Homepage: https://taraksh01.github.io/wisper/
 - Source code: https://github.com/taraksh01/wisper
-- Downloads (AppImage, deb, rpm, Windows setup.exe): https://github.com/taraksh01/wisper/releases/latest
+- Downloads (AppImage, deb, rpm, Windows setup.exe, macOS DMG): https://github.com/taraksh01/wisper/releases/latest
 - FAQ: https://taraksh01.github.io/wisper/#faq
 - Setup guide: https://taraksh01.github.io/wisper/#setup
