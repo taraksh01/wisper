@@ -363,7 +363,7 @@ function AppShell() {
         other = <WordsTab settings={settings} onSave={saveSetting} onReset={() => resetTab("words")} />;
         break;
       case "history":
-        other = <HistoryTab history={history} stats={stats} settings={settings} historyTotal={historyTotal} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onSave={saveSetting} onRefresh={fetchHistory} />;
+        other = <HistoryTab history={history} settings={settings} historyTotal={historyTotal} loadingOlder={loadingOlder} onLoadOlder={loadOlder} onSave={saveSetting} onRefresh={fetchHistory} />;
         break;
       case "about":
         other = <AboutTab />;
