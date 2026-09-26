@@ -26,7 +26,7 @@ pnpm-debug.log*
 
 # Personal notes (never commit)
 IDEAS.md
-docs/superpowers/
+superpowers/
 
 # Tauri
 /src-tauri/WixTools/
