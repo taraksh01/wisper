@@ -313,7 +313,8 @@ impl EngineProvider for CloudEngineProvider {
 
         if !resp.status().is_success() {
             return Err(format!(
-                "Cloud API error: {}",
+                "Cloud API error {}: {}",
+                resp.status().as_u16(),
                 resp.text().unwrap_or_default()
             ));
         }
@@ -347,6 +348,49 @@ impl SarvamCloudProvider {
 }
 
 const SARVAM_CHUNK_SECS: usize = 25;
+
+/// How a cloud transcription failure interacts with key rotation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CloudFailure {
+    /// Key rejected (401/403): disable it for the session, try the next key.
+    InvalidKey,
+    /// Transient (429/5xx/transport): keep the key enabled, try the next key.
+    Retryable,
+    /// Anything else: fail immediately without burning through keys.
+    Fatal,
+}
+
+/// Classify a provider error string. Both cloud providers format HTTP
+/// failures as `"... API error {code}: ..."`.
+pub fn classify_cloud_error(e: &str) -> CloudFailure {
+    if let Some(code) = e
+        .split("error ")
+        .nth(1)
+        .and_then(|s| s.get(..3))
+        .and_then(|s| s.parse::<u16>().ok())
+    {
+        return match code {
+            401 | 403 => CloudFailure::InvalidKey,
+            429 => CloudFailure::Retryable,
+            500..=599 => CloudFailure::Retryable,
+            _ => CloudFailure::Fatal,
+        };
+    }
+    let lower = e.to_lowercase();
+    if lower.contains("request failed")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("connection")
+        || lower.contains("network")
+        || lower.contains("dns")
+        || lower.contains("reset by peer")
+        || lower.contains("broken pipe")
+    {
+        CloudFailure::Retryable
+    } else {
+        CloudFailure::Fatal
+    }
+}
 
 impl EngineProvider for SarvamCloudProvider {
     fn transcribe(&self, audio: &[f32], sample_rate: u32) -> Result<String, String> {
@@ -387,8 +431,8 @@ impl EngineProvider for SarvamCloudProvider {
 
             if !resp.status().is_success() {
                 return Err(format!(
-                    "Sarvam API error ({}): {}",
-                    resp.status(),
+                    "Sarvam API error {}: {}",
+                    resp.status().as_u16(),
                     resp.text().unwrap_or_default()
                 ));
             }

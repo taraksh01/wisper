@@ -53,6 +53,10 @@ static HISTORY_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync:
         eprintln!("[history] failed to create table: {e}");
     }
     let _ = conn.execute("ALTER TABLE history ADD COLUMN recording_path TEXT", []);
+    // Daily rollups, keyed by local date. Kept separate from `history` so
+    // retention trimming (which only deletes history rows) never lowers the
+    // counts the History tab shows.
+    let _ = create_daily_stats_table(&conn);
     Mutex::new(conn)
 });
 
@@ -162,6 +166,22 @@ impl HistoryManager {
             .collect::<SqlResult<Vec<_>>>()?;
 
         Ok(entries)
+    }
+
+    /// Add one dictation to today's rollup. Independent of the `history` table,
+    /// so the count keeps climbing after retention trims old entries, and
+    /// deleting entries never lowers it.
+    ///
+    /// `saved_sec` should be the same estimate the lifetime counter uses
+    /// (words at 60 WPM minus speaking time).
+    pub fn add_daily_stats(&self, words: i64, saved_sec: i64) -> SqlResult<()> {
+        add_daily_stats_conn(&Self::conn(), words, saved_sec)
+    }
+
+    /// Today's (local) rollup as (dictations, words, saved_sec).
+    /// Returns zeros when nothing has been recorded today.
+    pub fn get_today_stats(&self) -> SqlResult<(i64, i64, i64)> {
+        get_today_stats_conn(&Self::conn())
     }
 
     pub fn get_stats(&self) -> SqlResult<(i64, i64, f64)> {
@@ -368,6 +388,49 @@ impl HistoryManager {
     }
 }
 
+/// Create the daily rollup table. Split out so tests can build an isolated
+/// schema without touching the user's database.
+fn create_daily_stats_table(conn: &Connection) -> SqlResult<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS daily_stats (
+            day TEXT PRIMARY KEY,
+            dictations INTEGER NOT NULL DEFAULT 0,
+            words INTEGER NOT NULL DEFAULT 0,
+            saved_sec INTEGER NOT NULL DEFAULT 0
+        );",
+    )
+    .map(|_| ())
+}
+
+/// Upsert today's counters. Takes the connection so tests can run it against a
+/// throwaway database.
+fn add_daily_stats_conn(conn: &Connection, words: i64, saved_sec: i64) -> SqlResult<()> {
+    conn.execute(
+        "INSERT INTO daily_stats (day, dictations, words, saved_sec)
+         VALUES (date('now','localtime'), 1, ?1, ?2)
+         ON CONFLICT(day) DO UPDATE SET
+            dictations = dictations + 1,
+            words = words + excluded.words,
+            saved_sec = saved_sec + excluded.saved_sec",
+        params![words.max(0), saved_sec.max(0)],
+    )?;
+    Ok(())
+}
+
+/// Read today's counters, or zeros when today has no row yet.
+fn get_today_stats_conn(conn: &Connection) -> SqlResult<(i64, i64, i64)> {
+    conn.query_row(
+        "SELECT dictations, words, saved_sec FROM daily_stats
+         WHERE day = date('now','localtime')",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok((0, 0, 0)),
+        other => Err(other),
+    })
+}
+
 fn validate_recording_path(path: &str) -> Result<std::path::PathBuf, String> {
     let p = std::path::PathBuf::from(path);
     let dir = HistoryManager::get_recording_dir();
@@ -552,6 +615,14 @@ pub fn get_history_stats() -> Result<(i64, i64, f64), String> {
 }
 
 #[tauri::command]
+pub fn get_today_stats() -> Result<(i64, i64, i64), String> {
+    let manager = HistoryManager::new();
+    manager
+        .get_today_stats()
+        .map_err(|e| format!("Failed to get today stats: {}", e))
+}
+
+#[tauri::command]
 pub fn delete_history_entry(id: i64) -> Result<(), String> {
     let manager = HistoryManager::new();
     manager
@@ -656,4 +727,75 @@ pub fn get_recording_data(recording_path: String) -> Result<Vec<u8>, String> {
     let (samples, sr) = crate::audio::load_wav(validated_str)?;
     let denoised = crate::audio::suppress_noise(&samples, sr, settings.noise_suppression_level);
     crate::audio::wav_bytes_from_samples(&denoised, sr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The daily rollup must accumulate across calls, clamp bad input, and
+    /// live in its own table so history deletion cannot lower it.
+    ///
+    /// Runs against the real DB, so it only touches rows it creates itself and
+    /// restores the rollup afterwards. Never trims the user's history.
+    #[test]
+    fn daily_stats_accumulate_and_survive_history_deletion() {
+        // Throwaway in-memory DB: the user's real history and counters are
+        // never touched.
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raw_text TEXT NOT NULL,
+                formatted_text TEXT,
+                agent_name TEXT,
+                duration_ms INTEGER DEFAULT 0,
+                word_count INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                recording_path TEXT
+            );",
+        )
+        .expect("history schema");
+        create_daily_stats_table(&conn).expect("daily schema");
+
+        // An empty day reads as zeros rather than erroring.
+        assert_eq!(get_today_stats_conn(&conn).unwrap(), (0, 0, 0));
+
+        add_daily_stats_conn(&conn, 5, 3).expect("first");
+        add_daily_stats_conn(&conn, 2, 1).expect("second");
+        assert_eq!(
+            get_today_stats_conn(&conn).unwrap(),
+            (2, 7, 4),
+            "counters accumulate"
+        );
+
+        // Negatives are clamped, never subtracted, and the dictation counts.
+        add_daily_stats_conn(&conn, -4, -9).expect("clamped");
+        assert_eq!(
+            get_today_stats_conn(&conn).unwrap(),
+            (3, 7, 4),
+            "negatives ignored, dictation counted"
+        );
+
+        // Adding and deleting history rows must not move the rollup: that is
+        // the entire reason daily_stats is a separate table.
+        conn.execute(
+            "INSERT INTO history (raw_text, word_count) VALUES ('hello there', 2)",
+            [],
+        )
+        .expect("insert history");
+        conn.execute("DELETE FROM history", [])
+            .expect("clear history");
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM history", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0,
+            "history emptied"
+        );
+        assert_eq!(
+            get_today_stats_conn(&conn).unwrap(),
+            (3, 7, 4),
+            "daily rollup survives history deletion"
+        );
+    }
 }

@@ -291,11 +291,11 @@ export function IconBars(props: IconProps) {
 }
 
 export function IconInsert(props: IconProps) {
+  // Return arrow: text goes back to the app where dictation started.
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M8 4h8" />
-      <path d="M12 4v16" />
-      <path d="M8 20h8" />
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
     </svg>
   );
 }

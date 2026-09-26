@@ -73,6 +73,10 @@ export interface AppSettings {
   voice_api_key_groq: string;
   voice_api_key_sarvam: string;
   voice_api_key_custom: string;
+  voice_api_keys_openai: string[];
+  voice_api_keys_groq: string[];
+  voice_api_keys_sarvam: string[];
+  voice_api_keys_custom: string[];
   engine_model: string;
   engine_sarvam_mode: string;
   local_model_file: string;

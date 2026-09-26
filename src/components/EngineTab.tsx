@@ -1,4 +1,4 @@
-import { IconEngine, IconSearch, IconChevronDown } from "./ui/icons";
+import { IconEngine, IconSearch, IconChevronDown, IconTrash } from "./ui/icons";
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -18,6 +18,82 @@ interface EngineTabProps {
 }
 
 const langOptions = [{ value: "all", label: "All languages" }, ...languages.filter((l) => l.value !== "auto")];
+
+function ApiKeysEditor({ keys, placeholder, onCommit }: { keys: string[]; placeholder: string; onCommit: (keys: string[]) => void }) {
+  // Draft so typing doesn't save on every keystroke; commits when focus
+  // leaves the whole editor, or immediately on add/remove.
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const shown = draft ?? keys;
+  const rows = shown.length > 0 ? shown : [""];
+
+  const commit = (next: string[]) => {
+    setDraft(null);
+    onCommit(next);
+  };
+
+  return (
+    <div
+      className="w-full"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null) && draft) {
+          commit(draft);
+        }
+      }}
+    >
+      <span className="label-soft block mb-1.5">API Keys{rows.length > 1 ? ` (${rows.length})` : ""}</span>
+      <div className="space-y-2">
+        {rows.map((value, i) => (
+          <div key={i} className="flex items-end gap-2">
+            <div className="flex-1 min-w-0">
+              <Field
+                label={`Key ${i + 1}`}
+                value={value}
+                secret
+                placeholder={i === 0 ? placeholder : "Fallback key"}
+                onChange={(v) => {
+                  const next = [...rows];
+                  next[i] = v;
+                  setDraft(next);
+                }}
+                onClear={() => {
+                  const next = [...rows];
+                  next[i] = "";
+                  commit(next);
+                }}
+              />
+            </div>
+            {rows.length > 1 && (
+              <button
+                type="button"
+                onClick={() => commit(rows.filter((_, j) => j !== i))}
+                title={`Remove key ${i + 1}`}
+                aria-label={`Remove key ${i + 1}`}
+                className="shrink-0 w-[42px] h-[42px] grid place-items-center rounded-xl text-muted hover:text-recording hover:bg-elevated/60 ring-1 ring-stroke transition-colors"
+              >
+                <IconTrash className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          type="button"
+          onClick={() => {
+            // Flush any in-progress typing first so it isn't lost.
+            const base = draft ?? rows;
+            setDraft(null);
+            onCommit([...base, ""]);
+          }}
+          className="px-3 py-1.5 text-[11px] font-mono text-accent ring-1 ring-stroke hover:bg-elevated/50 rounded-md transition-colors cursor-pointer"
+        >
+          + Add key
+        </button>
+        <span className="text-[10px] font-mono text-muted/60">First key is used; others are automatic fallback.</span>
+      </div>
+    </div>
+  );
+}
 
 function sortKeys(keys: string[]) {
   return [...keys].sort((a, b) => {
@@ -380,19 +456,28 @@ export function EngineTab({ settings, onSave, onSaveAll }: EngineTabProps) {
                   : settings.engine_provider === "sarvam"
                   ? "voice_api_key_sarvam"
                   : "voice_api_key_custom";
+              const listField =
+                settings.engine_provider === "openai"
+                  ? "voice_api_keys_openai"
+                  : settings.engine_provider === "groq"
+                  ? "voice_api_keys_groq"
+                  : settings.engine_provider === "sarvam"
+                  ? "voice_api_keys_sarvam"
+                  : "voice_api_keys_custom";
               return (
-                <Field
-                  label="API Key"
-                  value={(settings as any)[keyField] || ""}
-                  onChange={(v) => {
+                <ApiKeysEditor
+                  key={settings.engine_provider}
+                  keys={(settings as any)[listField] ?? []}
+                  placeholder={settings.engine_provider === "openai" ? "sk-..." : settings.engine_provider === "groq" ? "gsk_..." : "API key"}
+                  onCommit={(next) => {
+                    const first = next.find((k) => k.trim().length > 0) ?? "";
                     const updates: Partial<AppSettings> = {
-                      [keyField]: v,
-                      voice_api_key: v,
+                      [listField]: next,
+                      [keyField]: first,
+                      voice_api_key: first,
                     } as any;
                     onSaveAll(updates);
                   }}
-                  secret
-                  placeholder={settings.engine_provider === "openai" ? "sk-..." : settings.engine_provider === "groq" ? "gsk_..." : "API key"}
                 />
               );
             })()}

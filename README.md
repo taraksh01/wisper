@@ -1,143 +1,75 @@
 # Wisper
 
-Turn your voice into text right on your device, with your privacy always in your hands. Just speak, and your words are ready to paste anywhere. Everything stays on your computer by default, with optional cloud providers available whenever you choose to use them.
+Talk instead of type. Press one key, say what you mean, and the words show up in whatever app you were already using. By default everything runs on your own computer.
 
-Wisper is a lightweight, privacy-first desktop dictation app for Linux and Windows, with a macOS beta in testing. Press a global hotkey, speak, and the transcribed text is inserted wherever your cursor is. An optional AI step can clean up and format the result before it lands.
+Works on **Linux, Windows, and macOS**. Free and open source (MIT), no account, no telemetry.
 
-## Features
+## Install
 
-- **Speak instead of type** - press a global hotkey (hold for push-to-talk or tap for toggle mode), say what you want, and the text lands wherever your cursor is.
-- **Pastes back where you started** - Wisper remembers the window where you pressed the hotkey and pastes there, even if you click elsewhere while speaking. The recording pill shows that app's icon.
-- **Stays on your device** - transcription runs locally with ONNX models; nothing leaves your computer unless you choose a cloud provider.
-- **Pick your microphone** - choose a specific input device, or let the system default handle it.
-- **Cleans up as it goes** - optional AI step reformats and polishes the transcript (6 Writing Styles: Auto, Clean-up, Email, Developer, Messaging, Formal + Custom; 6 providers: OpenAI, Anthropic, Groq, OpenRouter, Ollama, OpenCode Go + Custom with endpoint-aware `/chat/completions` `/responses` `/messages` and Test connection), compact deduplicated output with typo/filler fixes, plus silence trimming.
-- **Your words, your way** - custom vocabulary turns shortcuts into proper terms (say "gpt", get "GPT").
-- **Look back** - searchable history lets you replay the recording, re-transcribe, or edit any past dictation, and shows how much typing time you've saved.
-- **Out of the way** - lives in the system tray; close the window and it keeps running, ready for the next hotkey. `Ctrl+W` hides the window (tray stays), `Ctrl+Q` quits entirely.
-- **Updates itself** - checks GitHub releases and installs new versions in-app.
+| Platform | Download | Notes |
+| --- | --- | --- |
+| **Linux** | `.deb`, `.rpm`, or `.AppImage` | Pick the one your distro uses. On Wayland, see [Linux notes](#linux-notes). |
+| **Windows** | `-setup.exe` | Standard installer. |
+| **macOS** | `.dmg` for Apple Silicon or Intel | macOS 13 or newer. Unsigned, so right-click then Open the first time. |
 
-## How it works
+Get the files from the [latest release](https://github.com/taraksh01/wisper/releases/latest), or from the [website](https://taraksh01.github.io/wisper/).
 
-```
-Speak → Record → Transcribe → [Refine] → Insert
-```
+### Linux notes
 
-You speak, Wisper records locally, transcribes your voice to text, optionally refines it with an AI model, then types it at your cursor or copies it to the clipboard.
+On X11, everything works with no extra setup.
 
-## Requirements
+On **Wayland** (GNOME, KDE, Hyprland, Sway, and friends), apps are not allowed to type into each other freely, so Wisper needs a small helper to paste your text:
 
-Wisper inserts text by simulating a paste/keystroke into whatever app is focused. How well this works depends on your display server and which paste helper is installed:
+- **Nothing to do** on most desktops. Wisper asks for a one-time "remote desktop" permission the first time it pastes, then stops asking.
+- **Optional, recommended:** [`ydotool`](docs/ydotool-setup.md). It needs no permission prompt and types noticeably faster.
+- **GNOME users:** Wisper installs a tiny companion extension the first time you run it so it can return to the app you started in. You will need to log out and back in once. Details in [docs/WAYLAND-PASTE.md](docs/WAYLAND-PASTE.md).
 
-- **ydotool ≥1.0.4 (recommended on Wayland)** - injects keystrokes through a kernel `uinput` virtual device, so it works on **both X11 and Wayland with no permission prompt**. It needs the `ydotoold` daemon running and your user in the `input` group. **1.0.4 is required** - older distro packages (e.g. Ubuntu 22.04 ships 0.x) lack the `-d`/`-H` timing flags Wisper uses for lightning-fast direct typing (`-d 0 -H 0`) and will be noticeably slower or may error.
-- **wtype** - a zero-config Wayland tool, but it only works on compositors that implement the Wayland `virtual-keyboard` protocol. On compositors that don't (you'll see `Compositor does not support the virtual keyboard protocol`), wtype fails entirely.
-- **enigo (built-in fallback)** - no install needed. Wisper now uses it with `linux_delay: 0` for fastest typing, but on native Wayland it goes through the desktop **RemoteDesktop portal**, so the system pops a **"remote desktop / input capture" permission prompt** (usually one-time if you let the compositor remember it).
+### Windows notes
 
-### Setting up ydotool ≥1.0.4 (no prompts)
+If the microphone level meter in General stays flat, Windows is blocking recording. Open **Settings → Privacy → Microphone** and allow desktop apps to use the microphone.
 
-> **Why 1.0.4?** See [`docs/ydotool-setup.md`](docs/ydotool-setup.md) - Wisper runs `ydotool type -d 0 -H 0` for lightning typing; older versions ignore `-H` and fall back to `20ms` (≈2s/100 chars vs ≈50ms).
+### macOS notes
 
-Quick setup - full guide in [`docs/ydotool-setup.md`](docs/ydotool-setup.md):
+macOS asks for two permissions:
 
-```bash
-# Ubuntu 26.04 already ships 1.0.4; older distros: build from source
-# https://github.com/ReimuNotMoe/ydotool#building-from-source
-sudo systemctl enable --now ydotoold.service
-sudo usermod -aG input $USER  # then relogin
-ydotool type -d 0 -H 0 "hello world"   # should appear instantly
-```
+- **Microphone.** Without it, recording captures silence.
+- **Accessibility.** Without it, the hotkey does nothing and nothing pastes.
 
-### About the RemoteDesktop portal prompt (enigo / wtype)
+If the hotkey ever stops working after an update, remove Wisper with the minus button in **System Settings → Privacy & Security → Accessibility**, then add it again with plus.
 
-On Wayland, `enigo` and `wtype` ask the compositor for permission to inject input, which surfaces as a **"remote desktop" / "remote control"** dialog. This is expected - grant it and tick **remember** so it isn't re-asked. `ydotool` avoids this entirely because it uses `uinput` below the compositor.
+## Getting started
 
-By default Wisper auto-detects the best available tool, but you can pick a specific one under **General → Output → Paste Tool**. The app also shows a warning there if you're on Wayland without a suitable tool installed.
+1. **Pick an engine.** Open **Engine** and choose how speech becomes text. Wisper ships with 20 local models across six families (Whisper, Parakeet, IndicConformer, Moonshine, SenseVoice, Qwen3) that run on your own machine, from a 56 MB English model to a 2.45 GB model covering 22 Indian languages. You can also use a cloud provider (OpenAI, Groq, Sarvam, or any OpenAI-compatible endpoint) if you prefer. Nothing transcribes until one is active.
+2. **Choose a microphone** in **General** and check the level meter.
+3. **Press the hotkey** (F9 by default) and talk. Release to insert the text, or tap once for toggle mode.
 
-> **Why does it ask for remote desktop permission?** When you use the **built-in** paste tool on Wayland, Wisper has no direct way to type into other apps, so it routes input through the XDG Desktop Portal's RemoteDesktop interface - the same mechanism screen-sharing tools use - which requires your consent. This is a Wayland limitation, not a bug. Installing `wtype` or `ydotool` avoids the portal (and the prompt) entirely, since they inject input through dedicated channels.
+While you talk, a small pill shows your voice level and the app you started in. When it finishes, the text is inserted right where you began.
 
-> **Note:** If you install the `.deb` or `.rpm` package, these tools may be pulled in automatically. AppImage users should install them manually as shown above.
+Want the text tidied up afterwards (punctuation, filler words, formatted for email or code)? Turn on the optional AI step in **Process**.
 
-## macOS beta
+## What else it does
 
-macOS support is in beta and ships as an unsigned DMG (Apple Silicon and Intel). The website does not list it yet; this section is the documentation for beta testers.
+- **Inserts where you started.** Click somewhere else mid-sentence and it still goes back to the original app. The pill shows that app's icon.
+- **Works offline.** No key and no network needed. Cloud is opt-in, and keys stay on your device.
+- **Cloud keys that fail over.** Add several keys per provider and Wisper rotates to the next one when one hits a rate limit.
+- **Your vocabulary.** Teach it your terms once (say "gpt", get "GPT"). Four ready-made profiles, or make your own and share them by URL.
+- **History you can fix.** Search past dictations, replay the audio, re-run them with a different model, or edit the text.
+- **Sounds for each step.** Optional audio cues when recording starts and when text is ready.
+- **Your languages.** Auto-detect, or set the order you prefer for bilingual speech.
+- **Quiet by default.** Sits in the system tray, can start with your system, and updates itself.
 
-### Install
+## If something goes wrong
 
-1. Download the `Wisper ... .dmg` asset from the latest `v*-beta*` GitHub release.
-2. Open the DMG and drag Wisper to Applications.
-3. First launch: macOS will say the app "is damaged". It is not. When you download anything with your browser, macOS attaches a hidden "downloaded from the internet" marker to it. Because this beta does not carry Apple's paid approval stamp, macOS sees the marker plus the missing stamp and wrongly calls the app damaged. Clearing the marker fixes it and changes nothing else: it does not modify the app and does not lower your Mac's security. Open Terminal, paste the line below, press Enter, then right-click (Control-click) Wisper in Applications, choose Open, then confirm:
-   `xattr -cr /Applications/Wisper.app`
-4. Grant access when prompted:
-   - Microphone: System Settings → Privacy & Security → Microphone → enable Wisper. Without this, recording captures silence.
-   - Accessibility: System Settings → Privacy & Security → Accessibility → enable Wisper. Without this, the global hotkey never fires and pasting types nothing.
+- **Microphone meter stays flat:** see [Windows notes](#windows-notes) or [macOS notes](#macos-notes).
+- **Hotkey does nothing:** check Accessibility on macOS. On Linux Wayland, see [docs/WAYLAND-PASTE.md](docs/WAYLAND-PASTE.md).
+- **Typing feels slow on Linux:** your `ydotool` is likely older than 1.0.4. See [docs/ydotool-setup.md](docs/ydotool-setup.md).
+- **Text lands in the wrong app:** browser tabs share a single window, so Wisper can return to the right window but not the exact tab.
+- **More questions:** the [FAQ on the website](https://taraksh01.github.io/wisper/#faq).
 
-### What works
+## Contributing
 
-- Local ONNX transcription (Parakeet, Moonshine, IndicConformer) plus cloud engines.
-- Paste via the Built-in tool: Direct Typing, or Cmd+V / Cmd+Shift+V clipboard paste.
-- Global hotkey (default F9), overlay pill, tray icon, autostart, history, words, and in-app beta updates.
-
-### Known limitations
-
-- Unsigned build, so the Gatekeeper bypass above is needed on every fresh install.
-- Apple Silicon and Intel builds, on macOS 13 or newer.
-- No ydotool/wtype on macOS; paste always uses the Built-in backend.
-- Beta builds update from the beta channel (About → Check for updates). Stable releases do not include macOS yet.
-
-### Paste back to where you started
-
-Wisper remembers the window where you press the hotkey and jumps back there before pasting — so moving your cursor mid-dictation doesn't lose your place. If that window was closed, Wisper skips paste, keeps your clipboard untouched, and saves the text to history with an error toast.
-
-- **What you see:** the recording pill shows the origin app's icon (real icon when found, otherwise the app's first letter). Check status anytime under **General → Output → Paste back to where you started**.
-- **Why GNOME Wayland needs a tiny helper:** on GNOME Wayland, apps are isolated — Wisper can't see or focus other windows on its own (`Shell.Eval` is blocked, `Introspect GetWindows` is denied). So Wisper bundles a minimal **“Wisper Focus”** GNOME Shell extension (`wisper-focus@wisper.app`) that only exposes window list (`id`, app name, title, focused) + jump-back. No keystrokes, no window content, no network, per-user only, no sudo. Source is in `src-tauri/resources/gnome-shell/wisper-focus@wisper.app/`.
-- **How install works:** on first run (GNOME + Wayland only) Wisper copies the helper to `~/.local/share/gnome-shell/extensions/`, enables it via `gsettings` + `gnome-extensions enable`, and shows status in General tab. First time needs **one logout/login** for GNOME to activate it — until then Wisper pastes at your current cursor. Use **Install helper / Recheck** in General tab if needed.
-- **Other desktops:** X11, KDE, Hyprland (`hyprctl`), Sway (`swaymsg`) and X11 fallbacks (`xdotool` / `wmctrl`) work out of the box with no helper. If activation fails there, Wisper pastes at current focus instead of erroring.
-- **Limit:** browser tabs share one OS window — Wisper returns to the right window, but pastes into whichever tab is active at paste time. Use the origin tab if you need exact-tab paste.
-- **Verify / remove:** `gnome-extensions show wisper-focus@wisper.app`, `gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Extensions/WisperWindows --method org.gnome.Shell.Extensions.WisperWindows.List`. Disable anytime with `gnome-extensions disable wisper-focus@wisper.app` — paste-back then falls back to current focus.
-
-## Tech Stack
-
-- **Frontend:** React + TypeScript + Vite + Tailwind CSS
-- **Backend:** Tauri v2 (Rust)
-- **STT:** local ONNX models + optional cloud APIs (OpenAI-compatible)
-- **Platform:** Linux (X11 and Wayland), distributed as AppImage / deb / rpm; Windows (NSIS installer, WASAPI audio); macOS beta (unsigned DMG, Apple Silicon and Intel, CoreAudio)
-
-## Development
-
-Prerequisites: [Rust](https://www.rust-lang.org/tools/install), [Node.js](https://nodejs.org/), and [pnpm](https://pnpm.io/), plus the [Tauri Linux system dependencies](https://tauri.app/start/prerequisites/). For paste testing, `ydotool ≥1.0.4` is recommended (see Requirements - older versions lack `-d 0 -H 0` and will be slower). On macOS you need the Xcode Command Line Tools (`xcode-select --install`) instead of the Linux system dependencies.
-
-```bash
-# install JS dependencies
-pnpm install
-
-# dev: Wisper Dev (violet) - isolated config, runs alongside installed Wisper
-pnpm tauri:dev
-
-# prod bundle (orange) - AppImage / deb / rpm on Linux, NSIS on Windows, dmg on macOS
-pnpm tauri build
-# alias:
-pnpm tauri:build
-```
-
-### Dev vs Prod flavours
-
-Wisper ships as two logical apps from the same branch so you can develop without clobbering your daily driver:
-
-|  | Prod (`pnpm tauri build`) | Dev (`pnpm tauri:dev`) |
-|---|---|---|
-| **Name / ID** | `Wisper` / `com.taraksh01.wisper` | `Wisper Dev` / `com.taraksh01.wisper-dev` |
-| **Accent** | orange `#ea580c` / `#c2410c` | violet `#7c3aed` / `#6d28d9` |
-| **Icons** | `icons/*` + `public/wisper.svg` | `icons/dev/*` + `public/dev/wisper-dev.svg` + `public/overlay-dev.html` |
-| **Config** | `~/.config/wisper/settings.json` | `~/.config/wisper-dev/settings.json` |
-| **Data** | `~/.local/share/wisper/{history.db,words.db,models,recordings}` | `~/.local/share/wisper-dev/{…}` |
-| **Storage** | `localStorage wisper:*` | `localStorage wisper-dev:*` |
-| **Wayland** | `enableGTKAppId` → `app_id = com.taraksh01.wisper` | `enableGTKAppId` → `app_id = com.taraksh01.wisper-dev` (separate dock grouping) |
-
-Both tray and window icons are embedded per-flavour (`tauri image-png` + `win.set_icon` in debug) so you can tell them apart in the system tray/dock while running side-by-side. Dev starts fresh - no auto-copy from prod config.
-
-## Releases & Auto-update
-
-Wisper checks the latest GitHub release and can download and install updates from within the app. Update artifacts are signed; the private signing key is kept out of the repository and supplied via environment variables at build time.
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to build and run it locally.
 
 ## License
 
-See the repository for license details.
+MIT. See [LICENSE](LICENSE).

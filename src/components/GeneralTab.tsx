@@ -32,10 +32,12 @@ function Keycap({ children, active }: { children: React.ReactNode; active?: bool
 }
 
 export function HotkeyDisplay({ hotkey }: { hotkey: string }) {
+  // The Super keycap reads Cmd on Mac, Win on Windows, Super on Linux.
+  const superLabel = isMacOS() ? "Cmd" : isWindows() ? "Win" : "Super";
   const pretty: Record<string, string> = {
-    Super: "Meta",
-    SuperLeft: "Meta L",
-    SuperRight: "Meta R",
+    Super: superLabel,
+    SuperLeft: `${superLabel} L`,
+    SuperRight: `${superLabel} R`,
     CtrlLeft: "Ctrl L",
     CtrlRight: "Ctrl R",
     AltLeft: "Alt L",
@@ -70,10 +72,16 @@ function isMacOS(): boolean {
   return typeof navigator !== "undefined" && /macintosh|mac os x/i.test(navigator.userAgent);
 }
 
+function isWindows(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent.includes("Windows");
+}
+
 function PasteToolControl({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [env, setEnv] = useState<PasteEnvironment | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const isMac = isMacOS();
+  // Only Linux has wtype/ydotool; macOS and Windows paste via Built-in.
+  const isLinux = !isMac && !isWindows();
 
   useEffect(() => {
     let alive = true;
@@ -85,16 +93,16 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
     };
   }, [value]);
 
-  // macOS has no wtype/ydotool: only Auto (which resolves to Built-in) and Built-in.
-  const options = isMac
+  // wtype/ydotool are Linux-only: macOS and Windows offer Auto + Built-in.
+  const options = isLinux
     ? [
       { value: "auto", label: "Auto" },
+      { value: "wtype", label: "wtype", disabled: env ? !env.has_wtype : false, title: env && !env.has_wtype ? "wtype is not installed" : undefined },
+      { value: "ydotool", label: "ydotool", disabled: env ? !env.has_ydotool : false, title: env && !env.has_ydotool ? "ydotool is not installed" : undefined },
       { value: "enigo", label: "Built-in" },
     ]
     : [
       { value: "auto", label: "Auto" },
-      { value: "wtype", label: "wtype", disabled: env ? !env.has_wtype : false, title: env && !env.has_wtype ? "wtype is not installed" : undefined },
-      { value: "ydotool", label: "ydotool", disabled: env ? !env.has_ydotool : false, title: env && !env.has_ydotool ? "ydotool is not installed" : undefined },
       { value: "enigo", label: "Built-in" },
     ];
 
@@ -102,7 +110,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
     <div>
       <div className="flex items-center gap-1.5 mb-2">
         <label className="label-soft">Tool</label>
-        {!isMac && (
+        {isLinux && (
           <button
             type="button"
             onClick={() => setShowHelp((v) => !v)}
@@ -115,7 +123,7 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
       </div>
       <PillGroup value={value} options={options} onChange={onChange} />
 
-      {showHelp && !isMac && (
+      {showHelp && isLinux && (
         <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
           ydotool never asks for permission. wtype/Built-in may ask once.
           <a href="https://github.com/taraksh01/wisper#setting-up-ydotool-no-prompts" target="_blank" rel="noopener noreferrer" className="text-accent ml-1">Guide →</a>
@@ -124,21 +132,27 @@ function PasteToolControl({ value, onChange }: { value: string; onChange: (v: st
 
       {isMac && (
         <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
-          Built-in pastes with Cmd+V and needs an Accessibility grant: System Settings → Privacy &amp; Security → Accessibility → enable Wisper.
+          Built-in pastes with Cmd+V and needs an Accessibility grant: System Settings → Privacy &amp; Security → Accessibility → enable Wisper. After each app update, remove Wisper with minus and re-add it with plus, or the hotkey will stop firing.
+        </div>
+      )}
+
+      {!isLinux && !isMac && (
+        <div className="mt-2 rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2 text-[10px] font-mono text-muted leading-relaxed">
+          Built-in pastes with Ctrl+V and needs no setup on Windows.
         </div>
       )}
 
       {env && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-muted">
           <span>Using <span className="text-ink">{env.backend === "enigo" ? "Built-in" : env.backend}</span> · {env.session_type}</span>
-          {!isMac && (
+          {isLinux && (
             <>
               <span className={env.has_wtype ? "text-ready" : "text-muted/40"}>{env.has_wtype ? "✓" : "✗"} wtype</span>
               <span className={env.has_ydotool ? "text-ready" : "text-muted/40"}>{env.has_ydotool ? "✓" : "✗"} ydotool</span>
             </>
           )}
           {env.preference_unavailable && <span className="text-warning">fallback: {value} unavailable</span>}
-          {!env.reliable && <span className="text-recording">Install wtype or ydotool for Wayland</span>}
+          {isLinux && !env.reliable && <span className="text-recording">Install wtype or ydotool for Wayland</span>}
         </div>
       )}
      </div>
@@ -183,6 +197,28 @@ function OriginStatusControl() {
       setBusy(false);
     }
   }, []);
+
+  // The GNOME helper flow below is Linux-only. macOS and Windows bind the
+  // origin natively, so they get a compact confirmation instead.
+  if (isMacOS() || isWindows()) {
+    const osName = isMacOS() ? "macOS" : "Windows";
+    return (
+      <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5 space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-mono text-muted">Paste back to where you started</span>
+          {env ? (
+            <span className="text-[10px] font-mono text-ready">✓ Ready</span>
+          ) : (
+            <span className="text-[10px] font-mono text-muted">Checking…</span>
+          )}
+        </div>
+        <p className="text-[10px] font-mono text-muted/80 leading-relaxed">
+          Wisper remembers the window where you press the hotkey and pastes there — even if you click
+          elsewhere while speaking. No setup needed on {osName}.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg bg-elevated/40 ring-1 ring-stroke px-3 py-2.5 space-y-2">
@@ -1034,7 +1070,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
             value={settings.paste_method}
             options={(() => {
               // Stored values stay shared across platforms; only labels adapt.
-              // Shift+Insert has no macOS equivalent (it pastes as Cmd+V), so it is hidden there.
+              // Shift+Insert does nothing on macOS, so it is hidden there.
               const mac = isMacOS();
               const all = [
                 { value: "Ctrl+V", label: mac ? "Cmd+V" : "Ctrl+V" },
@@ -1091,7 +1127,7 @@ export function GeneralTab({ settings, historyTotal = 0, onSave, onSaveAll, onRe
           <Switch label="Launch to system tray" checked={settings.launch_to_tray} onChange={(v) => onSave("launch_to_tray", v)} />
         </div>
         <p className="text-[10px] font-mono text-muted/50 leading-relaxed mt-2">
-          Tip: <span className="text-ink">Ctrl+W</span> hides window (tray stays) · <span className="text-ink">Ctrl+Q</span> quits entirely.
+          Tip: <span className="text-ink">{isMacOS() ? "Cmd+W" : "Ctrl+W"}</span> hides window (tray stays) · <span className="text-ink">{isMacOS() ? "Cmd+Q" : "Ctrl+Q"}</span> quits entirely.
         </p>
       </SectionCard>
 

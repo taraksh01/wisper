@@ -11,7 +11,7 @@ const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").match
 // the next one. Web Audio click is only created on first user gesture.
 const DICTATIONS = [
   "hold the hotkey and just talk",
-  "your words, typed at your cursor",
+  "your words, back where you started",
   "dictate the whole email hands free",
 ];
 const textEl = document.getElementById("t-text");
@@ -115,7 +115,7 @@ if (!reduceMotion) {
 (function () {
   const groups = document.querySelectorAll(".js-bars");
   if (!groups.length) return;
-  const N = 7, CY = 80, MAXH = 120, FLOOR = 18, W = 14, GAP = 20;
+  const N = 7, CY = 80, MAXH = 120, FLOOR = 18, W = 18, GAP = 16;
   const X0 = (312 - (N * W + (N - 1) * GAP)) / 2;
   const all = [];
 
@@ -213,25 +213,34 @@ document.querySelectorAll(".cmd-copy").forEach((btn) => {
   });
 });
 
-// ---------- Live GitHub star count ----------
-(async () => {
+// ---------- GitHub star count (cached; never shows a fake 0) ----------
+(function () {
   const repo = "taraksh01/wisper";
   const ids = ["nav-stars", "cta-stars"];
-  try {
-    const res = await fetch(`https://api.github.com/repos/${repo}`);
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    const data = await res.json();
-    const n = data.stargazers_count;
-    if (typeof n === "number") {
-      const txt = n.toLocaleString();
-      ids.forEach((id) => {
-        const elx = document.getElementById(id);
-        if (elx) elx.textContent = txt;
-      });
+  const KEY = "wisper-stars";
+  const setStars = (txt) => ids.forEach((id) => {
+    const elx = document.getElementById(id);
+    if (elx) elx.textContent = txt;
+  });
+  let cached = null;
+  try { cached = localStorage.getItem(KEY); } catch {}
+  if (cached) setStars(cached);
+  (async () => {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${repo}`);
+      if (!res.ok) throw new Error(`status ${res.status}`);
+      const data = await res.json();
+      const n = data.stargazers_count;
+      if (typeof n === "number") {
+        const txt = n.toLocaleString();
+        setStars(txt);
+        try { localStorage.setItem(KEY, txt); } catch {}
+      }
+    } catch (err) {
+      // Rate-limited or offline: keep the cached value, otherwise stay blank.
+      console.warn("Could not load star count:", err);
     }
-  } catch (err) {
-    console.warn("Could not load star count:", err);
-  }
+  })();
 })();
 
 // ---------- Package-type icons (inline SVG, inherit currentColor) ----------
@@ -270,14 +279,13 @@ function fmtSize(b) {
       { test: (n) => n.endsWith(".deb"), label: "Debian / Ubuntu", ext: ".deb", icon: iconDebian, os: "linux", pkg: "deb" },
       { test: (n) => n.endsWith(".rpm"), label: "Fedora / RPM", ext: ".rpm", icon: iconRpm, os: "linux", pkg: "rpm" },
       { test: (n) => n.endsWith("-setup.exe"), label: "Windows", ext: ".exe", icon: iconWindows, os: "windows" },
+      { test: (n) => /\.dmg$/i.test(n) && /aarch64|arm64/i.test(n), label: "macOS (Apple Silicon)", ext: ".dmg", icon: iconMac, os: "macos", pkg: "mac-arm" },
+      { test: (n) => /\.dmg$/i.test(n) && /x64|x86_64/i.test(n), label: "macOS (Intel)", ext: ".dmg", icon: iconMac, os: "macos", pkg: "mac-intel" },
     ];
 
-    const cards = [];
-    for (const kind of kinds) {
-      const asset = assets.find((a) => kind.test(a.name));
-      if (!asset) continue;
+    const makeCard = (kind, asset, extraClass = "", chipHtml = "") => {
       const a = document.createElement("a");
-      a.className = "pkg";
+      a.className = "pkg" + (extraClass ? " " + extraClass : "");
       a.href = asset.browser_download_url;
       a.dataset.os = kind.os || "linux";
       if (kind.pkg) a.dataset.pkg = kind.pkg;
@@ -285,41 +293,30 @@ function fmtSize(b) {
       a.setAttribute("aria-label", `Download Wisper for ${kind.label}`);
       a.innerHTML =
         `<span class="pkg-ico">${kind.icon}</span>` +
-        `<span class="pkg-meta"><h3>${kind.label}</h3>` +
+        `<span class="pkg-meta"><h3>${kind.label}${chipHtml}</h3>` +
         `<span class="pkg-file mono">${asset.name}</span></span>` +
         `<span class="pkg-side"><span class="ext">${kind.ext} · ${fmtSize(asset.size)}</span>` +
         `<span class="pkg-go" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg><span class="pkg-go-t">Download</span></span></span>`;
-      cards.push(a);
+      return a;
+    };
+
+    const cards = [];
+    for (const kind of kinds) {
+      const asset = assets.find((a) => kind.test(a.name));
+      if (!asset) continue;
+      cards.push(makeCard(kind, asset));
+    }
+    // Fallback: a single unlabeled DMG (unknown arch naming) still gets a card.
+    if (!cards.some((c) => c.dataset.os === "macos")) {
+      const anyDmg = assets.find((a) => /\.dmg$/i.test(a.name));
+      if (anyDmg) {
+        cards.push(makeCard({ label: "macOS", ext: ".dmg", icon: iconMac, os: "macos", pkg: "mac" }, anyDmg));
+      }
     }
 
     if (!cards.length) throw new Error("no matching assets");
     grid.innerHTML = "";
     cards.forEach((c) => grid.appendChild(c));
-
-    try {
-      const bres = await fetch(`https://api.github.com/repos/${repo}/releases/tags/beta`);
-      if (!bres.ok) throw new Error(`beta status ${bres.status}`);
-      const brel = await bres.json();
-      const win = (brel.assets || []).find((a) => a.name.endsWith("-setup.exe"));
-      if (win) {
-        const w = document.createElement("a");
-        w.className = "pkg pkg-beta";
-        w.href = win.browser_download_url;
-        w.dataset.os = "windows";
-        w.setAttribute("aria-label", "Download Wisper beta for Windows");
-        w.innerHTML =
-          `<span class="pkg-ico">${iconWindows}</span>` +
-          `<span class="pkg-meta"><h3>Windows <span class="pkg-chip">beta</span></h3>` +
-          `<span class="pkg-file mono">${win.name}</span></span>` +
-          `<span class="pkg-side"><span class="ext">.exe · ${fmtSize(win.size)}</span>` +
-          `<span class="pkg-go" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg><span class="pkg-go-t">Download</span></span></span>`;
-        grid.appendChild(w);
-      }
-    } catch (betaErr) {
-      console.warn("No Windows beta asset:", betaErr);
-    }
-
-    grid.appendChild(macSoonRow());
 
     recommendForThisOS(grid);
   } catch (err) {
@@ -331,8 +328,6 @@ function fmtSize(b) {
         `<span class="pkg-meta"><h3>All releases</h3>` +
         `<span class="pkg-file mono">GitHub</span></span>` +
         `<span class="pkg-side"><span class="pkg-go" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10m0 0l-4-4m4 4l4-4"/><path d="M5 20h14"/></svg><span class="pkg-go-t">Open</span></span></span></a>`;
-      grid.appendChild(macSoonRow());
-
     recommendForThisOS(grid);
     }
   }
@@ -342,7 +337,7 @@ function fmtSize(b) {
 // (Firefox reports it, e.g. "X11; Ubuntu; Linux x86_64"), so unknown
 // distros fall back to the universal AppImage. Testable via distroPkg(ua).
 function distroPkg(ua = navigator.userAgent || "") {
-  if (/ubuntu|debian|mint|pop|elementary|zorin|kali|raspbian/i.test(ua)) return "deb";
+  if (/ubuntu|debian|mint|\bpop\b|elementary|zorin|kali|raspbian/i.test(ua)) return "deb";
   if (/fedora|red ?hat|rhel|centos|opensuse|suse|rocky|alma/i.test(ua)) return "rpm";
   return "appimage";
 }
@@ -416,19 +411,6 @@ function recommendForThisOS(grid) {
     btn.textContent = open ? showAll : "Show less";
   });
   grid.after(btn);
-}
-
-// macOS is not built yet: a disabled row, never a link.
-function macSoonRow() {
-  const m = document.createElement("div");
-  m.className = "pkg pkg-soon";
-  m.dataset.os = "macos";
-  m.setAttribute("aria-disabled", "true");
-  m.innerHTML =
-    `<span class="pkg-ico">${iconMac}</span>` +
-    `<span class="pkg-meta"><h3>macOS <span class="pkg-chip">coming soon</span></h3>` +
-    `<span class="pkg-file mono">Signed build still in the works</span></span>`;
-  return m;
 }
 
 // ---------- Download click feedback: sweep + spinner, then follow the link ----------
