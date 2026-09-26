@@ -125,9 +125,7 @@ static WORDS_CONN: once_cell::sync::Lazy<Mutex<Connection>> = once_cell::sync::L
     // profile owns a row (NULL = user-added). ALTER fails if the column
     // already exists, so probe pragma first.
     {
-        let has_profile_id: bool = conn
-            .prepare("SELECT profile_id FROM words LIMIT 0")
-            .is_ok();
+        let has_profile_id: bool = conn.prepare("SELECT profile_id FROM words LIMIT 0").is_ok();
         if !has_profile_id {
             if let Err(e) = conn.execute_batch(
                 "ALTER TABLE words ADD COLUMN profile_id TEXT DEFAULT NULL;
@@ -219,13 +217,21 @@ impl WordsManager {
             // Merge variants case-insensitive, keep order: existing first, then new
             let mut seen = std::collections::HashSet::new();
             let mut merged: Vec<String> = Vec::new();
-            for v in existing_variants.split([',', '\n']).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            for v in existing_variants
+                .split([',', '\n'])
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 let low = v.to_lowercase();
                 if seen.insert(low) {
                     merged.push(v.to_string());
                 }
             }
-            for v in variants.split([',', '\n']).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            for v in variants
+                .split([',', '\n'])
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 let low = v.to_lowercase();
                 if seen.insert(low.clone()) {
                     // Also avoid adding phrase itself as variant (redundant)
@@ -313,7 +319,10 @@ impl WordsManager {
         }
         let conn = WORDS_CONN.lock().unwrap_or_else(|e| e.into_inner());
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!("UPDATE words SET hits = hits + 1 WHERE id IN ({})", placeholders);
+        let sql = format!(
+            "UPDATE words SET hits = hits + 1 WHERE id IN ({})",
+            placeholders
+        );
         let _ = conn.execute(&sql, rusqlite::params_from_iter(ids.iter()));
     }
 
@@ -782,36 +791,36 @@ pub fn maybe_auto_add_corrections(raw: &str, formatted: &str) {
         if known.contains(&low) {
             continue;
         }
-            // Count occurrences of this correction in history (including current)
-            let mut count = 1; // current occurrence
-            for entry in &history {
-                let r = entry.raw_text.trim();
-                let f = match &entry.formatted_text {
-                    Some(f) if !f.trim().is_empty() && f != r => f.trim().to_string(),
-                    _ => continue,
-                };
-                let r_set: std::collections::HashSet<String> = r
-                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .filter(|s| !s.trim().is_empty())
-                    .map(|s| s.to_lowercase())
-                    .collect();
-                let f_set: std::collections::HashSet<String> = f
-                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .filter(|s| !s.trim().is_empty())
-                    .map(|s| s.to_lowercase())
-                    .collect();
-                if f_set.contains(&low) && !r_set.contains(&low) {
-                    // Check if the same variant was involved
-                    if variant.is_empty() || r_set.contains(&variant.to_lowercase()) {
-                        count += 1;
-                    }
+        // Count occurrences of this correction in history (including current)
+        let mut count = 1; // current occurrence
+        for entry in &history {
+            let r = entry.raw_text.trim();
+            let f = match &entry.formatted_text {
+                Some(f) if !f.trim().is_empty() && f != r => f.trim().to_string(),
+                _ => continue,
+            };
+            let r_set: std::collections::HashSet<String> = r
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_lowercase())
+                .collect();
+            let f_set: std::collections::HashSet<String> = f
+                .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_lowercase())
+                .collect();
+            if f_set.contains(&low) && !r_set.contains(&low) {
+                // Check if the same variant was involved
+                if variant.is_empty() || r_set.contains(&variant.to_lowercase()) {
+                    count += 1;
                 }
             }
-            if count >= 2 {
-                let mgr = WordsManager::new();
-                let _ = mgr.add(fw, variant, false, true, true);
-                known.insert(low.clone());
-            }
+        }
+        if count >= 2 {
+            let mgr = WordsManager::new();
+            let _ = mgr.add(fw, variant, false, true, true);
+            known.insert(low.clone());
+        }
     }
 }
 
@@ -850,9 +859,9 @@ const COMMON_WORDS: &[&str] = &[
     "no", "just", "him", "know", "take", "people", "into", "year", "your", "good", "some", "could",
     "them", "see", "other", "than", "then", "now", "look", "only", "come", "its", "over", "think",
     "also", "back", "after", "use", "two", "how", "our", "work", "first", "well", "way", "even",
-    "new", "want", "because", "any", "these", "give", "day", "most", "us", "should", "shall", "may",
-    "might", "must", "has", "had", "were", "been", "being", "are", "was", "is", "am", "does", "did",
-    "ought", "need", "dare", "used",
+    "new", "want", "because", "any", "these", "give", "day", "most", "us", "should", "shall",
+    "may", "might", "must", "has", "had", "were", "been", "being", "are", "was", "is", "am",
+    "does", "did", "ought", "need", "dare", "used",
 ];
 
 fn is_common_word(low: &str) -> bool {
