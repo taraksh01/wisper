@@ -70,6 +70,15 @@ Want the text tidied up afterwards (punctuation, filler words, formatted for ema
 
 Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) to build and run it locally.
 
+## Support
+
+If Wisper is useful to you, consider supporting its development.
+
+- [GitHub Sponsors](https://github.com/sponsors/taraksh01)
+- UPI (India): `taraksh01@upi` (also in the app's Donate tab as a QR code)
+
+<img src="assets/upi-qr.png" alt="UPI QR code for taraksh01@upi" width="200" />
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
