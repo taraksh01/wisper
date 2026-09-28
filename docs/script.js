@@ -183,7 +183,7 @@ if (!reduceMotion) {
 // Auto-tag the major blocks; no reveal classes needed in the HTML.
 (function () {
   const items = document.querySelectorAll(
-    ".section-head, .pipeline, .bento, .engines-inner, .download-grid, .setup-grid, .faq, .cta"
+    ".section-head, .pipeline, .bento, .engines-inner, .download-grid, .setup-grid, .setup-os, .faq, .cta"
   );
   if (!items.length) return;
   if (reduceMotion || !("IntersectionObserver" in window)) {
@@ -212,6 +212,43 @@ document.querySelectorAll(".cmd-copy").forEach((btn) => {
     }
   });
 });
+
+// ---------- Per-OS setup tabs: visitor's system pre-selected ----------
+(function () {
+  const tabs = [...document.querySelectorAll(".os-tab")];
+  const panels = [...document.querySelectorAll(".os-panel")];
+  if (!tabs.length || !panels.length) return;
+  const byOs = (os) => panels.find((p) => p.dataset.os === os);
+  function select(os) {
+    tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.os === os)));
+    panels.forEach((p) => p.classList.toggle("is-active", p.dataset.os === os));
+  }
+  tabs.forEach((t, i) => {
+    t.addEventListener("click", () => select(t.dataset.os));
+    t.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+      next.focus();
+      select(next.dataset.os);
+    });
+  });
+  let initial = "linux";
+  try {
+    const hit = detectOS();
+    if (hit === "linux" || hit === "windows" || hit === "macos") initial = hit;
+  } catch {}
+  if (!byOs(initial)) initial = panels[0].dataset.os;
+  const det = tabs.find((t) => t.dataset.os === initial);
+  if (det) {
+    det.classList.add("is-detected");
+    const badge = document.createElement("span");
+    badge.className = "os-tab-auto";
+    badge.textContent = "yours";
+    det.appendChild(badge);
+  }
+  select(initial);
+})();
 
 // ---------- GitHub star count (cached; never shows a fake 0) ----------
 (function () {
