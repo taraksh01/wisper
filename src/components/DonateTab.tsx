@@ -94,8 +94,9 @@ export function DonateTab() {
             </svg>
           </a>
 
-          {/* UPI QR */}
-          <button onClick={copyUpi} className="relative cursor-pointer" title="Copy UPI ID">
+          {/* UPI QR (India) */}
+          <p className="text-[10px] font-mono text-muted/70 tracking-widest uppercase mt-2 mb-2">UPI · India</p>
+          <button onClick={copyUpi} className="relative cursor-pointer" title="Scan with any UPI app, or click to copy the UPI ID">
             {qrDataUrl ? (
               <img
                 src={qrDataUrl}

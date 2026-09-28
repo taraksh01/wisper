@@ -159,7 +159,11 @@ fn start_mic_preview(device: Option<String>) -> Result<(), String> {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
-            if g.is_empty() { None } else { Some(g) }
+            if g.is_empty() {
+                None
+            } else {
+                Some(g)
+            }
         }
     };
     RECORDER
@@ -181,7 +185,11 @@ fn test_paste() -> Result<(), String> {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone();
-    let method = if method.is_empty() { "auto".to_string() } else { method };
+    let method = if method.is_empty() {
+        "auto".to_string()
+    } else {
+        method
+    };
     crate::paste::paste_text("The quick brown fox 123", &method)
 }
 
@@ -363,10 +371,7 @@ fn cursor_pos() -> Option<(i32, i32)> {
 }
 
 fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
-    let tauri_pos = app
-        .cursor_position()
-        .ok()
-        .map(|p| (p.x as i32, p.y as i32));
+    let tauri_pos = app.cursor_position().ok().map(|p| (p.x as i32, p.y as i32));
     let enigo_pos = cursor_pos();
 
     let cursor = match (tauri_pos, enigo_pos) {
@@ -377,9 +382,13 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
                 Some(tp)
             } else {
                 #[cfg(target_os = "linux")]
-                { Some(ep) }
+                {
+                    Some(ep)
+                }
                 #[cfg(not(target_os = "linux"))]
-                { Some(tp) }
+                {
+                    Some(tp)
+                }
             }
         }
         (Some(p), None) | (None, Some(p)) => Some(p),
@@ -402,12 +411,20 @@ fn monitor_with_cursor(app: &tauri::AppHandle) -> Option<tauri::Monitor> {
                 my,
                 monitors
                     .iter()
-                    .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
+                    .map(|m| (
+                        m.position().x,
+                        m.position().y,
+                        m.size().width,
+                        m.size().height
+                    ))
                     .collect::<Vec<_>>()
             );
         }
     } else {
-        eprintln!("[overlay] no cursor pos: tauri={:?} enigo={:?}", tauri_pos, enigo_pos);
+        eprintln!(
+            "[overlay] no cursor pos: tauri={:?} enigo={:?}",
+            tauri_pos, enigo_pos
+        );
     }
     app.primary_monitor().ok().flatten()
 }
@@ -527,7 +544,12 @@ fn macos_visible_area_for_cursor() -> Option<(f64, f64, f64, f64)> {
             return None;
         }
         let vis_top = v.origin.y + v.size.height;
-        return Some((v.origin.x, global_top - vis_top, v.size.width, v.size.height));
+        return Some((
+            v.origin.x,
+            global_top - vis_top,
+            v.size.width,
+            v.size.height,
+        ));
     }
     None
 }
@@ -608,9 +630,7 @@ fn overlay_pos_for(
     let y = y.clamp(my, (my + mh - win_h).max(my));
     let p = (x, y);
     if !prefer_cache {
-        *LAST_OVERLAY_POS
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(p);
+        *LAST_OVERLAY_POS.lock().unwrap_or_else(|e| e.into_inner()) = Some(p);
     }
     Some(p)
 }
@@ -780,7 +800,9 @@ pub fn show_overlay_error(reason: Option<String>) {
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = reason;
     {
-        let mut lock = crate::tray::STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lock = crate::tray::STATE_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *lock = CoordinatorState::Error;
     }
     emit_state(&handle, CoordinatorState::Error);
@@ -794,7 +816,9 @@ pub fn show_overlay_error(reason: Option<String>) {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner()) = None;
             let still_error = {
-                let mut lock = crate::tray::STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+                let mut lock = crate::tray::STATE_LOCK
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 if *lock == CoordinatorState::Error {
                     *lock = CoordinatorState::Idle;
                     true
@@ -1168,6 +1192,7 @@ pub fn run() {
             history::get_history_entries,
             history::get_history_count,
             history::get_history_stats,
+            history::get_today_stats,
             history::delete_history_entry,
             history::update_history_entry,
             history::retranscribe_recording,

@@ -21,7 +21,7 @@ const steps: {
   {
     Icon: IconMic,
     title: "Speak",
-    desc: "Hold your shortcut key and just talk.",
+    desc: "Press your shortcut key and just talk.",
   },
   {
     Icon: IconBars,
@@ -37,7 +37,7 @@ const steps: {
   {
     Icon: IconInsert,
     title: "Insert",
-    desc: "The text appears wherever your cursor is, in any app.",
+    desc: "The text lands back in the app where you started talking.",
   },
 ];
 

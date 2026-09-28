@@ -1,6 +1,7 @@
 import { IconHistory, IconSearch, IconRetry } from "./ui/icons";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { HistoryEntry, AppSettings } from "../types";
 import { storageKey } from "../appConfig";
 import { SectionCard } from "./SectionCard";
@@ -11,11 +12,10 @@ import { AudioPlayerPopover } from "./AudioPlayerPopover";
 import { Input } from "./ui/Input";
 import { useToast } from "./ToastContext";
 import { useWindowSize } from "../hooks/useWindowSize";
-import { calcSavedSeconds, formatSaved } from "../utils/timeSaved";
+import { formatSaved } from "../utils/timeSaved";
 
 interface HistoryTabProps {
   history: HistoryEntry[];
-  stats: [number, number, number];
   settings: AppSettings;
   /** Total entries stored in the DB - may exceed what's loaded so far. */
   historyTotal: number;
@@ -56,7 +56,7 @@ async function computePeaks(blobUrl: string): Promise<Float32Array | null> {
   }
 }
 
-export function HistoryTab({ history, stats, settings, historyTotal, loadingOlder, onLoadOlder, onSave, onRefresh }: HistoryTabProps) {
+export function HistoryTab({ history, settings, historyTotal, loadingOlder, onLoadOlder, onSave, onRefresh }: HistoryTabProps) {
   const { addToast } = useToast();
   const { width: winWidth } = useWindowSize();
   const statCols = winWidth < 880 ? "grid-cols-2" : "grid-cols-4";
@@ -100,20 +100,32 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
   const lifetimeDictations = settings.lifetime_dictations ?? 0;
   const lifetimeAvg = lifetimeDictations > 0 ? lifetimeWords / lifetimeDictations : 0;
 
-  const todayStats = useMemo(() => {
-    const today = new Date().toDateString();
-    const todayEntries = history.filter((e) => {
-      try {
-        return new Date(e.created_at).toDateString() === today;
-      } catch {
-        return false;
-      }
+  // Today comes from a daily rollup in the DB, not from the loaded page, so it
+  // keeps counting past the retention limit and is unaffected by deletions.
+  const [todayStats, setTodayStats] = useState<{ dictations: number; words: number; saved: number }>({
+    dictations: 0,
+    words: 0,
+    saved: 0,
+  });
+
+  const fetchToday = useCallback(async () => {
+    try {
+      const [dictations, words, saved] = await invoke<[number, number, number]>("get_today_stats");
+      setTodayStats({ dictations, words, saved });
+    } catch (e) {
+      console.error("fetchToday failed:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchToday();
+    const unlistenPromise = listen("wisper:history-changed", () => {
+      void fetchToday();
     });
-    const dictations = todayEntries.length;
-    const words = todayEntries.reduce((acc, e) => acc + (e.word_count || 0), 0);
-    const saved = todayEntries.reduce((acc, e) => acc + calcSavedSeconds(e.word_count || 0, e.duration_ms || 0), 0);
-    return { dictations, words, saved, entries: todayEntries };
-  }, [history]);
+    return () => {
+      unlistenPromise.then((fn) => fn()).catch(() => {});
+    };
+  }, [fetchToday]);
 
   const filteredHistory = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -335,7 +347,7 @@ export function HistoryTab({ history, stats, settings, historyTotal, loadingOlde
       <SectionCard className="card-enter">
         <div className={`grid ${statCols} gap-2`}>
           {[
-            { label: "Dictations", value: String(stats[0]), title: "Entries in history - resets when you clear history" },
+            { label: "Dictations", value: String(lifetimeDictations), title: "Lifetime dictations - never resets" },
             { label: "Words", value: String(lifetimeWords), title: "Lifetime words - never resets" },
             { label: "Avg Words", value: lifetimeAvg.toFixed(1), title: "Lifetime average - never resets" },
             {

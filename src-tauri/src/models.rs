@@ -35,17 +35,13 @@ pub fn get_models_dir() -> PathBuf {
 
 pub fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
     // Existence alone passes 0-byte truncated downloads — require non-empty files.
-    let ok = |p: std::path::PathBuf| {
-        std::fs::metadata(&p).map(|m| m.len() > 0).unwrap_or(false)
-    };
+    let ok = |p: std::path::PathBuf| std::fs::metadata(&p).map(|m| m.len() > 0).unwrap_or(false);
     let f = |n: &str| ok(dir.join(n));
     if name.starts_with("parakeet-") {
-        let has_encoder = f("encoder-model.int8.onnx")
-            || f("encoder-model.onnx")
-            || f("model.onnx");
-        let has_decoder = f("decoder_joint-model.int8.onnx")
-            || f("decoder-model.int8.onnx")
-            || f("model.onnx");
+        let has_encoder =
+            f("encoder-model.int8.onnx") || f("encoder-model.onnx") || f("model.onnx");
+        let has_decoder =
+            f("decoder_joint-model.int8.onnx") || f("decoder-model.int8.onnx") || f("model.onnx");
         return has_encoder
             && has_decoder
             && (f("vocab.txt") || f("tokens.txt") || f("vocab.json"));
@@ -58,21 +54,19 @@ pub fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
             && f("vocab.txt")
             && f("language_spans.json");
     }
-    if name.starts_with("moonshine-tiny-en-int8") || name.starts_with("sherpa-onnx-moonshine-tiny-en") {
+    if name.starts_with("moonshine-tiny-en-int8")
+        || name.starts_with("sherpa-onnx-moonshine-tiny-en")
+    {
         return f("encode.int8.onnx")
             && f("cached_decode.int8.onnx")
             && f("uncached_decode.int8.onnx")
             && f("tokens.txt");
     }
     if name.starts_with("whisper-tiny") || name.starts_with("sherpa-onnx-whisper-tiny") {
-        return f("tiny-encoder.onnx")
-            && f("tiny-decoder.onnx")
-            && f("tiny-tokens.txt");
+        return f("tiny-encoder.onnx") && f("tiny-decoder.onnx") && f("tiny-tokens.txt");
     }
     if name.starts_with("whisper-base") || name.starts_with("sherpa-onnx-whisper-base") {
-        return f("base-encoder.onnx")
-            && f("base-decoder.onnx")
-            && f("base-tokens.txt");
+        return f("base-encoder.onnx") && f("base-decoder.onnx") && f("base-tokens.txt");
     }
     if name.starts_with("sensevoice") || name.starts_with("sherpa-onnx-sense-voice") {
         return f("model.int8.onnx") || f("model.onnx");
@@ -89,8 +83,7 @@ pub fn is_model_complete(dir: &std::path::Path, name: &str) -> bool {
             && f("large-v3-tokens.txt");
     }
     if name.starts_with("indicconformer-120m-") || name == "indicconformer-8lang" {
-        return (f("model.onnx") || f("model.int8.onnx"))
-            && (f("tokens.txt") || f("vocab.json"));
+        return (f("model.onnx") || f("model.int8.onnx")) && (f("tokens.txt") || f("vocab.json"));
     }
     if f("model.onnx") || f("encoder_model.onnx") {
         return true;
@@ -232,7 +225,9 @@ pub fn onnx_dir_name(model_name: &str) -> Option<String> {
         "whisper-large-v3-int8" => Some("whisper-large-v3-int8".into()),
         "whisper-tiny-int8" => Some("sherpa-onnx-whisper-tiny".into()),
         "whisper-base-int8" => Some("sherpa-onnx-whisper-base".into()),
-        "sensevoice-small-int8" => Some("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17".into()),
+        "sensevoice-small-int8" => {
+            Some("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17".into())
+        }
         "qwen3-asr-0.6b-int8" => Some("sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25".into()),
         _ => None,
     }
@@ -243,12 +238,28 @@ pub fn onnx_dir_name(model_name: &str) -> Option<String> {
 fn multi_file_download(model_name: &str) -> Option<Vec<(String, String, u64)>> {
     match model_name {
         "indicconformer-600m-multi" => Some(vec![
-            ("encoder-model.onnx".into(), "encoder-model.onnx".into(), 42_006_402),
-            ("encoder-model.onnx.data".into(), "encoder-model.onnx.data".into(), 2_430_799_872),
-            ("ctc_decoder-model.onnx".into(), "ctc_decoder-model.onnx".into(), 23_095_900),
+            (
+                "encoder-model.onnx".into(),
+                "encoder-model.onnx".into(),
+                42_006_402,
+            ),
+            (
+                "encoder-model.onnx.data".into(),
+                "encoder-model.onnx.data".into(),
+                2_430_799_872,
+            ),
+            (
+                "ctc_decoder-model.onnx".into(),
+                "ctc_decoder-model.onnx".into(),
+                23_095_900,
+            ),
             ("nemo128.onnx".into(), "nemo128.onnx".into(), 1_151_666),
             ("vocab.txt".into(), "vocab.txt".into(), 41_814),
-            ("language_spans.json".into(), "language_spans.json".into(), 1_397),
+            (
+                "language_spans.json".into(),
+                "language_spans.json".into(),
+                1_397,
+            ),
             ("config.json".into(), "config.json".into(), 467),
         ]),
         "whisper-large-v3-int8" => Some(vec![
@@ -290,9 +301,7 @@ impl Drop for ClearGuard {
 #[tauri::command]
 pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result<String, String> {
     let cancel = {
-        let mut map = ACTIVE_CANCEL
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut map = ACTIVE_CANCEL.lock().unwrap_or_else(|e| e.into_inner());
         if map.contains_key(&model_name) {
             return Err(format!("Already downloading {}", model_name));
         }
@@ -572,8 +581,7 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                     }),
                 );
             }
-        } else if downloaded % (512 * 1024) < 8192
-            && last_unknown_emit.elapsed().as_millis() > 200
+        } else if downloaded % (512 * 1024) < 8192 && last_unknown_emit.elapsed().as_millis() > 200
         {
             last_unknown_emit = std::time::Instant::now();
             let _ = app_handle.emit(
@@ -653,20 +661,21 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                 "total": total,
             }),
         );
-        let validate_dest = |path: &std::path::Path, models_dir: &PathBuf| -> Result<PathBuf, String> {
-            if path.is_absolute()
-                || path
-                    .components()
-                    .any(|c| matches!(c, std::path::Component::ParentDir))
-            {
-                return Err("Archive contains invalid path".into());
-            }
-            let dest = models_dir.join(path);
-            if !dest.starts_with(models_dir) {
-                return Err("Archive path escapes models dir".into());
-            }
-            Ok(dest)
-        };
+        let validate_dest =
+            |path: &std::path::Path, models_dir: &PathBuf| -> Result<PathBuf, String> {
+                if path.is_absolute()
+                    || path
+                        .components()
+                        .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err("Archive contains invalid path".into());
+                }
+                let dest = models_dir.join(path);
+                if !dest.starts_with(models_dir) {
+                    return Err("Archive path escapes models dir".into());
+                }
+                Ok(dest)
+            };
         if is_bz2 {
             let archive_file = fs::File::open(&temp_archive).map_err(|e| e.to_string())?;
             let mut archive = tar::Archive::new(bzip2::read::BzDecoder::new(archive_file));
@@ -695,7 +704,10 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                     }
                     continue;
                 }
-                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?.into_owned();
+                let path = entry
+                    .path()
+                    .map_err(|e| format!("Bad entry path: {}", e))?
+                    .into_owned();
                 let dest = validate_dest(&path, &models_dir)?;
                 validated_paths.push(dest.clone());
                 entry
@@ -730,7 +742,10 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
                     }
                     continue;
                 }
-                let path = entry.path().map_err(|e| format!("Bad entry path: {}", e))?.into_owned();
+                let path = entry
+                    .path()
+                    .map_err(|e| format!("Bad entry path: {}", e))?
+                    .into_owned();
                 let dest = validate_dest(&path, &models_dir)?;
                 validated_paths.push(dest.clone());
                 entry
@@ -744,9 +759,11 @@ pub async fn download_model(app_handle: AppHandle, model_name: String) -> Result
             for dest in validated_paths {
                 if dest.exists() {
                     if dest.is_dir() {
-                        let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
+                        let _ =
+                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o700));
                     } else if dest.is_file() {
-                        let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600));
+                        let _ =
+                            std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o600));
                     }
                 }
             }

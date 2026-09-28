@@ -14,7 +14,6 @@
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -172,9 +171,9 @@ fn imported_map() -> std::collections::HashMap<String, (String, String, bool, St
     // id -> (version, content_hash, active, imported_at)
     let mut map = std::collections::HashMap::new();
     let conn = crate::words::WordsManager::conn();
-    let mut stmt = match conn.prepare(
-        "SELECT id, version, content_hash, active, imported_at FROM dictionary_profiles",
-    ) {
+    let mut stmt = match conn
+        .prepare("SELECT id, version, content_hash, active, imported_at FROM dictionary_profiles")
+    {
         Ok(s) => s,
         Err(_) => return map,
     };
@@ -379,7 +378,8 @@ pub fn list_bundled_profiles() -> Result<Vec<ProfileMeta>, String> {
                         .unwrap_or(0);
                     // Has update if version changed or content hash differs.
                     // Using hash catches entry additions even when version is bumped forgotten.
-                    let upd = imp_ver.trim() != pf.version.trim() || imp_hash.trim() != bundled_hash.trim();
+                    let upd = imp_ver.trim() != pf.version.trim()
+                        || imp_hash.trim() != bundled_hash.trim();
                     (true, *a, at.clone(), count, upd)
                 }
                 None => (false, true, String::new(), bundled_len, false),
@@ -755,7 +755,13 @@ mod tests {
             )
             .expect("row exists");
         crate::words::WordsManager::new()
-            .update(row_id, phrase, "z x q keep wisp, custom variant", false, true)
+            .update(
+                row_id,
+                phrase,
+                "z x q keep wisp, custom variant",
+                false,
+                true,
+            )
             .expect("edit");
         let deleted = remove_profile(id.clone()).expect("remove");
         assert_eq!(deleted, 0, "edited row was detached, nothing owned left");

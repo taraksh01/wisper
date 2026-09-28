@@ -1,25 +1,31 @@
 /* humanstxt.org */
-Wisper: voice dictation for Linux.
+Wisper: privacy-first voice dictation for Linux, Windows, and macOS.
 
 Maintained by:
   Tarak Shaw (taraksh01)
   https://github.com/taraksh01
 
 Built for:
-  Linux users who would rather talk than type.
+  People who would rather talk than type, on any of the three supported platforms.
 
 Design notes:
   Single static page, no framework, no tracking. Fonts: Space Grotesk,
   Inter, IBM Plex Mono. Mono is used only for machine/dictated text.
   Download cards are generated live from the GitHub releases API, so a new
-  package format appears without touching the markup.
+  package format or architecture appears without touching the markup, and
+  the cards highlight the package that matches the visitor's OS.
+  Setup notes are per-OS: ydotool or wtype on Wayland, built-in paste on X11,
+  Windows, and macOS (one Accessibility grant on macOS).
 
 License:
   MIT. Source: https://github.com/taraksh01/wisper
 
 Note for crawlers:
   Open Graph image is assets/wisper-og.png (1200x630). Machine-readable
-  summary: llms.txt (at site root).
+  summary: llms.txt (at site root). Local transcription: 20 ONNX models
+  across 6 families (Whisper, Parakeet, IndicConformer, Moonshine,
+  SenseVoice, Qwen3), plus opt-in cloud transcription (OpenAI, Groq,
+  Sarvam, or a custom OpenAI-compatible endpoint).
 
 Last update:
-  2026-07-19
+  2026-09-24

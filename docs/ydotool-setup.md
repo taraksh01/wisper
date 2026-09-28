@@ -1,5 +1,8 @@
 # ydotool Setup Guide - Wisper
 
+> Looking for the bigger picture first, including how Wisper returns to the app you started in? See [WAYLAND-PASTE.md](WAYLAND-PASTE.md).
+
+
 Wisper inserts text by simulating keystrokes into the focused app. On Linux, the most reliable way is **ydotool** via the kernel `uinput` device - it works on both X11 and Wayland **without a permission prompt** and is the fastest option for direct typing.
 
 This guide covers installing **ydotool ≥1.0.4** (required), starting its daemon, and verifying it. For a quick overview, see `README.md#requirements`.
@@ -124,4 +127,4 @@ No portal prompt is needed for ydotool (it uses `uinput` below the compositor).
 - **wtype** - zero-config Wayland tool, needs `virtual-keyboard` protocol. Install: `sudo apt install wtype` / `sudo dnf install wtype` / `sudo pacman -S wtype`. No daemon/group needed, but fails on some compositors.
 - **enigo** - built into Wisper, no install. On Wayland it uses the `RemoteDesktop` portal → one-time permission dialog (tick “remember”).
 
-AppImage users: the `.deb`/`.rpm` may pull `ydotool` automatically; AppImage users install it manually as above.
+AppImage, deb, and rpm users: `ydotool` is not bundled and not pulled in automatically; install it manually as above.

@@ -21,15 +21,15 @@ concurrency:
   cancel-in-progress: false
 
 # Three separate jobs (not a matrix) so each channel builds only its
-# platforms: stable tags build Linux + Windows, beta tags build macOS
-# only. A skipped job shows gray instead of failing the run. Job-level
-# `if` only uses github/event/inputs contexts - never matrix (unavailable
-# there and fails the run at startup). Plain v tags are the only
-# supported trigger: tagName v__VERSION__ must match the pushed tag.
+# platforms: stable tags build Linux + Windows + macOS, beta tags build
+# macOS only (beta feed). A skipped job shows gray instead of failing the
+# run. Job-level `if` only uses github/event/inputs contexts - never matrix
+# (unavailable there and fails the run at startup). Plain v tags are the
+# only supported trigger: tagName v__VERSION__ must match the pushed tag.
 
 jobs:
   release-linux:
-    # Stable tags only. Beta tags (containing 'beta') build macOS only.
+    # Stable tags only (beta tags skip Linux and build macOS only).
     if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux')) }}
     runs-on: ubuntu-24.04
     steps:
@@ -82,13 +82,13 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: Wisper v__VERSION__
-          releaseBody: "See the assets below for the Linux packages (deb, rpm, AppImage)."
+          releaseBody: "See the assets below: Linux packages (deb, rpm, AppImage), Windows installer (NSIS), macOS disk images (Apple Silicon and Intel)."
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, 'beta') }}
           uploadUpdaterJson: true
 
   release-windows:
-    # Stable tags only. Windows graduated from beta; beta tags build macOS only.
+    # Stable tags only (beta tags skip Windows and build macOS only).
     if: ${{ (github.event_name == 'push' && !contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows')) }}
     runs-on: windows-latest
     steps:
@@ -136,20 +136,20 @@ jobs:
           projectPath: src-tauri
           tagName: v__VERSION__
           releaseName: Wisper v__VERSION__
-          releaseBody: "See the assets below for the Windows installer (NSIS)."
+          releaseBody: "See the assets below: Linux packages (deb, rpm, AppImage), Windows installer (NSIS), macOS disk images (Apple Silicon and Intel)."
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true
 
   release-macos:
-    # Beta tags only. macOS is in beta verification; stable tags build Linux + Windows.
-    if: ${{ (github.event_name == 'push' && contains(github.ref_name, 'beta')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
+    # All tags: stable releases ship macOS (stable updater feed), beta tags
+    # keep the beta feed via tauri.beta.json (see Build step below).
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos')) }}
     runs-on: macos-latest
-    # Intel-only for now (Apple Silicon already shipped; re-add aarch64-apple-darwin next beta).
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-apple-darwin]
+        target: [x86_64-apple-darwin, aarch64-apple-darwin]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -191,6 +191,8 @@ jobs:
         # Microsoft ships no x86_64 macOS ONNX Runtime binaries, so ort-sys has
         # nothing to download. Use the community build and link dynamically,
         # bundling the dylib into the app Frameworks below.
+        # Apple Silicon uses the official ort-sys download; skip this step.
+        if: matrix.target == 'x86_64-apple-darwin'
         shell: bash
         run: |
           ORT_VERSION="1.24.2"
@@ -213,16 +215,19 @@ jobs:
         with:
           projectPath: src-tauri
           tagName: v__VERSION__
-          releaseName: Wisper v__VERSION__ (macOS beta)
-          releaseBody: "macOS beta - unsigned Intel DMG below (Apple Silicon stays on the previous beta). Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet."
+          releaseName: Wisper v__VERSION__
+          releaseBody: "${{ contains(github.ref_name, 'beta') && 'macOS beta - unsigned DMG below. Right-click + Open on first launch, then grant Microphone and Accessibility access. Not for production use yet.' || 'See the assets below: Linux packages (deb, rpm, AppImage), Windows installer (NSIS), macOS disk images (Apple Silicon and Intel). Unsigned Mac build: right-click + Open on first launch, then grant Microphone and Accessibility access.' }}"
           releaseDraft: true
-          prerelease: true
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
           uploadUpdaterJson: true
           # Beta builds point the in-app updater at the rolling beta feed
-          # instead of /latest (which excludes prereleases).
-          args: ${{ format('--target {0} --config "{1}/src-tauri/tauri.beta.json"', matrix.target, github.workspace) }}
+          # instead of /latest (which excludes prereleases). Stable builds
+          # use the default stable endpoint.
+          args: ${{ contains(github.ref_name, 'beta') && format('--target {0} --config "{1}/src-tauri/tauri.beta.json"', matrix.target, github.workspace) || format('--target {0}', matrix.target) }}
 
       - name: Verify dylib bundling
+        # Only the Intel community build injects a Frameworks dylib (see above).
+        if: matrix.target == 'x86_64-apple-darwin'
         shell: bash
         run: |
           APP=$(find src-tauri/target -name "*.app" -type d | head -1)

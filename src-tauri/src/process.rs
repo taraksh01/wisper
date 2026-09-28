@@ -170,7 +170,10 @@ static PROCESS_CLIENT_ASYNC: once_cell::sync::Lazy<reqwest::Client> =
             .connect_timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_else(|e| {
-                eprintln!("[process] failed to build async client: {} - using default", e);
+                eprintln!(
+                    "[process] failed to build async client: {} - using default",
+                    e
+                );
                 reqwest::Client::new()
             })
     });
@@ -385,7 +388,12 @@ impl ProcessClient {
         resolved_endpoint_for(&self.base_url, &self.model, &self.endpoint)
     }
 
-    fn build_body(&self, agent: &SmartAgent, text: &str, endpoint_path: &str) -> (Value, bool, bool) {
+    fn build_body(
+        &self,
+        agent: &SmartAgent,
+        text: &str,
+        endpoint_path: &str,
+    ) -> (Value, bool, bool) {
         let user_msg = format!("<transcript>\n{}\n</transcript>", text);
         if endpoint_path == "/messages" {
             let mut b = serde_json::json!({
@@ -427,7 +435,11 @@ impl ProcessClient {
         }
     }
 
-    fn parse_content(json: &Value, is_anthropic: bool, is_responses: bool) -> Result<String, String> {
+    fn parse_content(
+        json: &Value,
+        is_anthropic: bool,
+        is_responses: bool,
+    ) -> Result<String, String> {
         let content = if is_responses {
             json.get("output_text")
                 .and_then(|v| v.as_str())
@@ -460,7 +472,9 @@ impl ProcessClient {
                     .and_then(|v| v.as_str())
                     .unwrap_or(json["output"][0]["finish_reason"].as_str().unwrap_or(""))
             } else if is_anthropic {
-                json.get("stop_reason").and_then(|v| v.as_str()).unwrap_or("")
+                json.get("stop_reason")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
             } else {
                 json["choices"][0]["finish_reason"].as_str().unwrap_or("")
             };
@@ -534,7 +548,10 @@ impl ProcessClient {
                 .await
                 .map_err(|e| format!("AI request failed: {}", e))?;
             if !resp.status().is_success() {
-                return Err(format!("AI API error: {}", resp.text().await.unwrap_or_default()));
+                return Err(format!(
+                    "AI API error: {}",
+                    resp.text().await.unwrap_or_default()
+                ));
             }
             let json: Value = resp
                 .json()
