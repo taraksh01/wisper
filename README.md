@@ -30,6 +30,8 @@ If the microphone level meter in General stays flat, Windows is blocking recordi
 
 ### macOS notes
 
+Gatekeeper blocks the first launch because the build is unsigned. Right-click then Open the first time; if macOS offers no Open option, clear the quarantine flag in Terminal and launch normally: `xattr -cr /Applications/Wisper.app`.
+
 macOS asks for two permissions:
 
 - **Microphone.** Without it, recording captures silence.

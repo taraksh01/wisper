@@ -227,19 +227,40 @@ jobs:
 
       - name: Verify dylib bundling
         # Only the Intel community build injects a Frameworks dylib (see above).
+        #
+        # Do not glob for *.app under src-tauri/target: the bundle also ships
+        # a Linux Electron helper at resources/gnome-shell/*.app, and a
+        # wildcard can match that one instead of the macOS bundle. Always
+        # resolve the real bundle path from the matrix target.
         if: matrix.target == 'x86_64-apple-darwin'
         shell: bash
         run: |
-          APP=$(find src-tauri/target -name "*.app" -type d | head -1)
-          ls -la "$APP/Contents/Frameworks/" | grep onnx || true
-          otool -L "$APP/Contents/MacOS/wisper" | grep onnx || true
-          otool -L "$APP/Contents/MacOS/wisper" | grep '@rpath/' | awk '{print $1}' | while read dep; do
+          APP="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Wisper.app"
+          BIN="$APP/Contents/MacOS/wisper"
+          FW="$APP/Contents/Frameworks"
+          test -d "$APP" || { echo "MISSING: app bundle not found at $APP"; exit 1; }
+          test -x "$BIN" || { echo "MISSING: binary not found at $BIN"; exit 1; }
+
+          echo "Frameworks:"
+          ls -la "$FW" || true
+
+          echo "onnxruntime linkage:"
+          otool -L "$BIN" | grep -i onnx || { echo "MISSING: binary does not link onnxruntime"; exit 1; }
+
+          # Every @rpath dependency must ship inside Frameworks, otherwise the
+          # app fails to launch on a clean machine. No `while ... done` subshell
+          # here: an exit inside the pipe would not fail the step.
+          missing=0
+          for dep in $(otool -L "$BIN" | awk '/@rpath\//{print $1}'); do
             libname=$(basename "$dep")
-            if [ ! -f "$APP/Contents/Frameworks/$libname" ]; then
+            if [ ! -f "$FW/$libname" ]; then
               echo "MISSING: $libname not found in Frameworks/"
-              exit 1
+              missing=1
+            else
+              echo "ok: $libname"
             fi
           done
+          [ "$missing" -eq 0 ] || exit 1
 
   # Republishes this tag's latest.json to a floating `beta` release so
   # installed mac betas (which point at .../releases/download/beta/latest.json)
